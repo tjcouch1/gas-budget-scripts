@@ -1,0 +1,19 @@
+{
+  "name": "gas-budget-script-test",
+  "version": "1.0.0",
+  "description": "Google App Script test for budgeting",
+  "main": "code.js",
+  "scripts": {
+    "start": "clasp push --watch",
+    "push": "clasp push",
+    "pull": "clasp pull",
+    "open": "clasp open",
+    "connect": "clasp clone SCRIPT_PROJECT_ID"
+  },
+  "author": "TJ Couch",
+  "license": "MIT",
+  "devDependencies": {
+    "@google/clasp": "^2.4.2",
+    "@types/google-apps-script": "^1.0.78"
+  }
+}
