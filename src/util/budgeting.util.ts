@@ -1,3 +1,10 @@
+/// <reference path="../models/receipt-info.model.ts" />
+/// <reference path="../models/thread-info.model.ts" />
+/// <reference path="../models/thread-list.model.ts" />
+import ReceiptInfo = ReceiptInfoModel.ReceiptInfo;
+import ReceiptThread = ThreadInfoModel.ReceiptThread;
+import ReceiptStuff = ThreadListModel.ReceiptStuff;
+
 namespace Budgeting {
   /** Chase Gmail search query for receipt email threads */
   const chaseGmailSearchQuery =
@@ -23,28 +30,6 @@ namespace Budgeting {
    */
   const chaseBodyRefundRegExp = /\nMerchant\s+(?<name>.+)\s+\n/;
 
-  /** Information for threads retrieved and receipts found in those threads */
-  type ReceiptStuff = {
-    threads: ReceiptThread[];
-    receipts: ReceiptInfo[];
-  };
-
-  /** Threads retrieved for receipt processing */
-  type ReceiptThread = {
-    thread: GmailThread;
-    /** If this exists, there was an error while processing the thread. Do not mark as processed. Some receipts may still be logged for this thread */
-    errorMessage?: string;
-  };
-
-  /** Receipt information from an email */
-  type ReceiptInfo = {
-    date: Date;
-    cost: string?;
-    name: string?;
-    /** Notes on the receipt of some abnormality. May pertain to other messages in the thread */
-    notes: string[];
-  };
-
   /** Cache for GmailLabels */
   const labelCache = {};
 
@@ -57,7 +42,9 @@ namespace Budgeting {
    *
    * Note: this function is memoized. Feel free to call it as many times as desired
    */
-  function getGmailLabel(name = "Receipts/Scripted") {
+  function getGmailLabel(
+    name = "Receipts/Scripted"
+  ): GoogleAppsScript.Gmail.GmailLabel {
     if (labelCache[name]) return labelCache[name];
 
     let label = GmailApp.getUserLabelByName(name);
@@ -71,9 +58,9 @@ namespace Budgeting {
   /**
    * Marks a thread as processed by these receipt-recording scripts
    *
-   * @param {GmailThread} thread thread to mark as processed
+   * @param thread thread to mark as processed
    */
-  function markThreadProcessed(thread) {
+  function markThreadProcessed(thread: GoogleAppsScript.Gmail.GmailThread) {
     // Get the script label
     const scriptLabel = getGmailLabel();
     const receiptLabel = getGmailLabel("Receipts");
@@ -91,7 +78,10 @@ namespace Budgeting {
    *
    * Used in [`Array.prototype.sort`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort)
    */
-  function compareReceiptInfosByDateAscending(a, b) {
+  function compareReceiptInfosByDateAscending(
+    a: ReceiptInfoModel.ReceiptInfo,
+    b: ReceiptInfoModel.ReceiptInfo
+  ) {
     if (a.date > b.date) return 1;
     if (a.date === b.date) return 0;
     return -1;
@@ -103,26 +93,29 @@ namespace Budgeting {
    * @param start index of starting thread in the query to get email threads. Set this and max to null to get all. Defaults to 0
    * @param max max number of threads from which to get receipts. Set this and start to null to get all. Defaults to 10
    *
-   * @returns {object[]} receipt stuff - threads and receipt info for all unprocessed Chase emails
+   * @returns receipt stuff - threads and receipt info for all unprocessed Chase emails
    */
-  function getChaseReceipts(start = 0, max = 10) {
+  function getChaseReceipts(start: number | null = 0, max: number | null = 10): ThreadListModel.ReceiptStuff {
     // Query Gmail for receipt emails
     const threads =
       start !== null && max !== null
         ? GmailApp.search(chaseGmailSearchQuery, start, max)
         : GmailApp.search(chaseGmailSearchQuery);
 
-    /** Array of GmailThread and an error if there was trouble deriving receipts from the thread */
-    const receiptThreads = [];
+    /**
+     * Array of receipt-related thread info - GmailThread and an error if there was trouble
+     * deriving receipts from the thread
+     */
+    const receiptThreads: ThreadInfoModel.ReceiptThread[] = [];
 
     // Map email info into receipt infos
     /** All receipt email info */
     const receiptInfos = threads.flatMap((thread) => {
       /** All receipt infos for this thread */
-      const threadReceiptInfos = [];
+      const threadReceiptInfos: ReceiptInfoModel.ReceiptInfo[] = [];
 
       /** Error message for this thread */
-      let errorMessage = undefined;
+      let errorMessage: string | undefined;
 
       try {
         // Try getting receipt info from each message in the thread
@@ -130,9 +123,9 @@ namespace Budgeting {
 
         messages.forEach((message) => {
           // Try to get the cost and name for the message
-          let cost = undefined;
-          let name = undefined;
-          const notes = [];
+          let cost: number | undefined;
+          let name: string | undefined;
+          const notes: string[] = [];
 
           const subject = message.getSubject();
 
@@ -155,7 +148,7 @@ namespace Budgeting {
           if (!cost && !name) {
             // This message is not a receipt. Add a note about it
             notes.push(
-              `Message is not a receipt:\nThread ID: ${thread.getId()}\nSubject: ${subject}\nDate: ${message.getDate()}\n140 Chars of Plain Body:\n${message
+              `Message is not a receipt:\nSubject: ${subject}\nDate: ${message.getDate()}\nThread ID: ${thread.getId()}\n140 Chars of Plain Body:\n${message
                 .getPlainBody()
                 ?.substring(0, 140)}`
             );
@@ -206,10 +199,10 @@ namespace Budgeting {
   /**
    * Record receipt info in the spreadsheet in the active sheet
    *
-   * @param {ReceiptStuff} receiptStuff receipt stuff - threads and receipt info for emails to record
-   * @param {boolean} shouldMarkProcessed set to true to mark the threads as processed by these scripts. Defaults to false
+   * @param receiptStuff receipt stuff - threads and receipt info for emails to record
+   * @param shouldMarkProcessed set to true to mark the threads as processed by these scripts. Defaults to false
    */
-  function recordReceipts(receiptStuff, shouldMarkProcessed = false) {
+  function recordReceipts(receiptStuff: ThreadListModel.ReceiptStuff, shouldMarkProcessed: boolean = false) {
     const sheet = SpreadsheetApp.getActiveSheet();
 
     const receiptInfos = receiptStuff.receipts;
@@ -280,11 +273,11 @@ namespace Budgeting {
    *
    * @param start index of starting thread in the query to get email threads. Set this and max to null to get all. Defaults to 0
    * @param max max number of threads from which to get receipts. Set this and start to null to get all. Defaults to 10
-   * @param {boolean} shouldMarkProcessed set to true to mark the threads as processed by these scripts. Defaults to false
+   * @param shouldMarkProcessed set to true to mark the threads as processed by these scripts. Defaults to false
    */
   export function getAndRecordReceipts(
-    start = 0,
-    max = 10,
+    start: number | null = 0,
+    max: number | null = 10,
     shouldMarkProcessed = false
   ) {
     const receiptStuff = getChaseReceipts(start, max);
