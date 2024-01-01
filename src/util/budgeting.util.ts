@@ -1,10 +1,3 @@
-/// <reference path="../models/receipt-info.model.ts" />
-/// <reference path="../models/thread-info.model.ts" />
-/// <reference path="../models/thread-list.model.ts" />
-import ReceiptInfo = ReceiptInfoModel.ReceiptInfo;
-import ReceiptThread = ThreadInfoModel.ReceiptThread;
-import ReceiptStuff = ThreadListModel.ReceiptStuff;
-
 namespace Budgeting {
   /** Chase Gmail search query for receipt email threads */
   const chaseGmailSearchQuery =
@@ -79,8 +72,8 @@ namespace Budgeting {
    * Used in [`Array.prototype.sort`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort)
    */
   function compareReceiptInfosByDateAscending(
-    a: ReceiptInfoModel.ReceiptInfo,
-    b: ReceiptInfoModel.ReceiptInfo
+    a: ReceiptInfo,
+    b: ReceiptInfo
   ) {
     if (a.date > b.date) return 1;
     if (a.date === b.date) return 0;
@@ -95,7 +88,7 @@ namespace Budgeting {
    *
    * @returns receipt stuff - threads and receipt info for all unprocessed Chase emails
    */
-  function getChaseReceipts(start: number | null = 0, max: number | null = 10): ThreadListModel.ReceiptStuff {
+  function getChaseReceipts(start: number | null = 0, max: number | null = 10): ReceiptStuff {
     // Query Gmail for receipt emails
     const threads =
       start !== null && max !== null
@@ -106,13 +99,13 @@ namespace Budgeting {
      * Array of receipt-related thread info - GmailThread and an error if there was trouble
      * deriving receipts from the thread
      */
-    const receiptThreads: ThreadInfoModel.ReceiptThread[] = [];
+    const receiptThreads: ReceiptThread[] = [];
 
     // Map email info into receipt infos
     /** All receipt email info */
     const receiptInfos = threads.flatMap((thread) => {
       /** All receipt infos for this thread */
-      const threadReceiptInfos: ReceiptInfoModel.ReceiptInfo[] = [];
+      const threadReceiptInfos: ReceiptInfo[] = [];
 
       /** Error message for this thread */
       let errorMessage: string | undefined;
@@ -202,7 +195,7 @@ namespace Budgeting {
    * @param receiptStuff receipt stuff - threads and receipt info for emails to record
    * @param shouldMarkProcessed set to true to mark the threads as processed by these scripts. Defaults to false
    */
-  function recordReceipts(receiptStuff: ThreadListModel.ReceiptStuff, shouldMarkProcessed: boolean = false) {
+  function recordReceipts(receiptStuff: ReceiptStuff, shouldMarkProcessed: boolean = false) {
     const sheet = SpreadsheetApp.getActiveSheet();
 
     const receiptInfos = receiptStuff.receipts;

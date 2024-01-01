@@ -1,4 +1,4 @@
-namespace ReceiptInfoModel {
+namespace Budgeting {
   /** Receipt information from an email */
   export type ReceiptInfo = {
     date: GoogleAppsScript.Base.Date;

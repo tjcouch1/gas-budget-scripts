@@ -1,4 +1,4 @@
-namespace ThreadInfoModel {
+namespace Budgeting {
   /** Threads retrieved for receipt processing */
   export type ReceiptThread = {
     thread: GoogleAppsScript.Gmail.GmailThread;

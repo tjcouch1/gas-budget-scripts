@@ -1,3 +1,7 @@
+/// <reference path="./models/receipt-info.model.ts" />
+/// <reference path="./models/thread-info.model.ts" />
+/// <reference path="./models/thread-list.model.ts" />
+
 function onOpen() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const menuEntries: Parameters<
