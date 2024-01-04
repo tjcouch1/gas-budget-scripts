@@ -3,28 +3,19 @@
 /// <reference path="./models/thread-list.model.ts" />
 
 function onOpen() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const menuEntries: Parameters<
-    GoogleAppsScript.Spreadsheet.Spreadsheet["addMenu"]
-  >[1] = [];
-  menuEntries.push({
-    name: "Import 50 Receipts (No mark)",
-    functionName: "getAndRecordSomeReceiptsNoMark",
-  });
-  menuEntries.push({
-    name: "Import All Receipts (No mark)",
-    functionName: "getAndRecordReceiptsNoMark",
-  });
-  menuEntries.push(null); // divider
-  menuEntries.push({
-    name: "Import 25 Receipts and mark",
-    functionName: "getAndRecordSomeReceiptsAndMark",
-  });
-  menuEntries.push({
-    name: "Import All Receipts and mark",
-    functionName: "getAndRecordReceiptsAndMark",
-  });
-  ss.addMenu("Receipts", menuEntries);
+  // Menu only works on desktop :(
+  // Links for potential workarounds:
+  // https://stackoverflow.com/questions/77385083/custom-menu-for-mobile-version-of-google-sheet
+  // https://stackoverflow.com/questions/57840757/button-click-is-only-working-on-windows-not-working-on-android-mobile-sheet
+  // https://webapps.stackexchange.com/questions/87346/add-a-script-trigger-to-google-sheet-that-will-work-in-android-mobile-app
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu("Budgeting")
+    .addItem("Import 50 Receipts (No mark)", "getAndRecordSomeReceiptsNoMark")
+    .addItem("Import All Receipts (No mark)", "getAndRecordReceiptsNoMark")
+    .addSeparator()
+    .addItem("Import 25 Receipts and mark", "getAndRecordSomeReceiptsAndMark")
+    .addItem("Import All Receipts and mark", "getAndRecordReceiptsAndMark")
+    .addToUi();
 }
 
 function getAndRecordSomeReceiptsNoMark() {
