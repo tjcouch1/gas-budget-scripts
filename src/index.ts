@@ -1,4 +1,4 @@
-/// <reference path="./models/receipt-info.model/receipt-info.model.ts" />
+/// <reference path="./models/receipt-info.model.ts" />
 /// <reference path="./models/thread-info.model.ts" />
 /// <reference path="./models/thread-list.model.ts" />
 
@@ -71,6 +71,6 @@ function logReceipts(
   shouldMarkProcessed = false
 ) {
   const threadList = Budgeting.getChaseReceipts(start, max);
-  Logger.log("ThreadList:", JSON.stringify(threadList));
-  Logger.log("ReceiptInfos:", JSON.stringify(threadList.receiptInfos));
+  Logger.log(`ThreadList: ${JSON.stringify(threadList)}`);
+  Logger.log(`ReceiptInfos: ${JSON.stringify(threadList.receiptInfos)}`);
 }
