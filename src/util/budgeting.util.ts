@@ -54,7 +54,10 @@ namespace Budgeting {
    *
    * @returns receipt stuff - threads and receipt info for all unprocessed Chase emails
    */
-  function getChaseReceipts(start: number | null = 0, max: number | null = 10): ThreadList {
+  export function getChaseReceipts(
+    start: number | null = 0,
+    max: number | null = 10
+  ): ThreadList {
     // Query Gmail for receipt emails
     const threads =
       start !== null && max !== null
@@ -70,7 +73,10 @@ namespace Budgeting {
    * @param threadList threads and receipt info for emails to record
    * @param shouldMarkProcessed set to true to mark the threads as processed by these scripts. Defaults to false
    */
-  function recordReceipts(threadList: ThreadList, shouldMarkProcessed: boolean = false) {
+  function recordReceipts(
+    threadList: ThreadList,
+    shouldMarkProcessed: boolean = false
+  ) {
     const sheet = SpreadsheetApp.getActiveSheet();
 
     const receiptInfos = threadList.receiptInfos;
@@ -93,46 +99,45 @@ namespace Budgeting {
         ])
       );
 
-      // Mark receipt notes
+      // Mark receipt errors and notes
       receiptInfos.forEach((receiptInfo, i) => {
-        if (receiptInfo.notes.length > 0) {
-          const nameCell = range.getCell(i + 1, 2);
+        if (!receiptInfo.errorMessage && !receiptInfo.note) return;
 
-          // Mark the name cell with the information from the note
-          nameCell.setNote(
-            receiptInfo.notes.join(
-              "\n\n~~~~~~~~~~~~~~~~~ NEXT NOTE ~~~~~~~~~~~~~~~~~\n\n"
-            )
-          );
-          nameCell.setBackground("#E8A9CA");
-        }
+        const receiptHasError = !!receiptInfo.errorMessage;
+        const combinedNote = `${receiptInfo.errorMessage}${
+          receiptInfo.errorMessage && receiptInfo.note
+            ? "\n\n>>>>>>>>>> NOTES <<<<<<<<<<\n\n"
+            : ""
+        }${receiptInfo.note}`;
+
+        const nameCell = range.getCell(i + 1, 2);
+
+        // Mark the name cell with the information from the note
+        nameCell.setNote(combinedNote);
+        nameCell.setBackground(receiptHasError ? "#FF0000" : "#E8A9CA");
       });
     }
 
-    /** Error message to show in the ui for all threads */
-    let combinedErrorMessage = "";
-
+    let numErrors = 0;
     // Mark the receipt threads processed and report errors
     threadList.threadInfos.forEach((threadInfo) => {
-      // Report thread error
-      if (threadInfo.errorMessage) {
-        Logger.log(threadInfo.errorMessage);
-        if (!combinedErrorMessage)
-          combinedErrorMessage = "Error while processing receipt emails:";
-        combinedErrorMessage += `\n${threadInfo.errorMessage}`;
+      // Report thread error - do not mark processed
+      if (threadInfo.errors.length > 0) {
+        numErrors += threadInfo.errors.length;
+        Logger.log(threadInfo.errors);
         return;
       }
 
       // Mark receipt thread processed if no error
       if (shouldMarkProcessed) markThreadProcessed(threadInfo.thread);
       else
-        Logger.log(
-          `Would mark thread ${threadInfo.thread.getId()} processed`
-        );
+        Logger.log(`Would mark thread ${threadInfo.thread.getId()} processed`);
     });
 
-    if (combinedErrorMessage) {
-      SpreadsheetApp.getUi().alert(combinedErrorMessage);
+    if (numErrors > 0) {
+      SpreadsheetApp.getUi().alert(
+        `There were ${numErrors} errors while processing. Please review.`
+      );
     }
   }
 
