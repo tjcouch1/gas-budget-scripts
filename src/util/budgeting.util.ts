@@ -68,6 +68,25 @@ namespace Budgeting {
   }
 
   /**
+   * Get full range of all transaction rows in a sheet. Contains only date, name, and cost columns
+   * @param sheet
+   */
+  function getTransactionsRange(sheet: GoogleAppsScript.Spreadsheet.Sheet) {
+    // Get top left of range
+    const transactionsTopLeftRange = sheet.getRange(
+      Variables.getSheetVariables(sheet).TransactionsStart
+    );
+    // Expand to full range of all transactions
+    const transactionsRange = transactionsTopLeftRange.offset(
+      0,
+      0,
+      Variables.getSheetVariables(sheet).TransactionsMax,
+      3
+    );
+    return transactionsRange;
+  }
+
+  /**
    * Record receipt info in the spreadsheet in the active sheet
    *
    * @param threadList threads and receipt info for emails to record
@@ -79,21 +98,13 @@ namespace Budgeting {
   ) {
     const sheet = SpreadsheetApp.getActiveSheet();
 
-    const receiptInfos = threadList.receiptInfos;
+    const receiptInfos = threadList.getAllReceiptInfos();
 
     if (receiptInfos.length > 0) {
       // Get a range of enough empty transaction rows to put the receipts in
-      const transactionsTopLeftRange = sheet.getRange(
-        Variables.getSheetVariables(sheet).TransactionsStart
-      );
+      const transactionsRange = getTransactionsRange(sheet);
       const transactionsMax =
         Variables.getSheetVariables(sheet).TransactionsMax;
-      const transactionsRange = transactionsTopLeftRange.offset(
-        0,
-        0,
-        transactionsMax,
-        3
-      );
       const transactionsValues = transactionsRange.getValues();
       let firstEmptyTransactionIndex = 0;
       while (
@@ -110,11 +121,11 @@ namespace Budgeting {
           `There are not enough empty transaction rows in sheet ${sheet.getName()} to record ${
             receiptInfos.length
           } receipts! First empty transaction row: ${
-            transactionsTopLeftRange.getRow() + firstEmptyTransactionIndex
+            transactionsRange.getRow() + firstEmptyTransactionIndex
           }. TransactionsMax: ${transactionsMax}. Last transaction row: ${transactionsRange.getLastRow()}`
         );
 
-      const range = transactionsTopLeftRange.offset(
+      const range = transactionsRange.offset(
         firstEmptyTransactionIndex,
         0,
         receiptInfos.length,

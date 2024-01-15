@@ -43,16 +43,16 @@ namespace Budgeting {
     /** Array of receipt-related thread info */
     public readonly threadInfos: ThreadInfo[] = [];
 
-    #receiptInfosCache: ReceiptInfoBase[] | undefined;
+    #allReceiptInfosCache: ReceiptInfoBase[] | undefined;
     /**
-     * All receipt email info
+     * Returns an array of all receipt email info - flat mapped from threadInfos and contains thread notes and errors baked into the receipts
      *
      * TODO: Move note and error calculation stuff into ThreadInfo?
      */
-    public get receiptInfos(): ReceiptInfoBase[] {
-      if (this.#receiptInfosCache) return this.#receiptInfosCache;
+    public getAllReceiptInfos(): ReceiptInfoBase[] {
+      if (this.#allReceiptInfosCache) return this.#allReceiptInfosCache;
 
-      this.#receiptInfosCache = this.threadInfos.flatMap((threadInfo) => {
+      this.#allReceiptInfosCache = this.threadInfos.flatMap((threadInfo) => {
         const receiptInfos: ReceiptInfoBase[] = [...threadInfo.receiptInfos];
 
         // Add an empty receipt for an error line if the thread has no receipts
@@ -79,9 +79,9 @@ namespace Budgeting {
 
         return receiptInfos;
       });
-      this.#receiptInfosCache.sort(compareReceiptInfosByDateAscending);
+      this.#allReceiptInfosCache.sort(compareReceiptInfosByDateAscending);
 
-      return this.#receiptInfosCache;
+      return this.#allReceiptInfosCache;
     }
     /**
      *

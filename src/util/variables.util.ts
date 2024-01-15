@@ -1,4 +1,7 @@
 namespace Variables {
+  /** Names of all global variables that must be provided */
+  const VARIABLE_NAMES = ["Menu", "SheetVariables"] as const;
+
   /** Global variables from the Variables sheet */
   type Variables = {
     /** Location of the menu - A1 notation */
@@ -7,15 +10,18 @@ namespace Variables {
     SheetVariables: string;
   };
 
+  /** Names of all sheet variables that must be provided */
+  const SHEET_VARIABLE_NAMES = [
+    "TransactionsStart",
+    "TransactionsMax",
+  ] as const;
   /** Per-sheet variables */
-  type SheetVariables =
-    | {
-        /** Location of the first available space for transactions - A1 notation */
-        TransactionsStart: string;
-        /** Max number of transactions this sheet can support */
-        TransactionsMax: number;
-      }
-    | undefined;
+  type SheetVariables = {
+    /** Location of the first available space for transactions - A1 notation */
+    TransactionsStart: string;
+    /** Max number of transactions this sheet can support */
+    TransactionsMax: number;
+  };
 
   const VARIABLES_SHEET_NAME = "Variables";
   const VARIABLES_RANGE = `${VARIABLES_SHEET_NAME}!A1:B10`;
@@ -35,13 +41,25 @@ namespace Variables {
   export function getVariables(): Variables {
     if (variablesCache) return variablesCache;
 
-    variablesCache = Object.fromEntries(
+    const variables: Variables = Object.fromEntries(
       getVariablesRange()
         .getValues()
         .filter(([key]) => key)
     );
+    const variablesPresent = Object.keys(variables);
 
-    return variablesCache!;
+    if (
+      VARIABLE_NAMES.some(
+        (variableName) => !variablesPresent.includes(variableName)
+      )
+    )
+      throw new Error(
+        `Some variables were not found in the ${VARIABLES_SHEET_NAME} sheet in the range ${VARIABLES_RANGE}!`
+      );
+
+    variablesCache = variables;
+
+    return variables;
   }
 
   export function areCached() {
@@ -83,17 +101,28 @@ namespace Variables {
     const cachedSheetVariables = sheetVariablesCache.get(sheetName);
     if (cachedSheetVariables) return cachedSheetVariables;
 
-    sheetVariablesCache.set(
-      sheetName,
-      Object.fromEntries(
-        sheet
-          .getRange(getVariables().SheetVariables)
-          .getValues()
-          .filter(([key]) => key)
-      )
+    const sheetVariables: SheetVariables = Object.fromEntries(
+      getSheetVariablesRange(sheet)
+        .getValues()
+        .filter(([key]) => key)
     );
+    const sheetVariablesPresent = Object.keys(sheetVariables);
 
-    return sheetVariablesCache.get(sheetName)!;
+    if (
+      SHEET_VARIABLE_NAMES.some(
+        (sheetVariableName) =>
+          !sheetVariablesPresent.includes(sheetVariableName)
+      )
+    )
+      throw new Error(
+        `Some sheet variables were not found in the ${sheet.getName()} sheet in the range ${
+          getVariables().SheetVariables
+        }!`
+      );
+
+    sheetVariablesCache.set(sheetName, sheetVariables);
+
+    return sheetVariables;
   }
 
   function bustSheetVariablesCache(
