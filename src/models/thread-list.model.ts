@@ -14,11 +14,15 @@ namespace Budgeting {
   const chaseSubjectRefundRegExp =
     /^You have a \$(?<cost>.+) credit pending on your credit card$/;
   /**
-   * RegExp pattern matching to Chase's refund receipt email plain body
+   * RegExp pattern matching to Chase's gas receipt email subjects
+   */
+  const chaseSubjectGasRegExp = /^You used your card at a gas station$/;
+  /**
+   * RegExp pattern matching to Chase's refund and gas receipt email plain body
    *
    * Named groups: `name`
    */
-  const chaseBodyRefundRegExp = /\nMerchant\s+(?<name>.+)\s+\n/;
+  const chaseBodyMerchantRegExp = /\nMerchant\s+(?<name>.+)\s+\n/;
 
   /**
    * Compares receiptInfos by date in ascending order
@@ -110,9 +114,21 @@ namespace Budgeting {
                 matches = chaseSubjectRefundRegExp.exec(subject);
                 if (matches && matches.length === 2 && matches.groups) {
                   cost = parseFloat(matches.groups.cost) * -1;
-                  matches = chaseBodyRefundRegExp.exec(message.getPlainBody());
+                  matches = chaseBodyMerchantRegExp.exec(
+                    message.getPlainBody()
+                  );
                   if (matches && matches.length === 2 && matches.groups)
                     name = matches.groups.name;
+                } else {
+                  // Test if it is a chase gas receipt
+                  matches = chaseSubjectGasRegExp.exec(subject);
+                  if (matches && matches.length === 1) {
+                    matches = chaseBodyMerchantRegExp.exec(
+                      message.getPlainBody()
+                    );
+                    if (matches && matches.length === 2 && matches.groups)
+                      name = matches.groups.name;
+                  }
                 }
               }
 

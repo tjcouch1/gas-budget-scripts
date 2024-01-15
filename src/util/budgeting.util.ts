@@ -101,6 +101,13 @@ namespace Budgeting {
 
       // Mark receipt errors and notes
       receiptInfos.forEach((receiptInfo, i) => {
+        // Mark empty cost
+        if (!receiptInfo.cost) {
+          // Mark the cost cell that there was no cost
+          const costCell = range.getCell(i + 1, 3);
+          costCell.setBackground("#E8A9CA");
+        }
+
         if (!receiptInfo.errorMessage && !receiptInfo.note) return;
 
         const receiptHasError = !!receiptInfo.errorMessage;
@@ -110,9 +117,8 @@ namespace Budgeting {
             : ""
         }${receiptInfo.note}`;
 
-        const nameCell = range.getCell(i + 1, 2);
-
         // Mark the name cell with the information from the note
+        const nameCell = range.getCell(i + 1, 2);
         nameCell.setNote(combinedNote);
         nameCell.setBackground(receiptHasError ? "#FF0000" : "#E8A9CA");
       });

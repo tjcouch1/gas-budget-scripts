@@ -45,6 +45,10 @@ function onOpen() {
   });
 }
 
+function onEdit(e: GoogleAppsScript.Events.SheetsOnEdit) {
+  Variables.onEdit(e);
+}
+
 function getAndRecordSomeReceiptsNoMark() {
   Budgeting.getAndRecordReceipts(0, 50, false);
 }
@@ -73,4 +77,15 @@ function logReceipts(
   const threadList = Budgeting.getChaseReceipts(start, max);
   Logger.log(`ThreadList: ${JSON.stringify(threadList)}`);
   Logger.log(`ReceiptInfos: ${JSON.stringify(threadList.receiptInfos)}`);
+}
+function logVariables() {
+  const start = Date.now();
+  Logger.log(Variables.getVariables());
+  Logger.log(
+    Variables.getSheetVariables(
+      SpreadsheetApp.getActiveSpreadsheet().getSheets()[0]
+    )
+  );
+  const end = Date.now();
+  Logger.log(end - start);
 }
