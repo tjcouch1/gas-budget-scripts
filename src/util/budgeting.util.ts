@@ -82,10 +82,41 @@ namespace Budgeting {
     const receiptInfos = threadList.receiptInfos;
 
     if (receiptInfos.length > 0) {
-      // Get a range after the end of the contents of the sheet
-      const range = sheet.getRange(
-        sheet.getLastRow() + 1,
-        1,
+      // Get a range of enough empty transaction rows to put the receipts in
+      const transactionsTopLeftRange = sheet.getRange(
+        Variables.getSheetVariables(sheet).TransactionsStart
+      );
+      const transactionsMax =
+        Variables.getSheetVariables(sheet).TransactionsMax;
+      const transactionsRange = transactionsTopLeftRange.offset(
+        0,
+        0,
+        transactionsMax,
+        3
+      );
+      const transactionsValues = transactionsRange.getValues();
+      let firstEmptyTransactionIndex = 0;
+      while (
+        firstEmptyTransactionIndex < transactionsMax &&
+        transactionsValues[firstEmptyTransactionIndex].every(
+          (value) => value !== ""
+        )
+      )
+        // This row is filled, so try the next row until there are no more available rows
+        firstEmptyTransactionIndex += 1;
+      if (firstEmptyTransactionIndex + receiptInfos.length > transactionsMax)
+        // We didn't find enough empty rows. Throw
+        throw new Error(
+          `There are not enough empty transaction rows in sheet ${sheet.getName()} to record ${
+            receiptInfos.length
+          } receipts! First empty transaction row: ${
+            transactionsTopLeftRange.getRow() + firstEmptyTransactionIndex
+          }. TransactionsMax: ${transactionsMax}. Last transaction row: ${transactionsRange.getLastRow()}`
+        );
+
+      const range = transactionsTopLeftRange.offset(
+        firstEmptyTransactionIndex,
+        0,
         receiptInfos.length,
         3
       );

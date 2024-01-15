@@ -27,26 +27,116 @@ const menu: {
   ],
 };
 
+// WARNING: This doesn't seem to run on mobile
 function onOpen() {
   // Set up menu bar items (desktop only)
-  // Menu only works on desktop :(
-  // Links for potential workarounds:
-  // https://stackoverflow.com/questions/77385083/custom-menu-for-mobile-version-of-google-sheet
-  // https://stackoverflow.com/questions/57840757/button-click-is-only-working-on-windows-not-working-on-android-mobile-sheet
-  // https://webapps.stackexchange.com/questions/87346/add-a-script-trigger-to-google-sheet-that-will-work-in-android-mobile-app
-  const ui = SpreadsheetApp.getUi();
-  Object.entries(menu).forEach(([menuName, menuEntries]) => {
-    const uiMenu = ui.createMenu(menuName);
-    menuEntries.forEach((menuEntry) => {
-      if (menuEntry) uiMenu.addItem(menuEntry.name, menuEntry.functionName);
-      else uiMenu.addSeparator();
+  try {
+    const ui = SpreadsheetApp.getUi();
+    Object.entries(menu).forEach(([menuName, menuEntries]) => {
+      const uiMenu = ui.createMenu(menuName);
+      menuEntries.forEach((menuEntry) => {
+        if (menuEntry) uiMenu.addItem(menuEntry.name, menuEntry.functionName);
+        else uiMenu.addSeparator();
+      });
+      uiMenu.addToUi();
     });
-    uiMenu.addToUi();
-  });
+  } catch (e) {
+    Logger.log(
+      `Error on setting up menu bar items! User may be on mobile. ${e}`
+    );
+  }
+
+  // Set up in-sheet menu (desktop and mobile)
+  const menuRange = SpreadsheetApp.getActiveSheet().getRange(
+    Variables.getVariables().Menu
+  );
+  if (!menuRange.getValue()) {
+    // Assume menu is not filled in and fill it in
+    const menuSheet = menuRange.getSheet();
+    let nextRow = menuRange.getRow();
+    const menuColumnBase = menuRange.getColumn();
+    const menuNameStyle = SpreadsheetApp.newTextStyle().setBold(true).build();
+    Object.entries(menu).forEach(([menuName, menuEntries]) => {
+      // Set up the header for this menu section
+      const menuNameRange = menuSheet.getRange(nextRow, menuColumnBase);
+      menuNameRange.setValue(menuName);
+      menuNameRange.setTextStyle(menuNameStyle);
+      nextRow += 1;
+      // Set up checkboxes for this menu section
+      const menuCheckboxesRange = menuSheet.getRange(
+        nextRow,
+        menuColumnBase,
+        menuEntries.length,
+        1
+      );
+      menuCheckboxesRange.insertCheckboxes();
+      // Set up menu entry names
+      const menuNamesRange = menuSheet.getRange(
+        nextRow,
+        menuColumnBase + 1,
+        menuEntries.length,
+        1
+      );
+      menuNamesRange.setValues(
+        menuEntries.map((menuEntry) => [menuEntry ? menuEntry.name : "-------"])
+      );
+      nextRow += menuEntries.length;
+    });
+  }
 }
 
-function onEdit(e: GoogleAppsScript.Events.SheetsOnEdit) {
-  Variables.onEdit(e);
+/** onEdit trigger to be installed to run with user's permissions */
+function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
+  // The whole script is loaded and run every edit, so cache busting is useless
+  // Variables.onEdit(e);
+
+  // Handle menu checkboxes
+  const menuTopLeftRange = SpreadsheetApp.getActiveSheet().getRange(
+    Variables.getVariables().Menu
+  );
+  if (e.range.getSheet().getName() === menuTopLeftRange.getSheet().getName()) {
+    const menuRowBase = menuTopLeftRange.getRow();
+    const menuCheckboxesColumn = menuTopLeftRange.getColumn();
+    if (e.range.getColumn() === menuCheckboxesColumn) {
+      const menuObjectEntries = Object.entries(menu);
+      const numMenuRowsTotal = menuObjectEntries.reduce(
+        (currentRowsCount, [, menuEntries]) =>
+          currentRowsCount + menuEntries.length,
+        menuObjectEntries.length
+      );
+      const editRow = e.range.getRow();
+      if (
+        editRow >= menuRowBase &&
+        editRow < menuRowBase + numMenuRowsTotal &&
+        e.range.isChecked()
+      ) {
+        // Checked a checkbox in the menu, so run the function
+        /** The row of the checked menu item relative to the start of the menu */
+        const checkedMenuEntryIndex = editRow - menuRowBase;
+        /** The current row to check against the checked row relative to the start of the menu */
+        let currentMenuEntryIndex = 0;
+        /** The name of the function to run */
+        let checkedFunctionName: string | undefined;
+        menuObjectEntries.some(([, menuEntries]) => {
+          currentMenuEntryIndex += 1;
+          menuEntries.some((menuEntry) => {
+            if (currentMenuEntryIndex === checkedMenuEntryIndex) {
+              checkedFunctionName = menuEntry ? menuEntry.functionName : "";
+              return true;
+            }
+            currentMenuEntryIndex += 1;
+          });
+          // We found the function, so stop looking
+          if (checkedFunctionName !== undefined) return true;
+        });
+
+        if (checkedFunctionName) {
+          e.range.setValue("FALSE");
+          this[checkedFunctionName]();
+        }
+      }
+    }
+  }
 }
 
 function getAndRecordSomeReceiptsNoMark() {
@@ -66,7 +156,7 @@ function getAndRecordReceiptsAndMark() {
 }
 
 // Test scripts
-function logTheadById(id: string) {
+/* function logTheadById(id: string) {
   Logger.log(GmailApp.getThreadById(id));
 }
 function logReceipts(
@@ -88,4 +178,4 @@ function logVariables() {
   );
   const end = Date.now();
   Logger.log(end - start);
-}
+} */
