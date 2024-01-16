@@ -11,21 +11,30 @@ const menu: {
 } = {
   Budgeting: [
     {
-      name: "Import 50 Receipts (No mark)",
+      name: "Import 50 receipts (no mark)",
       functionName: "getAndRecordSomeReceiptsNoMark",
     },
     {
-      name: "Import All Receipts (No mark)",
+      name: "Import all receipts (no mark)",
       functionName: "getAndRecordReceiptsNoMark",
     },
     undefined,
     {
-      name: "Import 25 Receipts and mark",
+      name: "Import 25 receipts and mark",
       functionName: "getAndRecordSomeReceiptsAndMark",
     },
     {
-      name: "Import All Receipts and mark",
+      name: "Import all receipts and mark",
       functionName: "getAndRecordReceiptsAndMark",
+    },
+    undefined,
+    {
+      name: "Add one transaction sheet if needed",
+      functionName: "addTransactionSheet",
+    },
+    {
+      name: "Add transaction sheets until up-to-date",
+      functionName: "addTransactionSheets",
     },
   ],
 };
@@ -156,6 +165,24 @@ function getAndRecordSomeReceiptsAndMark() {
 
 function getAndRecordReceiptsAndMark() {
   Budgeting.getAndRecordReceipts(null, null, true);
+}
+
+function addTransactionSheet() {
+  const start = Date.now();
+  const didAdd = Budgeting.addTransactionSheet();
+  const end = Date.now();
+  Logger.log(
+    `Adding ${didAdd ? "one" : "no"} transaction sheet took ${end - start} ms`
+  );
+}
+
+function addTransactionSheets() {
+  const start = Date.now();
+  const numSheetsAdded = Budgeting.addTransactionSheets();
+  const end = Date.now();
+  Logger.log(
+    `Adding ${numSheetsAdded} transaction sheets took ${end - start} ms`
+  );
 }
 
 // Test scripts

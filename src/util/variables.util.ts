@@ -1,13 +1,22 @@
 namespace Variables {
   /** Names of all global variables that must be provided */
-  const VARIABLE_NAMES = ["Menu", "SheetVariables"] as const;
+  const VARIABLE_NAMES = [
+    "Menu",
+    "SheetVariables",
+    "PayPeriodDays",
+    "TemplateName",
+  ] as const;
 
   /** Global variables from the Variables sheet */
   type Variables = {
-    /** Location of the menu - A1 notation */
+    /** Location of the top-left corner of the menu - A1 notation */
     Menu: string;
     /** Location of the per-sheet variables - A1 notation */
     SheetVariables: string;
+    /** Length of one pay period in number of days */
+    PayPeriodDays: number;
+    /** Name of template sheet to duplicate to make new transaction sheets */
+    TemplateName: string;
   };
 
   /** Names of all sheet variables that must be provided */

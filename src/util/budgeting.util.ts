@@ -1,4 +1,17 @@
 namespace Budgeting {
+  /** Sheet that has transactions on it and info about it */
+  type TransactionSheetInfo = {
+    sheet: GoogleAppsScript.Spreadsheet.Sheet;
+    startDate: Date;
+    endDate: Date;
+    /**
+     * Transaction receipt infos that should be added to this sheet.
+     *
+     * Does NOT represent the present receipts
+     */
+    receiptInfosToAdd: ReceiptInfoBase[];
+  };
+
   /** Chase Gmail search query for receipt email threads */
   const chaseGmailSearchQuery =
     "from:(no.reply.alerts@chase.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted";
@@ -96,33 +109,123 @@ namespace Budgeting {
    * Returns an array of all sheets that have transactions on them according to the sheet name
    * along with the start and end dates for each sheet
    *
-   * NOTE: each transaction sheet comes with an empty array `receiptInfos` for adding stuff into later
+   * NOTE: each transaction sheet comes with an empty array `receiptInfosToAdd` for adding stuff into later
    */
-  export function getTransactionSheets() {
-    const transactionSheets: {
-      sheet: GoogleAppsScript.Spreadsheet.Sheet;
-      startDate: Date;
-      endDate: Date;
-      receiptInfos: ReceiptInfoBase[];
-    }[] = [];
+  export function getTransactionSheetInfos() {
+    const transactionSheetInfos: TransactionSheetInfo[] = [];
     SpreadsheetApp.getActiveSpreadsheet()
       .getSheets()
       .forEach((sheet) => {
         const matches = transactionSheetNameRegex.exec(sheet.getName());
         if (matches && matches.length === 3 && matches.groups) {
-          const startDate = new Date(Date.parse(matches.groups.start));
-          const endDate = new Date(
-            Date.parse(`${matches.groups.end} 23:59:59.999`)
+          const startDate = new Date(
+            Date.parse(`${matches.groups.start} 00:00:00.000 GMT-06:00`)
           );
-          transactionSheets.push({
+          const endDate = new Date(
+            Date.parse(`${matches.groups.end} 23:59:59.999 GMT-06:00`)
+          );
+          transactionSheetInfos.push({
             sheet,
             startDate,
             endDate,
-            receiptInfos: [],
+            receiptInfosToAdd: [],
           });
         }
       });
-    return transactionSheets;
+    return transactionSheetInfos;
+  }
+
+  /**
+   * Compares transactionSheetInfos by startDate in descending order
+   *
+   * Used in [`Array.prototype.sort`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort)
+   */
+  function compareTransactionSheetInfosByStartDateDescending(
+    a: TransactionSheetInfo,
+    b: TransactionSheetInfo
+  ) {
+    if (a.startDate > b.startDate) return -1;
+    if (a.startDate === b.startDate) return 0;
+    return 1;
+  }
+
+  /**
+   * Adds a new transaction sheet if needed to catch up to current date
+   *
+   * @returns true if added a new sheet, false otherwise
+   */
+  export function addTransactionSheet() {
+    /**
+     * All transaction sheets for this spreadsheet in date-descending order
+     * to make sure we don't duplicate date ranges
+     */
+    const transactionSheetInfos = getTransactionSheetInfos().sort(
+      compareTransactionSheetInfosByStartDateDescending
+    );
+    if (transactionSheetInfos.length < 1)
+      throw new Error("No transaction sheets found in order to add more");
+
+    const latestTransactionSheetInfo = transactionSheetInfos[0];
+
+    const doesNeedNewTransactionSheet =
+      new Date() > latestTransactionSheetInfo.endDate;
+
+    // Stop if we don't need to make any new transaction sheets
+    if (!doesNeedNewTransactionSheet) return false;
+
+    const newStartDate = new Date(latestTransactionSheetInfo.endDate);
+    newStartDate.setDate(newStartDate.getDate() + 1);
+    const newEndDate = new Date(latestTransactionSheetInfo.endDate);
+    newEndDate.setDate(
+      newEndDate.getDate() + Variables.getVariables().PayPeriodDays
+    );
+    /** New transaction sheet name MM/DD/YY - MM/DD/YY */
+    const newSheetName = `${
+      newStartDate.getMonth() + 1
+    }/${newStartDate.getDate()}/${newStartDate
+      .getFullYear()
+      .toString()
+      .substring(2, 4)} - ${
+      newEndDate.getMonth() + 1
+    }/${newEndDate.getDate()}/${newEndDate
+      .getFullYear()
+      .toString()
+      .substring(2, 4)}`;
+
+    // Duplicate the template and update its name
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const templateSheet = spreadsheet.getSheetByName(
+      Variables.getVariables().TemplateName
+    );
+    if (!templateSheet)
+      throw new Error(
+        `${
+          Variables.getVariables().TemplateName
+        } sheet not found! Cannot duplicate to create sheet ${newSheetName}.`
+      );
+
+    spreadsheet.insertSheet(
+      newSheetName,
+      // Insert the sheet before the latest transaction sheet
+      latestTransactionSheetInfo.sheet.getIndex() - 1,
+      {
+        template: templateSheet,
+      }
+    );
+    return true;
+  }
+
+  /**
+   * Adds new transaction sheets as needed until caught up to current date
+   *
+   * @returns number of sheets added
+   */
+  export function addTransactionSheets() {
+    let numSheetsAdded = 0;
+    while (addTransactionSheet()) {
+      numSheetsAdded += 1;
+    }
+    return numSheetsAdded;
   }
 
   /**
@@ -223,16 +326,16 @@ namespace Budgeting {
     const receiptInfos = threadList.getAllReceiptInfos();
 
     if (receiptInfos.length > 0) {
-      const transactionSheets = getTransactionSheets();
+      const transactionSheetInfos = getTransactionSheetInfos();
       // Group receiptInfos by transaction sheet
       receiptInfos.forEach((receiptInfo) => {
-        const transactionSheet = transactionSheets.find(
-          (tSheet) =>
-            receiptInfo.date >= tSheet.startDate &&
-            receiptInfo.date < tSheet.endDate
+        const transactionSheetInfo = transactionSheetInfos.find(
+          (tSheetInfo) =>
+            receiptInfo.date >= tSheetInfo.startDate &&
+            receiptInfo.date < tSheetInfo.endDate
         );
-        if (transactionSheet) {
-          transactionSheet.receiptInfos.push(receiptInfo);
+        if (transactionSheetInfo) {
+          transactionSheetInfo.receiptInfosToAdd.push(receiptInfo);
         } else
           throw new Error(
             `Could not find transaction sheet for receipt ${JSON.stringify(
@@ -241,11 +344,11 @@ namespace Budgeting {
           );
       });
 
-      transactionSheets.forEach((transactionSheet) => {
-        if (transactionSheet.receiptInfos.length > 0)
+      transactionSheetInfos.forEach((transactionSheetInfo) => {
+        if (transactionSheetInfo.receiptInfosToAdd.length > 0)
           recordReceiptsOnSheet(
-            transactionSheet.sheet,
-            transactionSheet.receiptInfos
+            transactionSheetInfo.sheet,
+            transactionSheetInfo.receiptInfosToAdd
           );
       });
     }
