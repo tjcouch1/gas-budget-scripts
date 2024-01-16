@@ -143,18 +143,19 @@ function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
         });
 
         if (checkedFunctionName) {
-          // Uncheck the checkbox
-          e.range.setValue("FALSE");
-
           // Run the function
           const result = this[checkedFunctionName]();
 
-          // Write the return from the function two columns from the menu item
+          // Write the return from the function next to the menu item
           e.range
-            .offset(0, 3, 1, 1)
+            .offset(0, 2, 1, 1)
             .setValue(
               typeof result === "object" ? JSON.stringify(result) : result
             );
+
+          // Uncheck the checkbox. Note: this will not happen if an error occurs
+          // to keep a record of the error
+          e.range.setValue("FALSE");
         }
       }
     }

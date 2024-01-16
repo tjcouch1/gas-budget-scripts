@@ -173,13 +173,24 @@ namespace Budgeting {
     // Stop if we don't need to make any new transaction sheets
     if (!doesNeedNewTransactionSheet) return false;
 
+    // Add 12 hours to get to the next day mid-day to avoid problems with daylight saving time
     const newStartDate = new Date(latestTransactionSheetInfo.endDate);
-    newStartDate.setDate(newStartDate.getDate() + 1);
+    newStartDate.setHours(newStartDate.getHours() + 12);
+    // Add pay period days minus one plus 12 hours to get to the mid-day of the last day to
+    // avoid problems with daylight saving time
     const newEndDate = new Date(latestTransactionSheetInfo.endDate);
     newEndDate.setDate(
-      newEndDate.getDate() + Variables.getVariables().PayPeriodDays
+      newEndDate.getDate() + Variables.getVariables().PayPeriodDays - 1
     );
-    /** New transaction sheet name MM/DD/YY - MM/DD/YY */
+    newEndDate.setHours(newEndDate.getHours() + 12);
+
+    // Determine if this is a gap period (for now, strictly by 28 pay periods per year)
+    // TODO: Improve gap period calculation?
+    const isGapPeriod =
+      transactionSheetInfos.length >= 14 &&
+      transactionSheetInfos[13].sheet.getName().includes("(Gap)");
+
+    /** New transaction sheet name MM/DD/YY - MM/DD/YY (Gap) */
     const newSheetName = `${
       newStartDate.getMonth() + 1
     }/${newStartDate.getDate()}/${newStartDate
@@ -190,7 +201,7 @@ namespace Budgeting {
     }/${newEndDate.getDate()}/${newEndDate
       .getFullYear()
       .toString()
-      .substring(2, 4)}`;
+      .substring(2, 4)}${isGapPeriod ? " (Gap)" : ""}`;
 
     // Duplicate the template and update its name
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
@@ -204,7 +215,7 @@ namespace Budgeting {
         } sheet not found! Cannot duplicate to create sheet ${newSheetName}.`
       );
 
-    spreadsheet.insertSheet(
+    const newSheet = spreadsheet.insertSheet(
       newSheetName,
       // Insert the sheet before the latest transaction sheet
       latestTransactionSheetInfo.sheet.getIndex() - 1,
@@ -212,6 +223,9 @@ namespace Budgeting {
         template: templateSheet,
       }
     );
+
+    // Color the tab if it's a gap period to indicate it needs review
+    if (isGapPeriod) newSheet.setTabColor("#E8A9CA");
     return true;
   }
 
