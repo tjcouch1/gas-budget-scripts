@@ -235,6 +235,7 @@ namespace Budgeting {
    *
    * @param sheet
    * @param receiptInfos
+   * @returns number of receipts added to the sheet
    */
   function recordReceiptsOnSheet(
     sheet: GoogleAppsScript.Spreadsheet.Sheet,
@@ -311,6 +312,8 @@ namespace Budgeting {
       nameCell.setNote(combinedNote);
       nameCell.setBackground(receiptHasError ? "#FF0000" : "#E8A9CA");
     });
+
+    return receiptInfos.length;
   }
 
   /**
@@ -318,12 +321,15 @@ namespace Budgeting {
    *
    * @param threadList threads and receipt info for emails to record
    * @param shouldMarkProcessed set to true to mark the threads as processed by these scripts. Defaults to false
+   * @returns information about how many receipts were recorded into which sheet
    */
   function recordReceipts(
     threadList: ThreadList,
     shouldMarkProcessed: boolean = false
   ) {
     const receiptInfos = threadList.getAllReceiptInfos();
+    /** Map from transaction sheet name to number of receipts added on that sheet */
+    const receiptInfosAdded: { [transactionSheetName: string]: number } = {};
 
     if (receiptInfos.length > 0) {
       const transactionSheetInfos = getTransactionSheetInfos();
@@ -346,10 +352,11 @@ namespace Budgeting {
 
       transactionSheetInfos.forEach((transactionSheetInfo) => {
         if (transactionSheetInfo.receiptInfosToAdd.length > 0)
-          recordReceiptsOnSheet(
-            transactionSheetInfo.sheet,
-            transactionSheetInfo.receiptInfosToAdd
-          );
+          receiptInfosAdded[transactionSheetInfo.sheet.getName()] =
+            recordReceiptsOnSheet(
+              transactionSheetInfo.sheet,
+              transactionSheetInfo.receiptInfosToAdd
+            );
       });
     }
 
@@ -374,6 +381,8 @@ namespace Budgeting {
         `There were ${numErrors} errors while processing. Please review.`
       );
     }
+
+    return receiptInfosAdded;
   }
 
   /**
@@ -382,6 +391,7 @@ namespace Budgeting {
    * @param start index of starting thread in the query to get email threads. Set this and max to null to get all. Defaults to 0
    * @param max max number of threads from which to get receipts. Set this and start to null to get all. Defaults to 10
    * @param shouldMarkProcessed set to true to mark the threads as processed by these scripts. Defaults to false
+   * @returns information about how many receipts were recorded into which sheet
    */
   export function getAndRecordReceipts(
     start: number | null = 0,
@@ -390,6 +400,6 @@ namespace Budgeting {
   ) {
     const threadList = getChaseReceipts(start, max);
     Logger.log(JSON.stringify(threadList));
-    recordReceipts(threadList, shouldMarkProcessed);
+    return recordReceipts(threadList, shouldMarkProcessed);
   }
 }

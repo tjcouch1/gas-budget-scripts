@@ -143,8 +143,18 @@ function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
         });
 
         if (checkedFunctionName) {
+          // Uncheck the checkbox
           e.range.setValue("FALSE");
-          this[checkedFunctionName]();
+
+          // Run the function
+          const result = this[checkedFunctionName]();
+
+          // Write the return from the function two columns from the menu item
+          e.range
+            .offset(0, 3, 1, 1)
+            .setValue(
+              typeof result === "object" ? JSON.stringify(result) : result
+            );
         }
       }
     }
@@ -152,19 +162,19 @@ function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
 }
 
 function getAndRecordSomeReceiptsNoMark() {
-  Budgeting.getAndRecordReceipts(0, 50, false);
+  return Budgeting.getAndRecordReceipts(0, 50, false);
 }
 
 function getAndRecordReceiptsNoMark() {
-  Budgeting.getAndRecordReceipts(null, null, false);
+  return Budgeting.getAndRecordReceipts(null, null, false);
 }
 
 function getAndRecordSomeReceiptsAndMark() {
-  Budgeting.getAndRecordReceipts(0, 25, true);
+  return Budgeting.getAndRecordReceipts(0, 25, true);
 }
 
 function getAndRecordReceiptsAndMark() {
-  Budgeting.getAndRecordReceipts(null, null, true);
+  return Budgeting.getAndRecordReceipts(null, null, true);
 }
 
 function addTransactionSheet() {
@@ -174,6 +184,8 @@ function addTransactionSheet() {
   Logger.log(
     `Adding ${didAdd ? "one" : "no"} transaction sheet took ${end - start} ms`
   );
+
+  return didAdd;
 }
 
 function addTransactionSheets() {
@@ -183,6 +195,8 @@ function addTransactionSheets() {
   Logger.log(
     `Adding ${numSheetsAdded} transaction sheets took ${end - start} ms`
   );
+
+  return numSheetsAdded;
 }
 
 // Test scripts
@@ -212,3 +226,56 @@ function logVariables() {
 function logTransactionSheets() {
   Logger.log(JSON.stringify(Budgeting.getTransactionSheets()));
 } */
+
+// #region Budget sheet utility functions
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/**
+ * Get the name of the sheet at an offset from the current one
+ * @param off number of sheets offset
+ * @param _seed functionless parameter that exists to bust Google Sheets' cache
+ * for this function's return
+ * @returns name of sheet offset from this sheet by `off`
+ */
+function sheetNameOffset(off: number, _seed: number) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheets = ss.getSheets();
+  const offInd = ss.getActiveSheet().getIndex() + off;
+  for (let i = 0; i < sheets.length; i++) {
+    if (sheets[i].getIndex() === offInd) {
+      return sheets[i].getName();
+    }
+  }
+  return "No sheet at offset " + off;
+}
+
+/**
+ * Get the name of the month offset from the input month
+ * @param month current month name
+ * @param off number of months offset
+ * @param _seed functionless parameter that exists to bust Google Sheets' cache
+ * for this function's return
+ * @returns name of month offset from `month` by `off`
+ */
+function getMonthOffset(month: string, off: number, _seed: number) {
+  const monthInd = MONTHS.indexOf(month);
+  if (monthInd >= 0) {
+    return MONTHS[(monthInd + off) % MONTHS.length];
+  }
+  return "No month named " + month;
+}
+
+// #endregion
