@@ -1,6 +1,9 @@
 /// <reference path="./models/receipt-info.model.ts" />
 /// <reference path="./models/thread-info.model.ts" />
 /// <reference path="./models/thread-list.model.ts" />
+/// <reference path="./util/budgeting.util.ts" />
+/// <reference path="./util/spreadsheet-util.util.ts" />
+/// <reference path="./util/variables.util.ts" />
 
 /** Menu to add to the spreadsheet and to show in the menu bar on desktop */
 const menu: {
@@ -178,4 +181,7 @@ function logVariables() {
   );
   const end = Date.now();
   Logger.log(end - start);
+}
+function logTransactionSheets() {
+  Logger.log(JSON.stringify(Budgeting.getTransactionSheets()));
 } */
