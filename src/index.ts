@@ -102,53 +102,90 @@ function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
   // The whole script is loaded and run every edit, so cache busting is useless
   // Variables.onEdit(e);
 
-  // Handle menu checkboxes
-  const menuTopLeftRange = SpreadsheetApp.getActiveSheet().getRange(
-    Variables.getVariables().Menu
-  );
-  if (e.range.getSheet().getName() === menuTopLeftRange.getSheet().getName()) {
-    const menuRowBase = menuTopLeftRange.getRow();
-    const menuCheckboxesColumn = menuTopLeftRange.getColumn();
-    if (e.range.getColumn() === menuCheckboxesColumn) {
-      const menuObjectEntries = Object.entries(menu);
-      const numMenuRowsTotal = menuObjectEntries.reduce(
-        (currentRowsCount, [, menuEntries]) =>
-          currentRowsCount + menuEntries.length,
-        menuObjectEntries.length
-      );
-      const editRow = e.range.getRow();
-      if (
-        editRow >= menuRowBase &&
-        editRow < menuRowBase + numMenuRowsTotal &&
-        e.range.isChecked()
-      ) {
-        // Checked a checkbox in the menu, so run the function
-        /** The row of the checked menu item relative to the start of the menu */
-        const checkedMenuEntryIndex = editRow - menuRowBase;
-        /** The current row to check against the checked row relative to the start of the menu */
-        let currentMenuEntryIndex = 0;
-        /** The name of the function to run */
-        let checkedFunctionName: string | undefined;
-        menuObjectEntries.some(([, menuEntries]) => {
-          currentMenuEntryIndex += 1;
-          menuEntries.some((menuEntry) => {
-            if (currentMenuEntryIndex === checkedMenuEntryIndex) {
-              checkedFunctionName = menuEntry ? menuEntry.functionName : "";
-              return true;
-            }
+  if (e.range.isChecked()) {
+    // #region Handle menu checkboxes
+    const menuTopLeftRange = SpreadsheetApp.getActiveSheet().getRange(
+      Variables.getVariables().Menu
+    );
+    const editSheet = e.range.getSheet();
+    if (editSheet.getName() === menuTopLeftRange.getSheet().getName()) {
+      const menuRowBase = menuTopLeftRange.getRow();
+      const menuCheckboxesColumn = menuTopLeftRange.getColumn();
+      if (e.range.getColumn() === menuCheckboxesColumn) {
+        const menuObjectEntries = Object.entries(menu);
+        const numMenuRowsTotal = menuObjectEntries.reduce(
+          (currentRowsCount, [, menuEntries]) =>
+            currentRowsCount + menuEntries.length,
+          menuObjectEntries.length
+        );
+        const editRow = e.range.getRow();
+        if (
+          editRow >= menuRowBase &&
+          editRow < menuRowBase + numMenuRowsTotal
+        ) {
+          // Checked a checkbox in the menu, so run the function
+          /** The row of the checked menu item relative to the start of the menu */
+          const checkedMenuEntryIndex = editRow - menuRowBase;
+          /** The current row to check against the checked row relative to the start of the menu */
+          let currentMenuEntryIndex = 0;
+          /** The name of the function to run */
+          let checkedFunctionName: string | undefined;
+          menuObjectEntries.some(([, menuEntries]) => {
             currentMenuEntryIndex += 1;
+            menuEntries.some((menuEntry) => {
+              if (currentMenuEntryIndex === checkedMenuEntryIndex) {
+                checkedFunctionName = menuEntry ? menuEntry.functionName : "";
+                return true;
+              }
+              currentMenuEntryIndex += 1;
+            });
+            // We found the function, so stop looking
+            if (checkedFunctionName !== undefined) return true;
           });
-          // We found the function, so stop looking
-          if (checkedFunctionName !== undefined) return true;
-        });
 
-        if (checkedFunctionName) {
-          // Run the function
-          const result = this[checkedFunctionName]();
+          if (checkedFunctionName) {
+            // Run the function
+            const result = this[checkedFunctionName]();
 
-          // Write the return from the function next to the menu item
+            // Write the return from the function next to the menu item
+            e.range
+              .offset(0, 2, 1, 1)
+              .setValue(
+                typeof result === "object" ? JSON.stringify(result) : result
+              );
+
+            // Uncheck the checkbox. Note: this will not happen if an error occurs
+            // to keep a record of the error
+            e.range.setValue("FALSE");
+          }
+        }
+      }
+    }
+    // #endregion
+
+    // #region Not on menu sheet - handle transaction split checkboxes
+    else {
+      const splitCheckboxesRange =
+        Budgeting.getTransactionSplitCheckboxesRange(editSheet);
+      if (e.range.getColumn() === splitCheckboxesRange.getColumn()) {
+        const editRow = e.range.getRow();
+        const checkboxesRowBase = splitCheckboxesRange.getRow();
+        if (
+          editRow >= checkboxesRowBase &&
+          editRow <= splitCheckboxesRange.getLastRow()
+        ) {
+          // Checked a checkbox in the split checkboxes column, so split the transaction
+          /** The row of the checked transaction relative to the start of the transactions */
+          const checkedTransactionIndex = editRow - checkboxesRowBase;
+
+          const result = Budgeting.splitTransaction(
+            editSheet,
+            checkedTransactionIndex
+          );
+
+          // Write the return from the function next to the checkbox
           e.range
-            .offset(0, 2, 1, 1)
+            .offset(0, 5, 1, 1)
             .setValue(
               typeof result === "object" ? JSON.stringify(result) : result
             );

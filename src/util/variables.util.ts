@@ -23,6 +23,7 @@ namespace Variables {
   const SHEET_VARIABLE_NAMES = [
     "TransactionsStart",
     "TransactionsMax",
+    "SplitCheckboxesStart",
   ] as const;
   /** Per-sheet variables */
   type SheetVariables = {
@@ -30,6 +31,8 @@ namespace Variables {
     TransactionsStart: string;
     /** Max number of transactions this sheet can support */
     TransactionsMax: number;
+    /** Location of the first checkbox to click to split a transaction into two - A1 notation */
+    SplitCheckboxesStart: string;
   };
 
   const VARIABLES_SHEET_NAME = "Variables";

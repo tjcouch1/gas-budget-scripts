@@ -87,22 +87,41 @@ namespace Budgeting {
   }
 
   /**
+   * Get range on sheet starting at top left with the provided number of columns and the
+   * number of max transactions rows
+   * @param sheet
+   * @param a1NotationTopLeft top left in A1 notation
+   * @param numColumns number of columns in the range
+   * @returns range at top left with numColumns and max transaction rows
+   */
+  function getTransactionSizeRange(
+    sheet: GoogleAppsScript.Spreadsheet.Sheet,
+    a1NotationTopLeft: string,
+    numColumns: number
+  ) {
+    // Get top left of range
+    const topLeftRange = sheet.getRange(a1NotationTopLeft);
+    // Expand to size of all transactions
+    const transactionSizeRange = topLeftRange.offset(
+      0,
+      0,
+      Variables.getSheetVariables(sheet).TransactionsMax,
+      numColumns
+    );
+    return transactionSizeRange;
+  }
+
+  /**
    * Get full range of all transaction rows in a sheet. Contains only date, name, and cost columns
    * @param sheet
    */
   function getTransactionsRange(sheet: GoogleAppsScript.Spreadsheet.Sheet) {
-    // Get top left of range
-    const transactionsTopLeftRange = sheet.getRange(
-      Variables.getSheetVariables(sheet).TransactionsStart
-    );
-    // Expand to full range of all transactions
-    const transactionsRange = transactionsTopLeftRange.offset(
-      0,
-      0,
-      Variables.getSheetVariables(sheet).TransactionsMax,
+    // Get transactions on sheet with date, name, cost columns
+    return getTransactionSizeRange(
+      sheet,
+      Variables.getSheetVariables(sheet).TransactionsStart,
       3
     );
-    return transactionsRange;
   }
 
   /**
@@ -415,5 +434,30 @@ namespace Budgeting {
     const threadList = getChaseReceipts(start, max);
     Logger.log(JSON.stringify(threadList));
     return recordReceipts(threadList, shouldMarkProcessed);
+  }
+
+  /** Get range of all checkboxes that split a transaction into two. Contains one column */
+  export function getTransactionSplitCheckboxesRange(
+    sheet: GoogleAppsScript.Spreadsheet.Sheet
+  ) {
+    // Get checkboxes for each transaction
+    return getTransactionSizeRange(
+      sheet,
+      Variables.getSheetVariables(sheet).SplitCheckboxesStart,
+      1
+    );
+  }
+
+  /**
+   * Splits a transaction into two rows in the provided transaction sheet
+   * @param sheet sheet on which to split transaction
+   * @param transactionIndex index of transaction to split relative to first transaction (0)
+   * @returns TODO: not sure. Array of new transaction indices?
+   */
+  export function splitTransaction(
+    sheet: GoogleAppsScript.Spreadsheet.Sheet,
+    transactionIndex: number
+  ) {
+    return `Should split transaction ${transactionIndex} on sheet ${sheet.getName()}`;
   }
 }
