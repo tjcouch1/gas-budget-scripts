@@ -262,19 +262,19 @@ namespace Budgeting {
   }
 
   /**
-   * Record receipt info in the given sheet
+   * Get the next open transaction row range (with number of rows of `transactionCount`)
+   * on the given sheet - date, name, cost
    *
-   * Note: This does NOT check the receipt infos to make sure they should go on the given sheet
+   * First transaction row in the returned range is the first empty row after all currently
+   * filled transaction rows. Skips empty rows between filled rows.
    *
    * @param sheet
-   * @param receiptInfos
-   * @returns number of receipts added to the sheet
+   * @param transactionsCount number of transactions to get in the range (number of rows)
    */
-  function recordReceiptsOnSheet(
+  function getNextOpenTransactionRange(
     sheet: GoogleAppsScript.Spreadsheet.Sheet,
-    receiptInfos: ReceiptInfoBase[]
+    transactionsCount: number
   ) {
-    // Get a range of enough empty transaction rows to put the receipts in
     const transactionsRange = getTransactionsRange(sheet);
     const transactionsMax = Variables.getSheetVariables(sheet).TransactionsMax;
     const transactionsValues = transactionsRange.getValues();
@@ -295,23 +295,38 @@ namespace Budgeting {
 
     if (
       firstEmptyTransactionIndex >= 0 &&
-      firstEmptyTransactionIndex + receiptInfos.length > transactionsMax
+      firstEmptyTransactionIndex + transactionsCount > transactionsMax
     )
       // We didn't find enough empty rows. Throw
       throw new Error(
-        `There are not enough empty transaction rows in sheet ${sheet.getName()} to record ${
-          receiptInfos.length
-        } receipts! First empty transaction row: ${
+        `There are not enough empty transaction rows in sheet ${sheet.getName()} to get ${transactionsCount} transaction rows! First empty transaction row: ${
           transactionsRange.getRow() + firstEmptyTransactionIndex
         }. TransactionsMax: ${transactionsMax}. Last transaction row: ${transactionsRange.getLastRow()}`
       );
 
-    const range = transactionsRange.offset(
+    return transactionsRange.offset(
       firstEmptyTransactionIndex,
       0,
-      receiptInfos.length,
+      transactionsCount,
       3
     );
+  }
+
+  /**
+   * Record receipt info in the given sheet
+   *
+   * Note: This does NOT check the receipt infos to make sure they should go on the given sheet
+   *
+   * @param sheet
+   * @param receiptInfos
+   * @returns number of receipts added to the sheet
+   */
+  function recordReceiptsOnSheet(
+    sheet: GoogleAppsScript.Spreadsheet.Sheet,
+    receiptInfos: ReceiptInfoBase[]
+  ) {
+    // Get a range of enough empty transaction rows to put the receipts in
+    const range = getNextOpenTransactionRange(sheet, receiptInfos.length);
 
     // Record the receipt info in the range
     range.setValues(
@@ -452,12 +467,66 @@ namespace Budgeting {
    * Splits a transaction into two rows in the provided transaction sheet
    * @param sheet sheet on which to split transaction
    * @param transactionIndex index of transaction to split relative to first transaction (0)
-   * @returns TODO: not sure. Array of new transaction indices?
+   * @returns range containing new transaction rows
    */
   export function splitTransaction(
     sheet: GoogleAppsScript.Spreadsheet.Sheet,
     transactionIndex: number
   ) {
-    return `Should split transaction ${transactionIndex} on sheet ${sheet.getName()}`;
+    // Get range at transaction index
+    const topLeftRange = sheet.getRange(
+      Variables.getSheetVariables(sheet).TransactionsStart
+    );
+    /** Transaction row to split into two */
+    const transactionRange = topLeftRange.offset(transactionIndex, 0, 1, 3);
+    const transactionValues = transactionRange.getValues();
+    const transactionFormulas = transactionRange.getFormulas();
+    // Get formula or value of each transaction cell
+    const [date, name, cost] = transactionFormulas[0].map(
+      (formula, i) => formula || transactionValues[0][i]
+    );
+
+    /** New two transaction rows */
+    const splitTransactionRange = getNextOpenTransactionRange(sheet, 2);
+
+    // Set transaction rows so the top is the original transaction minus the bottom one
+    splitTransactionRange
+      .setValues([
+        [
+          date,
+          name,
+          `${
+            (typeof cost === "string" || cost instanceof String) &&
+            cost.startsWith("=")
+              ? ""
+              : "="
+          }${cost}-R[1]C[0]`,
+        ],
+        [date, name, 0],
+      ])
+      // Copy notes to the top row
+      .setNotes([
+        transactionRange.getNotes()[0],
+        Array.from(
+          { length: splitTransactionRange.getNumColumns() },
+          () => null
+        ),
+      ])
+      // Copy backgrounds to both rows
+      .setBackgrounds([
+        transactionRange.getBackgrounds()[0],
+        transactionRange.getBackgrounds()[0],
+      ]);
+
+    // Remove values, comments, and background colors from the original transaction row
+    const nullArrayTransactionRangeSize = [
+      Array.from({ length: transactionRange.getNumColumns() }, () => null),
+    ];
+    transactionRange
+      .clearContent()
+      .setNotes(nullArrayTransactionRangeSize)
+      .setBackgrounds(nullArrayTransactionRangeSize);
+
+    return splitTransactionRange;
   }
 }

@@ -183,12 +183,15 @@ function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
             checkedTransactionIndex
           );
 
-          // Write the return from the function next to the checkbox
-          e.range
-            .offset(0, 5, 1, 1)
-            .setValue(
-              typeof result === "object" ? JSON.stringify(result) : result
-            );
+          // Set selected cell to the cost of the new bottom transaction
+          SpreadsheetApp.setActiveRange(
+            result.offset(
+              result.getNumRows() - 1,
+              result.getNumColumns() - 1,
+              1,
+              1
+            )
+          );
 
           // Uncheck the checkbox. Note: this will not happen if an error occurs
           // to keep a record of the error
