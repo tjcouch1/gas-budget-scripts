@@ -463,8 +463,37 @@ namespace Budgeting {
     );
   }
 
+  /** Information about a transaction row derived from a transaction row range. Could be blank */
+  type TransactionRowInfo = {
+    date: GoogleAppsScript.Base.Date | undefined;
+    name: string | undefined;
+    cost: string | number | undefined;
+    range: GoogleAppsScript.Spreadsheet.Range;
+  };
+
   /**
-   * Splits a transaction into two rows in the provided transaction sheet
+   * Get transaction information from a transaction row range
+   * @param range transaction range - date, name, cost
+   * @returns
+   */
+  function getTransactionRowInfo(
+    range: GoogleAppsScript.Spreadsheet.Range
+  ): TransactionRowInfo {
+    const transactionValues = range.getValues();
+    const transactionFormulas = range.getFormulas();
+    // Get formula or value of each transaction cell
+    const [date, name, cost] = transactionFormulas[0].map(
+      (formula, i) => formula || transactionValues[0][i]
+    );
+
+    return { date, name, cost, range };
+  }
+
+  /**
+   * Splits a transaction into two rows in the provided transaction sheet.
+   *
+   * If the checked transaction is already split, it splits it again
+   *
    * @param sheet sheet on which to split transaction
    * @param transactionIndex index of transaction to split relative to first transaction (0)
    * @returns range containing new transaction rows
@@ -474,58 +503,161 @@ namespace Budgeting {
     transactionIndex: number
   ) {
     // Get range at transaction index
+    /** Top left cell of the transactions */
     const topLeftRange = sheet.getRange(
       Variables.getSheetVariables(sheet).TransactionsStart
     );
-    /** Transaction row to split into two */
-    const transactionRange = topLeftRange.offset(transactionIndex, 0, 1, 3);
-    const transactionValues = transactionRange.getValues();
-    const transactionFormulas = transactionRange.getFormulas();
-    // Get formula or value of each transaction cell
-    const [date, name, cost] = transactionFormulas[0].map(
-      (formula, i) => formula || transactionValues[0][i]
+
+    // Get range of all transactions in this group of split transactions
+    // Assume all split transactions are immediately below the transaction to split
+    const transactionsMax = Variables.getSheetVariables(sheet).TransactionsMax;
+    /**
+     * Array of all transactions in this group of split transactions.
+     *
+     * First row is transaction row to split in two
+     */
+    let transactionsInGroup: TransactionRowInfo[] = [];
+    while (transactionIndex + transactionsInGroup.length < transactionsMax) {
+      // Check the next row
+      const nextTransactionRange = topLeftRange.offset(
+        transactionIndex + transactionsInGroup.length,
+        0,
+        1,
+        3
+      );
+      const nextTransactionRangeInfo =
+        getTransactionRowInfo(nextTransactionRange);
+
+      if (
+        transactionsInGroup.length === 0 &&
+        !nextTransactionRangeInfo.date &&
+        !nextTransactionRangeInfo.name &&
+        !nextTransactionRangeInfo.cost
+      )
+        throw new Error(
+          `Checked row ${nextTransactionRange.getRow()} on sheet ${sheet.getName()}, but the transaction row has no content!`
+        );
+
+      // If this is the first transaction (the one to split) or
+      // this transaction matches the first one, add it to the group and look for more
+      if (
+        transactionsInGroup.length === 0 ||
+        (nextTransactionRangeInfo.date === transactionsInGroup[0].date &&
+          nextTransactionRangeInfo.name === transactionsInGroup[0].name)
+      )
+        transactionsInGroup.push(nextTransactionRangeInfo);
+      // If it's not in this group, break. We have found all transactions in this group
+      else break;
+    }
+
+    if (transactionsInGroup.length === 0)
+      throw new Error(
+        `Somehow there are no transactions to split on sheet ${sheet.getName()} transactionIndex ${transactionIndex}`
+      );
+    if (transactionIndex + transactionsInGroup.length >= transactionsMax)
+      throw new Error(
+        `No room on sheet ${sheet.getName()} to split group of ${
+          transactionsInGroup.length
+        } starting at row ${transactionsInGroup[0].range.getRow()}!`
+      );
+
+    // Check to see if the next transaction row after the transaction group is empty
+    const nextTransactionRangeAfterGroup = topLeftRange.offset(
+      transactionIndex + transactionsInGroup.length,
+      0,
+      1,
+      3
+    );
+    const nextTransactionRangeAfterGroupInfo = getTransactionRowInfo(
+      nextTransactionRangeAfterGroup
     );
 
-    /** New two transaction rows */
-    const splitTransactionRange = getNextOpenTransactionRange(sheet, 2);
-
-    // Set transaction rows so the top is the original transaction minus the bottom one
-    splitTransactionRange
-      .setValues([
-        [
-          date,
-          name,
-          `${
-            (typeof cost === "string" || cost instanceof String) &&
-            cost.startsWith("=")
+    /** What the new group of transaction rows should look like */
+    const transactionsInNewGroup = transactionsInGroup.map((transaction, i) => {
+      // If this is the transaction to split row, prepare it to
+      // subtract the new split transaction cost
+      if (i === 0)
+        return {
+          ...transaction,
+          cost: `${
+            Util.isString(transaction.cost) && transaction.cost.startsWith("=")
               ? ""
               : "="
-          }${cost}-R[1]C[0]`,
-        ],
-        [date, name, 0],
-      ])
-      // Copy notes to the top row
-      .setNotes([
-        transactionRange.getNotes()[0],
-        Array.from(
-          { length: splitTransactionRange.getNumColumns() },
-          () => null
-        ),
-      ])
-      // Copy backgrounds to both rows
-      .setBackgrounds([
-        transactionRange.getBackgrounds()[0],
-        transactionRange.getBackgrounds()[0],
-      ]);
+          }${transaction.cost}-R[${transactionsInGroup.length}]C[0]`,
+        };
+      // Otherwise just clone it and return it
+      return { ...transaction };
+    });
+    // Add a new split transaction row with cost 0 plus tax
+    transactionsInNewGroup.push({
+      date: transactionsInNewGroup[0].date,
+      name: transactionsInNewGroup[0].name,
+      cost: `=(0)*${Variables.getVariables().TaxMultiplier}`,
+      range: nextTransactionRangeAfterGroup,
+    });
 
-    // Remove values, comments, and background colors from the original transaction row
-    const nullArrayTransactionRangeSize = [
-      Array.from({ length: transactionRange.getNumColumns() }, () => null),
-    ];
-    transactionRange
-      .clearContent()
-      .setNotes(nullArrayTransactionRangeSize)
-      .setBackgrounds(nullArrayTransactionRangeSize);
+    // If the next transaction row after the transaction group is empty, use that
+    /** Range for new group of transaction rows one longer than the current group */
+    let splitTransactionRange: GoogleAppsScript.Spreadsheet.Range;
+    if (
+      !nextTransactionRangeAfterGroupInfo.date &&
+      !nextTransactionRangeAfterGroupInfo.name &&
+      !nextTransactionRangeAfterGroupInfo.cost
+    ) {
+      // Add a split transaction row directly after this transaction group
+      // Get the current transaction group plus the new row
+      splitTransactionRange = topLeftRange.offset(
+        transactionIndex,
+        0,
+        transactionsInGroup.length + 1,
+        3
+      );
+
+      // Fill in the new split transaction row
+      // TODO: Set these values properly
+      nextTransactionRangeAfterGroup.setValues([]);
+
+      // Subtract the new split transaction row from the row to split
+      // TODO: Set properly
+      transactionsInGroup[0].range.setValues([]);
+    } else {
+      // Instead move all the transactions to the next open transaction range
+      // and add a split row after that
+      splitTransactionRange = getNextOpenTransactionRange(
+        sheet,
+        transactionsInGroup.length + 1
+      );
+
+      // Set transaction rows so the top is the original transaction minus the bottom one
+      // TODO: Fix this
+      splitTransactionRange
+        .setValues([
+          [date, name, cost],
+          [date, name, cost],
+        ])
+        // Copy notes to the top row
+        .setNotes([
+          transactionRange.getNotes()[0],
+          Array.from(
+            { length: splitTransactionRange.getNumColumns() },
+            () => null
+          ),
+        ])
+        // Copy backgrounds to both rows
+        .setBackgrounds([
+          transactionRange.getBackgrounds()[0],
+          transactionRange.getBackgrounds()[0],
+        ]);
+
+      // Remove values, comments, and background colors from the original transaction row
+      const nullArrayTransactionRangeSize = [
+        Array.from({ length: transactionRange.getNumColumns() }, () => null),
+      ];
+      transactionRange
+        .clearContent()
+        .setNotes(nullArrayTransactionRangeSize)
+        .setBackgrounds(nullArrayTransactionRangeSize);
+    }
 
     return splitTransactionRange;
   }

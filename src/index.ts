@@ -3,6 +3,7 @@
 /// <reference path="./models/thread-list.model.ts" />
 /// <reference path="./util/budgeting.util.ts" />
 /// <reference path="./util/spreadsheet-util.util.ts" />
+/// <reference path="./util/util.ts" />
 /// <reference path="./util/variables.util.ts" />
 
 /** Menu to add to the spreadsheet and to show in the menu bar on desktop */
@@ -266,7 +267,27 @@ function logVariables() {
 }
 function logTransactionSheets() {
   Logger.log(JSON.stringify(Budgeting.getTransactionSheets()));
-} */
+}
+function testRangeCachePerformance() {
+  // 150-200ms
+  const range = SpreadsheetApp.getActiveSheet().getRange(1, 1, 100, 100);
+  // 75-100ms
+  range.getValues();
+  // 6-8ms
+  range.getValues();
+  // 4ms
+  const rangeDup = SpreadsheetApp.getActiveSheet().getRange(1, 1, 100, 100);
+  const start = Date.now();
+  // 7ms
+  rangeDup.getValues();
+  const end = Date.now();
+  // 2ms
+  const range2 = SpreadsheetApp.getActiveSheet().getRange(101, 101, 100, 101);
+  // 45ms
+  range2.getValues();
+  Logger.log(end - start);
+}
+*/
 
 // #region Budget sheet utility functions
 const MONTHS = [

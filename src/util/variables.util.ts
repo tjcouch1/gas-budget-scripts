@@ -5,6 +5,7 @@ namespace Variables {
     "SheetVariables",
     "PayPeriodDays",
     "TemplateName",
+    "TaxMultiplier",
   ] as const;
 
   /** Global variables from the Variables sheet */
@@ -17,6 +18,8 @@ namespace Variables {
     PayPeriodDays: number;
     /** Name of template sheet to duplicate to make new transaction sheets */
     TemplateName: string;
+    /** Multiplier to use when computing tax for splitting transactions */
+    TaxMultiplier: number;
   };
 
   /** Names of all sheet variables that must be provided */
