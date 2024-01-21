@@ -288,6 +288,13 @@ function testRangeCachePerformance() {
   Logger.log(end - start);
 }
 */
+function testSplit() {
+  Logger.log(
+    JSON.stringify(
+      Budgeting.splitTransaction(SpreadsheetApp.getActiveSheet(), 15)
+    )
+  );
+}
 
 // #region Budget sheet utility functions
 const MONTHS = [

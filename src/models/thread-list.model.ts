@@ -34,7 +34,7 @@ namespace Budgeting {
     b: ReceiptInfoBase
   ) {
     if (a.date > b.date) return 1;
-    if (a.date === b.date) return 0;
+    if (Util.areDatesEqual(a.date, b.date)) return 0;
     return -1;
   }
 
