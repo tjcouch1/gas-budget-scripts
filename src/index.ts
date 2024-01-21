@@ -291,7 +291,7 @@ function testRangeCachePerformance() {
 function testSplit() {
   Logger.log(
     JSON.stringify(
-      Budgeting.splitTransaction(SpreadsheetApp.getActiveSheet(), 15)
+      Budgeting.splitTransaction(SpreadsheetApp.getActiveSheet(), 10)
     )
   );
 }

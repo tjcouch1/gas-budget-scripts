@@ -489,6 +489,46 @@ namespace Budgeting {
     return { date, name, cost, range };
   }
 
+  function doTransactionRowInfosSeemEqual(
+    transactionInfo1: TransactionRowInfo,
+    transactionInfo2: TransactionRowInfo
+  ): boolean {
+    // Check dates equal
+    if (!Util.areDatesEqual(transactionInfo1.date, transactionInfo2.date))
+      return false;
+
+    // Check names or prefixes (before bar|) equal (or at least first 1/3 of the names equal)
+    if (transactionInfo1.name !== transactionInfo2.name) {
+      if (!transactionInfo1.name || !transactionInfo2.name) return false;
+
+      let nameEqual = false;
+
+      const prefix1 = transactionInfo1.name.split("|")[0].trimEnd();
+      const prefix2 = transactionInfo2.name.split("|")[0].trimEnd();
+
+      if (prefix1 === prefix2) nameEqual = true;
+
+      if (!nameEqual) {
+        const shorterThirdLength = Math.floor(
+          Math.min(
+            transactionInfo1.name.length / 3,
+            transactionInfo2.name.length / 3
+          )
+        );
+
+        if (
+          transactionInfo1.name.substring(0, shorterThirdLength) ===
+          transactionInfo2.name.substring(0, shorterThirdLength)
+        )
+          nameEqual = true;
+      }
+
+      if (!nameEqual) return false;
+    }
+
+    return true;
+  }
+
   /**
    * Splits a transaction into two rows in the provided transaction sheet.
    *
@@ -542,11 +582,10 @@ namespace Budgeting {
       // this transaction matches the first one, add it to the group and look for more
       if (
         transactionsInGroup.length === 0 ||
-        (Util.areDatesEqual(
-          nextTransactionRangeInfo.date,
-          transactionsInGroup[0].date
-        ) &&
-          nextTransactionRangeInfo.name === transactionsInGroup[0].name)
+        doTransactionRowInfosSeemEqual(
+          nextTransactionRangeInfo,
+          transactionsInGroup[0]
+        )
       )
         transactionsInGroup.push(nextTransactionRangeInfo);
       // If it's not in this group, break. We have found all transactions in this group
@@ -564,6 +603,29 @@ namespace Budgeting {
         } starting at row ${transactionsInGroup[0].range.getRow()}!`
       );
 
+    // If this row to split looks like it's in the middle of a transaction group, reject
+    if (transactionIndex > 0) {
+      const previousTransactionRange = topLeftRange.offset(
+        transactionIndex - 1,
+        0,
+        1,
+        3
+      );
+      const nextTransactionRangeInfo = getTransactionRowInfo(
+        previousTransactionRange
+      );
+
+      if (
+        doTransactionRowInfosSeemEqual(
+          nextTransactionRangeInfo,
+          transactionsInGroup[0]
+        )
+      )
+        throw new Error(
+          `Transaction in sheet ${sheet.getName()} at row ${transactionsInGroup[0].range.getRow()} seems to be in a transaction group already!`
+        );
+    }
+
     // Check to see if the next transaction row after the transaction group is empty
     const nextTransactionRangeAfterGroup = topLeftRange.offset(
       transactionIndex + transactionsInGroup.length,
@@ -579,10 +641,12 @@ namespace Budgeting {
     const transactionsInNewGroup = transactionsInGroup.map((transaction, i) => {
       // If this is the transaction to split row, prepare it to
       // subtract the new split transaction cost
-      // TODO: Fix this formula when the whole group moves
       if (i === 0)
         return {
           ...transaction,
+          name: `${transaction.name}${
+            transaction.name?.includes("|") ? "" : " | "
+          }`,
           cost: `${
             Util.isString(transaction.cost) && transaction.cost.startsWith("=")
               ? ""
@@ -596,105 +660,78 @@ namespace Budgeting {
     transactionsInNewGroup.push({
       date: transactionsInNewGroup[0].date,
       name: transactionsInNewGroup[0].name,
-      cost: `=(0)*${Variables.getVariables().TaxMultiplier}`,
+      cost: `=${Variables.getVariables().TaxMultiplier}*(0)`,
       range: nextTransactionRangeAfterGroup,
     });
 
-    // If the next transaction row after the transaction group is empty, use that
-    /** Range for new group of transaction rows one longer than the current group */
-    let splitTransactionRange: GoogleAppsScript.Spreadsheet.Range;
+    // If the next transaction row after the transaction group isn't empty, move all the following transactions down one
     if (
-      !nextTransactionRangeAfterGroupInfo.date &&
-      !nextTransactionRangeAfterGroupInfo.name &&
-      !nextTransactionRangeAfterGroupInfo.cost
+      nextTransactionRangeAfterGroupInfo.date ||
+      nextTransactionRangeAfterGroupInfo.name ||
+      nextTransactionRangeAfterGroupInfo.cost
     ) {
-      // Add a split transaction row directly after this transaction group
-      // Get the current transaction group plus the new row
-      splitTransactionRange = topLeftRange.offset(
-        transactionIndex,
+      const nextOpenTransactionRange = getNextOpenTransactionRange(sheet, 1);
+
+      // Get the range from the one after the transaction group to the one before the next open transaction range
+      /** Transactions to move down one row */
+      const transactionsToMove = nextTransactionRangeAfterGroup.offset(
         0,
-        transactionsInNewGroup.length,
+        0,
+        nextOpenTransactionRange.getRow() -
+          nextTransactionRangeAfterGroup.getRow(),
         3
       );
 
-      // Fill in the new split transaction row
-      /** New transaction info to write into the new split row */
-      const newTransactionInfo =
-        transactionsInNewGroup[transactionsInNewGroup.length - 1];
-      nextTransactionRangeAfterGroup.setValues([
-        [
-          newTransactionInfo.date,
-          newTransactionInfo.name,
-          newTransactionInfo.cost,
-        ],
-      ]);
+      // Copy the transactions down one
+      transactionsToMove.copyTo(transactionsToMove.offset(1, 0));
 
-      // Subtract the new split transaction row from the row to split
-      const newFirstTransactionInfo = transactionsInNewGroup[0];
-      transactionsInGroup[0].range.setValues([
-        [
-          newFirstTransactionInfo.date,
-          newFirstTransactionInfo.name,
-          newFirstTransactionInfo.cost,
-        ],
-      ]);
-    } else {
-      // Instead move all the transactions to the next open transaction range
-      // and add a split row after that
-      splitTransactionRange = getNextOpenTransactionRange(
-        sheet,
-        transactionsInNewGroup.length
-      );
-
-      // Set transaction rows so all the old rows are now in the new range plus the new split transaction
-      splitTransactionRange
-        .setValues(
-          transactionsInNewGroup.map((newTransactionInfo) => [
-            newTransactionInfo.date,
-            newTransactionInfo.name,
-            newTransactionInfo.cost,
-          ])
-        )
-        // Copy notes from previous rows to their new locations
-        .setNotes([
-          ...transactionsInGroup.map(
-            (oldTransaction) => oldTransaction.range.getNotes()[0]
-          ),
-          Array.from(
-            { length: splitTransactionRange.getNumColumns() },
-            () => null
-          ),
-        ])
-        // Copy backgrounds to new range and copy top row's background to the new split transaction row
-        .setBackgrounds([
-          ...transactionsInGroup.map(
-            (oldTransaction) => oldTransaction.range.getBackgrounds()[0]
-          ),
-          transactionsInGroup[0].range.getBackgrounds()[0],
-        ]);
-
-      // Remove values, comments, and background colors from the original transaction rows
-      const nullArrayTransactionsInGroupSize = Array.from(
-        { length: transactionsInGroup.length },
+      // Clear the values out of the current row
+      const nullArrayNextTransactionRangeAfterGroupSize = Array.from(
+        { length: 1 }, // nextTransactionRangeAfterGroup's number of rows
         () =>
           Array.from(
-            { length: transactionsInGroup[0].range.getNumColumns() },
+            { length: nextTransactionRangeAfterGroup.getNumColumns() },
             () => null
           )
       );
 
-      /** Range containing all transactionsInGroup rows */
-      const transactionsInGroupFullRange = topLeftRange.offset(
-        transactionIndex,
-        0,
-        transactionsInGroup.length,
-        3
-      );
-      transactionsInGroupFullRange
+      nextTransactionRangeAfterGroup
         .clearContent()
-        .setNotes(nullArrayTransactionsInGroupSize)
-        .setBackgrounds(nullArrayTransactionsInGroupSize);
+        .setNotes(nullArrayNextTransactionRangeAfterGroupSize)
+        .setBackgrounds(nullArrayNextTransactionRangeAfterGroupSize);
     }
+
+    // Add a split transaction row directly after this transaction group
+    // Get the current transaction group plus the new row
+    /** Range for new group of transaction rows one longer than the current group */
+    const splitTransactionRange = topLeftRange.offset(
+      transactionIndex,
+      0,
+      transactionsInNewGroup.length,
+      3
+    );
+
+    // Fill in the new split transaction row
+    /** New transaction info to write into the new split row */
+    const newTransactionInfo =
+      transactionsInNewGroup[transactionsInNewGroup.length - 1];
+    nextTransactionRangeAfterGroup.setValues([
+      [
+        newTransactionInfo.date,
+        newTransactionInfo.name,
+        newTransactionInfo.cost,
+      ],
+    ]);
+
+    // Subtract the new split transaction row from the row to split
+    const newFirstTransactionInfo = transactionsInNewGroup[0];
+    transactionsInGroup[0].range.setValues([
+      [
+        newFirstTransactionInfo.date,
+        newFirstTransactionInfo.name,
+        newFirstTransactionInfo.cost,
+      ],
+    ]);
 
     return splitTransactionRange;
   }
