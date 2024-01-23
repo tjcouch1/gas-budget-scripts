@@ -468,8 +468,25 @@ namespace Budgeting {
     date: GoogleAppsScript.Base.Date | undefined;
     name: string | undefined;
     cost: string | number | undefined;
+    category: string | undefined;
+    type: string | undefined;
+    /** The range for the date, name, and cost of this transaction row */
     range: GoogleAppsScript.Spreadsheet.Range;
+    /** The range for the category and type */
+    metadataRange: GoogleAppsScript.Spreadsheet.Range;
   };
+
+  /**
+   * Returns a range of the transaction metadata rows corresponding to the rows in the current range of transaction rows
+   * @param range current transaction rows range to get metadata range for
+   * @returns range with same number of rows as original transaction rows range offset to contain the metadata for those
+   * transactions - category, type
+   */
+  function getTransactionMetadataRange(
+    range: GoogleAppsScript.Spreadsheet.Range
+  ) {
+    return range.offset(0, 4, range.getNumRows(), 2);
+  }
 
   /**
    * Get transaction information from a transaction row range
@@ -486,9 +503,18 @@ namespace Budgeting {
       (formula, i) => formula || transactionValues[0][i]
     );
 
-    return { date, name, cost, range };
+    // Get the metadata range
+    const metadataRange = getTransactionMetadataRange(range);
+    const [[category, type]] = metadataRange.getValues();
+
+    return { date, name, cost, category, type, range, metadataRange };
   }
 
+  /**
+   * Determine if two transaction rows seem to be equal based on their info.
+   *
+   * Checks dates first and then also checks names (Can use | to match just the stuff before the bar)
+   */
   function doTransactionRowInfosSeemEqual(
     transactionInfo1: TransactionRowInfo,
     transactionInfo2: TransactionRowInfo
@@ -527,6 +553,21 @@ namespace Budgeting {
     }
 
     return true;
+  }
+
+  /**
+   * Gets a 2D array of `null`s corresponding to the size of the provided range
+   * @param range
+   */
+  function getNullRangeValues(range: GoogleAppsScript.Spreadsheet.Range) {
+    return Array.from({ length: range.getNumRows() }, () =>
+      Array.from(
+        {
+          length: range.getNumColumns(),
+        },
+        () => null
+      )
+    );
   }
 
   /**
@@ -572,7 +613,9 @@ namespace Budgeting {
         transactionsInGroup.length === 0 &&
         !nextTransactionRangeInfo.date &&
         !nextTransactionRangeInfo.name &&
-        !nextTransactionRangeInfo.cost
+        !nextTransactionRangeInfo.cost &&
+        !nextTransactionRangeInfo.category &&
+        !nextTransactionRangeInfo.type
       )
         throw new Error(
           `Checked row ${nextTransactionRange.getRow()} on sheet ${sheet.getName()}, but the transaction row has no content!`
@@ -661,14 +704,19 @@ namespace Budgeting {
       date: transactionsInNewGroup[0].date,
       name: transactionsInNewGroup[0].name,
       cost: `=${Variables.getVariables().TaxMultiplier}*(0)`,
-      range: nextTransactionRangeAfterGroup,
+      category: transactionsInNewGroup[0].category,
+      type: transactionsInNewGroup[0].type,
+      range: nextTransactionRangeAfterGroupInfo.range,
+      metadataRange: nextTransactionRangeAfterGroupInfo.metadataRange,
     });
 
     // If the next transaction row after the transaction group isn't empty, move all the following transactions down one
     if (
       nextTransactionRangeAfterGroupInfo.date ||
       nextTransactionRangeAfterGroupInfo.name ||
-      nextTransactionRangeAfterGroupInfo.cost
+      nextTransactionRangeAfterGroupInfo.cost ||
+      nextTransactionRangeAfterGroupInfo.category ||
+      nextTransactionRangeAfterGroupInfo.type
     ) {
       const nextOpenTransactionRange = getNextOpenTransactionRange(sheet, 1);
 
@@ -681,24 +729,31 @@ namespace Budgeting {
           nextTransactionRangeAfterGroup.getRow(),
         3
       );
+      /** Transaction metadata to move down one row */
+      const transactionsMetadataToMove =
+        getTransactionMetadataRange(transactionsToMove);
 
       // Copy the transactions down one
       transactionsToMove.copyTo(transactionsToMove.offset(1, 0));
-
-      // Clear the values out of the current row
-      const nullArrayNextTransactionRangeAfterGroupSize = Array.from(
-        { length: 1 }, // nextTransactionRangeAfterGroup's number of rows
-        () =>
-          Array.from(
-            { length: nextTransactionRangeAfterGroup.getNumColumns() },
-            () => null
-          )
+      transactionsMetadataToMove.copyTo(
+        transactionsMetadataToMove.offset(1, 0)
       );
 
-      nextTransactionRangeAfterGroup
+      // Clear the values out of the current row
+      const nullArrayNextTransactionRangeAfterGroupSize = getNullRangeValues(
+        nextTransactionRangeAfterGroupInfo.range
+      );
+      const nullArrayNextTransactionMetadataRangeAfterGroupSize =
+        getNullRangeValues(nextTransactionRangeAfterGroupInfo.metadataRange);
+
+      nextTransactionRangeAfterGroupInfo.range
         .clearContent()
         .setNotes(nullArrayNextTransactionRangeAfterGroupSize)
         .setBackgrounds(nullArrayNextTransactionRangeAfterGroupSize);
+      nextTransactionRangeAfterGroupInfo.metadataRange
+        .clearContent()
+        .setNotes(nullArrayNextTransactionMetadataRangeAfterGroupSize)
+        .setBackgrounds(nullArrayNextTransactionMetadataRangeAfterGroupSize);
     }
 
     // Add a split transaction row directly after this transaction group
@@ -715,12 +770,15 @@ namespace Budgeting {
     /** New transaction info to write into the new split row */
     const newTransactionInfo =
       transactionsInNewGroup[transactionsInNewGroup.length - 1];
-    nextTransactionRangeAfterGroup.setValues([
+    nextTransactionRangeAfterGroupInfo.range.setValues([
       [
         newTransactionInfo.date,
         newTransactionInfo.name,
         newTransactionInfo.cost,
       ],
+    ]);
+    nextTransactionRangeAfterGroupInfo.metadataRange.setValues([
+      [newTransactionInfo.category, newTransactionInfo.type],
     ]);
 
     // Subtract the new split transaction row from the row to split
