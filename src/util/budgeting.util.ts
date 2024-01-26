@@ -713,9 +713,10 @@ namespace Budgeting {
     // Add a new split transaction row with cost 0 plus tax
     transactionsInNewGroup.push({
       date: transactionsInNewGroup[0].date,
-      name: transactionsInNewGroup[0].name,
+      // Make it the same name as the first transaction but without the extra info after the split
+      name: `${transactionsInNewGroup[0].name?.split(" | ")[0]} | `,
       cost: `=${Variables.getVariables().TaxMultiplier}*(0)`,
-      category: transactionsInNewGroup[0].category,
+      category: undefined,
       type: transactionsInNewGroup[0].type,
       range: nextTransactionRangeAfterGroupInfo.range,
       metadataRange: nextTransactionRangeAfterGroupInfo.metadataRange,
