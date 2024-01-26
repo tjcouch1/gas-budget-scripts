@@ -337,6 +337,17 @@ namespace Budgeting {
       ])
     );
 
+    // Get the metadata range for these receipts
+    const metadataRange = getTransactionMetadataRange(range);
+
+    // Record the receipt metadata info in the range
+    metadataRange.setValues(
+      receiptInfos.map((receiptInfo) => [
+        receiptInfo.category,
+        receiptInfo.type,
+      ])
+    );
+
     // Mark receipt errors and notes
     receiptInfos.forEach((receiptInfo, i) => {
       // Mark empty cost

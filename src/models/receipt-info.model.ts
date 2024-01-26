@@ -5,6 +5,10 @@ namespace Budgeting {
     public date: GoogleAppsScript.Base.Date;
     public cost: number | undefined;
     public name: string | undefined;
+    /** Envelope or category in which to categorize this receipt */
+    public category: string | undefined;
+    /** Medium of transaction like Credit or Paypal */
+    public type: string | undefined;
     /** Error message to display in a note on this receipt. Empty string means no error */
     public errorMessage: string = "";
     /**
@@ -64,12 +68,16 @@ namespace Budgeting {
     constructor(
       public message: GoogleAppsScript.Gmail.GmailMessage,
       cost: number | undefined,
-      name: string | undefined
+      name: string | undefined,
+      category: string | undefined,
+      type: string | undefined
     ) {
       super();
       this.cost = cost;
       this.name = name;
       this.date = this.message.getDate();
+      this.category = category;
+      this.type = type;
     }
 
     public get thread() {

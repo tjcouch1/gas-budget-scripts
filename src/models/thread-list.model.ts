@@ -142,7 +142,13 @@ namespace Budgeting {
               } else {
                 // We have a receipt (or a blank receipt with a note). Return receiptInfo
                 threadInfo.receiptInfos.push(
-                  new Budgeting.ReceiptInfo(message, cost, name)
+                  new Budgeting.ReceiptInfo(
+                    message,
+                    cost,
+                    name,
+                    undefined,
+                    "Credit"
+                  )
                 );
               }
             } catch (e) {
