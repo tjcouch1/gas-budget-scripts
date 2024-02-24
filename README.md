@@ -1,6 +1,6 @@
-# gas-budget-script-test
+# gas-budget-scripts
 
-Google App Script test for budgeting
+Google App Scripts for budgeting
 
 ### Summary
 

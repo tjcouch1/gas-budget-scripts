@@ -1,3 +1,10 @@
+/// <reference path="./../models/receipt-info.model.ts" />
+/// <reference path="./../models/thread-info.model.ts" />
+/// <reference path="./../models/thread-list.model.ts" />
+/// <reference path="./spreadsheet-util.util.ts" />
+/// <reference path="./util.ts" />
+/// <reference path="./variables.util.ts" />
+
 namespace Budgeting {
   /** Sheet that has transactions on it and info about it */
   type TransactionSheetInfo = {
@@ -12,9 +19,9 @@ namespace Budgeting {
     receiptInfosToAdd: ReceiptInfoBase[];
   };
 
-  /** Chase Gmail search query for receipt email threads */
-  const chaseGmailSearchQuery =
-    "from:(no.reply.alerts@chase.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted";
+  /** TJ Gmail search query for receipt email threads */
+  const tjGmailSearchQuery =
+    "from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ";
 
   /** RegExp pattern matching to transaction sheet name
    *
@@ -80,8 +87,8 @@ namespace Budgeting {
     // Query Gmail for receipt emails
     const threads =
       start !== null && max !== null
-        ? GmailApp.search(chaseGmailSearchQuery, start, max)
-        : GmailApp.search(chaseGmailSearchQuery);
+        ? GmailApp.search(tjGmailSearchQuery, start, max)
+        : GmailApp.search(tjGmailSearchQuery);
 
     return new Budgeting.ThreadList(threads);
   }

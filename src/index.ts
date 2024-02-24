@@ -242,7 +242,7 @@ function addTransactionSheets() {
 }
 
 // Test scripts
-/* function logTheadById(id: string) {
+function logTheadById(id: string) {
   Logger.log(GmailApp.getThreadById(id));
 }
 function logReceipts(
@@ -252,7 +252,10 @@ function logReceipts(
 ) {
   const threadList = Budgeting.getChaseReceipts(start, max);
   Logger.log(`ThreadList: ${JSON.stringify(threadList)}`);
-  Logger.log(`ReceiptInfos: ${JSON.stringify(threadList.receiptInfos)}`);
+  //Logger.log(`ThreadInfos: ${JSON.stringify(threadList.threadInfos)}`);
+  /* Logger.log(
+    `AllReceiptInfos: ${JSON.stringify(threadList.getAllReceiptInfos())}`
+  ); */
 }
 function logVariables() {
   const start = Date.now();
@@ -265,8 +268,8 @@ function logVariables() {
   const end = Date.now();
   Logger.log(end - start);
 }
-function logTransactionSheets() {
-  Logger.log(JSON.stringify(Budgeting.getTransactionSheets()));
+function testLogTransactionSheetInfos() {
+  Logger.log(JSON.stringify(Budgeting.getTransactionSheetInfos()));
 }
 function testRangeCachePerformance() {
   // 150-200ms
@@ -287,7 +290,6 @@ function testRangeCachePerformance() {
   range2.getValues();
   Logger.log(end - start);
 }
-*/
 function testSplit() {
   Logger.log(
     JSON.stringify(
