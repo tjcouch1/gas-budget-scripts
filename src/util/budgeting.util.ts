@@ -21,7 +21,7 @@ namespace Budgeting {
 
   /** TJ Gmail search query for receipt email threads */
   const tjGmailSearchQuery =
-    "from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ";
+    "from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR keilahfok@gmail.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ";
 
   /** RegExp pattern matching to transaction sheet name
    *
