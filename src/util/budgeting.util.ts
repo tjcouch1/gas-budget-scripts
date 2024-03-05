@@ -443,9 +443,13 @@ namespace Budgeting {
     });
 
     if (numErrors > 0) {
-      SpreadsheetApp.getUi().alert(
-        `There were ${numErrors} errors while processing. Please review.`
-      );
+      try {
+        SpreadsheetApp.getUi().alert(
+          `There were ${numErrors} errors while processing. Please review.`
+        );
+      } catch (e) {
+        throw `Error while trying to notify user via UI of ${numErrors} errors while processing! This may be running in a trigger. Please review errors. ${e}`;
+      }
     }
 
     return receiptInfosAdded;

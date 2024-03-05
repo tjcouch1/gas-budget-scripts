@@ -41,14 +41,21 @@ namespace Budgeting {
   function getForwardEmailAddress(
     message: GoogleAppsScript.Gmail.GmailMessage
   ) {
-    const matches =
+    let matches =
       /[Ff]orwarded message.*\s*\r?\n\r?\n?\*?From:\*?[ \u00a0](?<email>.+)\r?\n/.exec(
         message.getPlainBody()
       );
-    if (!matches || matches.length <= 0 || !matches.groups)
-      throw new Error(
-        `Could not get 'from' email address from forwarded email with subject '${message.getSubject()}'`
-      );
+    if (!matches || matches.length <= 0 || !matches.groups) {
+      Logger.log(message.getPlainBody());
+      matches =
+        /転送されたメッセージ.*\s*\r?\n\r?\n?\*?差出人:\*?[ \u00a0](?<email>.+)\r?\n/.exec(
+          message.getPlainBody()
+        );
+      if (!matches || matches.length <= 0 || !matches.groups)
+        throw new Error(
+          `Could not get 'from' email address from forwarded email with subject '${message.getSubject()}'`
+        );
+    }
 
     // May be the email address or may be the gmail formatted "from" with angle brackets
     // so return the actual email address
@@ -101,6 +108,27 @@ Email contents ...
     if (fwInd >= 0)
       // Skip the first 6 lines
       return plainBody.substring(fwInd).split("\n").slice(6).join("\n");
+
+    /* Ex:
+
+    Work reimburse
+
+
+転送されたメッセージ:
+
+*差出人:* Lyft Receipts <no-reply@lyftmail.com>
+*日時:* 2024年3月3日 午後7:38:07 GMT-6
+*宛先:* keilahfok@gmail.com
+*件名:* *Your ride with Jorge on March 3*
+
+﻿ Lyft 
+Thanks for riding ...
+    */
+    fwInd = plainBody.indexOf("転送されたメッセージ:");
+    if (fwInd >= 0)
+      // Skip the first 6 lines
+      return plainBody.substring(fwInd).split("\n").slice(6).join("\n");
+
     return plainBody;
   }
 
