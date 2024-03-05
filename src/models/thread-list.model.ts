@@ -451,9 +451,10 @@ Thanks for riding ...
       message: GoogleAppsScript.Gmail.GmailMessage
     ): ReceiptInfo {
       const subject = message.getSubject();
-      // Try to get the cost and name for the message
+      // Try to get the cost, name, and category for the message
       let cost: number | undefined;
       let name: string | undefined;
+      let category: string | undefined;
       const type = "Credit";
 
       // Test if it is a normal chase receipt
@@ -479,12 +480,15 @@ Thanks for riding ...
               message.getPlainBody(),
               chaseBodyMerchantRegExp
             );
-            if (matches) name = matches.name;
+            if (matches) {
+              name = `${matches.name} (Gas)`;
+              category = "Gas";
+            }
           }
         }
       }
 
-      return new Budgeting.ReceiptInfo(message, cost, name, undefined, type);
+      return new Budgeting.ReceiptInfo(message, cost, name, category, type);
     },
     [paypalReceiptEmailAddress]: (message) =>
       getReceiptInfoPaypal(message, false, "TJ"),
