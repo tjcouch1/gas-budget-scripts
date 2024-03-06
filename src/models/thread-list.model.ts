@@ -96,7 +96,7 @@ namespace Budgeting {
 From: American Eagle <ae@notifications.ae.com>
 Date: Mon, Nov 27, 2023 at 9:52 PM
 Subject: Order Confirmed! #0153262784
-To: Keilah <keilahfok@gmail.com>
+To: example <example@gmail.com>
 
 
 
@@ -116,7 +116,7 @@ Begin forwarded message:
 
 *From:* Bare Necessities <DoNotReply@barenecessities.com>
 *Date:* December 11, 2023 at 9:09:41 PM CST
-*To:* Keilah Couch <keilahfok@gmail.com>
+*To:* Example Name <example@gmail.com>
 *Subject:* *Bare Necessities Order # BN23689811 RETURNED Item Confirmation*
 
 Email contents ...
@@ -135,7 +135,7 @@ Email contents ...
 
 *差出人:* Lyft Receipts <no-reply@lyftmail.com>
 *日時:* 2024年3月3日 午後7:38:07 GMT-6
-*宛先:* keilahfok@gmail.com
+*宛先:* example@gmail.com
 *件名:* *Your ride with Jorge on March 3*
 
 ﻿ Lyft 
@@ -353,8 +353,11 @@ Thanks for riding ...
     let finalTypePrefix = typePrefix;
     if (!finalTypePrefix) {
       try {
-        if (getEmailAddress(message.getTo()) === "keilahfok@gmail.com")
-          finalTypePrefix = "Keilah";
+        if (
+          getEmailAddress(message.getTo()) ===
+          Variables.getVariables().ForwardEmailAddress
+        )
+          finalTypePrefix = Variables.getVariables().ForwardName;
       } catch (e) {
         Logger.log(
           `Threw while trying to get email address from ${message.getTo()} to figure out type prefix. Ignoring. ${e}`
@@ -423,8 +426,11 @@ Thanks for riding ...
     let finalTypePrefix = typePrefix;
     if (!finalTypePrefix) {
       try {
-        if (getEmailAddress(message.getTo()) === "keilahfok@gmail.com")
-          finalTypePrefix = "Keilah";
+        if (
+          getEmailAddress(message.getTo()) ===
+          Variables.getVariables().ForwardEmailAddress
+        )
+          finalTypePrefix = Variables.getVariables().ForwardName;
       } catch (e) {
         Logger.log(
           `Threw while trying to get email address from ${message.getTo()} to figure out type prefix. Ignoring. ${e}`
@@ -493,74 +499,93 @@ Thanks for riding ...
     [addressFrom: string]:
       | ((message: GoogleAppsScript.Gmail.GmailMessage) => ReceiptInfo)
       | undefined;
-  } = {
-    "no.reply.alerts@chase.com": function getReceiptInfoChase(
-      message: GoogleAppsScript.Gmail.GmailMessage
-    ): ReceiptInfo {
-      const subject = message.getSubject();
-      // Try to get the cost, name, and category for the message
-      let cost: number | undefined;
-      let name: string | undefined;
-      let category: string | undefined;
-      const type = "Credit";
+  } = new Proxy(
+    {
+      "no.reply.alerts@chase.com": function getReceiptInfoChase(
+        message: GoogleAppsScript.Gmail.GmailMessage
+      ): ReceiptInfo {
+        const subject = message.getSubject();
+        // Try to get the cost, name, and category for the message
+        let cost: number | undefined;
+        let name: string | undefined;
+        let category: string | undefined;
+        const type = "Credit";
 
-      // Test if it is a normal chase receipt
-      let matches = getMessagePartInfo(subject, chaseSubjectReceiptRegExp);
-      if (matches) {
-        cost = matches.cost;
-        name = matches.name;
-      } else {
-        // Test if it is a chase return receipt
-        matches = getMessagePartInfo(subject, chaseSubjectRefundRegExp);
+        // Test if it is a normal chase receipt
+        let matches = getMessagePartInfo(subject, chaseSubjectReceiptRegExp);
         if (matches) {
-          cost = matches.cost! * -1;
-          matches = getMessagePartInfo(
-            message.getPlainBody(),
-            chaseBodyMerchantRegExp
-          );
-          if (matches) name = matches.name;
+          cost = matches.cost;
+          name = matches.name;
         } else {
-          // Test if it is a chase gas receipt
-          matches = getMessagePartInfo(subject, chaseSubjectGasRegExp);
+          // Test if it is a chase return receipt
+          matches = getMessagePartInfo(subject, chaseSubjectRefundRegExp);
           if (matches) {
+            cost = matches.cost! * -1;
             matches = getMessagePartInfo(
               message.getPlainBody(),
               chaseBodyMerchantRegExp
             );
+            if (matches) name = matches.name;
+          } else {
+            // Test if it is a chase gas receipt
+            matches = getMessagePartInfo(subject, chaseSubjectGasRegExp);
             if (matches) {
-              name = `${matches.name} (Gas)`;
-              category = "Gas";
+              matches = getMessagePartInfo(
+                message.getPlainBody(),
+                chaseBodyMerchantRegExp
+              );
+              if (matches) {
+                name = `${matches.name} (Gas)`;
+                category = "Gas";
+              }
             }
           }
         }
-      }
 
-      return new Budgeting.ReceiptInfo(message, cost, name, category, type);
+        return new Budgeting.ReceiptInfo(message, cost, name, category, type);
+      },
+      [paypalReceiptEmailAddress]: (message) =>
+        // Don't assume these are TJ's receipts since Gmail forwarding sends them directly
+        getReceiptInfoPaypal(message, false, undefined),
+      [venmoReceiptEmailAddress]: (message) =>
+        // Don't assume these are TJ's receipts since Gmail forwarding sends them directly
+        getReceiptInfoVenmo(message, false, undefined),
     },
-    [paypalReceiptEmailAddress]: (message) =>
-      // Don't assume these are TJ's receipts since Gmail forwarding sends them directly
-      getReceiptInfoPaypal(message, false, undefined),
-    [venmoReceiptEmailAddress]: (message) =>
-      // Don't assume these are TJ's receipts since Gmail forwarding sends them directly
-      getReceiptInfoVenmo(message, false, undefined),
-    "keilahfok@gmail.com": (message) => {
-      const forwardedFrom = getForwardEmailAddress(message);
+    {
+      get(target, prop) {
+        // Need to proxy the forward email address handler so we aren't using Variables on import to avoid load order issues
+        if (prop === Variables.getVariables().ForwardEmailAddress)
+          return (
+            message: GoogleAppsScript.Gmail.GmailMessage
+          ): ReceiptInfo => {
+            const forwardedFrom = getForwardEmailAddress(message);
 
-      if (forwardedFrom === paypalReceiptEmailAddress)
-        return getReceiptInfoPaypal(message, true, "Keilah");
-      if (forwardedFrom === venmoReceiptEmailAddress)
-        return getReceiptInfoVenmo(message, true, "Keilah");
+            if (forwardedFrom === paypalReceiptEmailAddress)
+              return getReceiptInfoPaypal(
+                message,
+                true,
+                Variables.getVariables().ForwardName
+              );
+            if (forwardedFrom === venmoReceiptEmailAddress)
+              return getReceiptInfoVenmo(
+                message,
+                true,
+                Variables.getVariables().ForwardName
+              );
 
-      // Couldn't process the email. Just return empty message so we make a note
-      return new Budgeting.ReceiptInfo(
-        message,
-        undefined,
-        undefined,
-        undefined,
-        undefined
-      );
-    },
-  };
+            // Couldn't process the email. Just return empty message so we make a note
+            return new Budgeting.ReceiptInfo(
+              message,
+              undefined,
+              undefined,
+              undefined,
+              undefined
+            );
+          };
+        return target[prop];
+      },
+    }
+  );
 
   /**
    * Compares receiptInfos by date in ascending order

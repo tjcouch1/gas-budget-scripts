@@ -20,8 +20,11 @@ namespace Budgeting {
   };
 
   /** TJ Gmail search query for receipt email threads */
-  const tjGmailSearchQuery =
-    "from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR keilahfok@gmail.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ";
+  function getTJGmailSearchQuery() {
+    return `from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR ${
+      Variables.getVariables().ForwardEmailAddress
+    }) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted `;
+  }
 
   /** RegExp pattern matching to transaction sheet name
    *
@@ -87,8 +90,8 @@ namespace Budgeting {
     // Query Gmail for receipt emails
     const threads =
       start !== null && max !== null
-        ? GmailApp.search(tjGmailSearchQuery, start, max)
-        : GmailApp.search(tjGmailSearchQuery);
+        ? GmailApp.search(getTJGmailSearchQuery(), start, max)
+        : GmailApp.search(getTJGmailSearchQuery());
 
     return new Budgeting.ThreadList(threads);
   }

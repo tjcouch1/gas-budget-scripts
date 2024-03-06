@@ -6,6 +6,8 @@ namespace Variables {
     "PayPeriodDays",
     "TemplateName",
     "TaxMultiplier",
+    "ForwardEmailAddress",
+    "ForwardName",
   ] as const;
 
   /** Global variables from the Variables sheet */
@@ -20,6 +22,10 @@ namespace Variables {
     TemplateName: string;
     /** Multiplier to use when computing tax for splitting transactions */
     TaxMultiplier: number;
+    /** Email address of person who is forwarding emails to the main inbox */
+    ForwardEmailAddress: string;
+    /** Name of person who is forwarding emails to the main inbox */
+    ForwardName: string;
   };
 
   /** Names of all sheet variables that must be provided */
