@@ -15,13 +15,14 @@ namespace Budgeting {
   }
 
   /**
-   * RegExp that matches to `message.getFrom()` to get the actual email address
+   * RegExp that matches to `message.getFrom()` and similar as well as normal email addresses to get the actual email address
    *
    * Ex: Chase <no.reply.alerts@chase.com>
+   * Ex: no.reply.alerts@chase.com
    *
    * Named groups: `email`
    */
-  const emailFromRegExp = /<(?<email>.+)>/;
+  const formalEmailAddressRegExp = /(?<email>[^<>\s\u00a0]+@[^<>\s\u00a0]+)/;
 
   /**
    * Get a RegExp modified to match to forwarded email subjects
@@ -31,6 +32,23 @@ namespace Budgeting {
   function getForwardSubjectRegExp(regex: RegExp) {
     // Take off /^ from front and / from back
     return new RegExp(`^Fwd: ${regex.toString().slice(2, -1)}`);
+  }
+
+  /**
+   * Get the email address from an email
+   * @param messageFormalAddress `message.getFrom()` or similar for message for which to get the email address
+   * @returns email address that sent the email message
+   */
+  function getEmailAddress(messageFormalAddress: string) {
+    // Get email address out of the message's formal email address
+    // Ex: Chase <no.reply.alerts@chase.com>
+    const matches = formalEmailAddressRegExp.exec(messageFormalAddress);
+    if (!matches || matches.length <= 0 || !matches.groups)
+      throw new Error(
+        `Could not get email address from ${messageFormalAddress}`
+      );
+    // Actual email address
+    return matches.groups.email;
   }
 
   /**
@@ -46,7 +64,6 @@ namespace Budgeting {
         message.getPlainBody()
       );
     if (!matches || matches.length <= 0 || !matches.groups) {
-      Logger.log(message.getPlainBody());
       matches =
         /転送されたメッセージ.*\s*\r?\n\r?\n?\*?差出人:\*?[ \u00a0](?<email>.+)\r?\n/.exec(
           message.getPlainBody()
@@ -60,7 +77,7 @@ namespace Budgeting {
     // May be the email address or may be the gmail formatted "from" with angle brackets
     // so return the actual email address
     const tentativeFrom = matches.groups.email;
-    const fromMatches = emailFromRegExp.exec(tentativeFrom);
+    const fromMatches = formalEmailAddressRegExp.exec(tentativeFrom);
     return fromMatches && fromMatches.length > 0 && fromMatches.groups
       ? fromMatches.groups.email
       : tentativeFrom;
@@ -319,19 +336,34 @@ Thanks for riding ...
    * Get information about a paypal receipt email
    * @param message email message for which to get receipt info
    * @param isForwarded whether the email was forwarded from others
-   * @param typePrefix prefix to add to the receipt type (and a space added)
+   * @param typePrefix prefix to add to the receipt type (and a space added) if determinable. Will determine from 'to' address if not provided
    * @returns Receipt information
    */
   function getReceiptInfoPaypal(
     message: GoogleAppsScript.Gmail.GmailMessage,
     isForwarded: boolean,
-    typePrefix: string
+    typePrefix: string | undefined
   ): ReceiptInfo {
     const subject = message.getSubject();
     // Try to get the cost and name for the message
     let cost: number | undefined;
     let name: string | undefined;
-    const type = `${typePrefix} Paypal`;
+
+    // Figure out to whom this email was sent and set that to be the type prefix
+    let finalTypePrefix = typePrefix;
+    if (!finalTypePrefix) {
+      try {
+        if (getEmailAddress(message.getTo()) === "keilahfok@gmail.com")
+          finalTypePrefix = "Keilah";
+      } catch (e) {
+        Logger.log(
+          `Threw while trying to get email address from ${message.getTo()} to figure out type prefix. Ignoring. ${e}`
+        );
+      }
+      // Default to TJ if we can't find it
+      if (!finalTypePrefix) finalTypePrefix = "TJ";
+    }
+    const type = `${finalTypePrefix} Paypal`;
 
     // Test if it is a normal paypal receipt
     let matches = getMessagePartInfo(
@@ -374,19 +406,34 @@ Thanks for riding ...
    * Get information about a venmo receipt email
    * @param message email message for which to get receipt info
    * @param isForwarded whether the email was forwarded from others
-   * @param typePrefix prefix to add to the receipt type (and a space added)
+   * @param typePrefix prefix to add to the receipt type (and a space added) if determinable. Will determine from 'to' address if not provided
    * @returns Receipt information
    */
   function getReceiptInfoVenmo(
     message: GoogleAppsScript.Gmail.GmailMessage,
     isForwarded: boolean,
-    typePrefix: string
+    typePrefix: string | undefined
   ): ReceiptInfo {
     const subject = message.getSubject();
     // Try to get the cost and name for the message
     let cost: number | undefined;
     let name: string | undefined;
-    const type = `${typePrefix} Venmo`;
+
+    // Figure out to whom this email was sent and set that to be the type prefix
+    let finalTypePrefix = typePrefix;
+    if (!finalTypePrefix) {
+      try {
+        if (getEmailAddress(message.getTo()) === "keilahfok@gmail.com")
+          finalTypePrefix = "Keilah";
+      } catch (e) {
+        Logger.log(
+          `Threw while trying to get email address from ${message.getTo()} to figure out type prefix. Ignoring. ${e}`
+        );
+      }
+      // Default to TJ if we can't find it
+      if (!finalTypePrefix) finalTypePrefix = "TJ";
+    }
+    const type = `${finalTypePrefix} Venmo`;
 
     // Test if it is a normal venmo receipt
     let matches = getMessagePartInfo(
@@ -491,9 +538,11 @@ Thanks for riding ...
       return new Budgeting.ReceiptInfo(message, cost, name, category, type);
     },
     [paypalReceiptEmailAddress]: (message) =>
-      getReceiptInfoPaypal(message, false, "TJ"),
+      // Don't assume these are TJ's receipts since Gmail forwarding sends them directly
+      getReceiptInfoPaypal(message, false, undefined),
     [venmoReceiptEmailAddress]: (message) =>
-      getReceiptInfoVenmo(message, false, "TJ"),
+      // Don't assume these are TJ's receipts since Gmail forwarding sends them directly
+      getReceiptInfoVenmo(message, false, undefined),
     "keilahfok@gmail.com": (message) => {
       const forwardedFrom = getForwardEmailAddress(message);
 
@@ -588,16 +637,8 @@ Thanks for riding ...
 
           messages.forEach((message) => {
             try {
-              // Get 'from' email address out of the message
-              // Ex: Chase <no.reply.alerts@chase.com>
-              const messageFrom = message.getFrom();
-              const matches = emailFromRegExp.exec(messageFrom);
-              if (!matches || matches.length <= 0 || !matches.groups)
-                throw new Error(
-                  `Could not get 'from' email address from ${messageFrom}`
-                );
-              // Actual 'from' email address
-              const from = matches.groups.email;
+              // Get actual email address
+              const from = getEmailAddress(message.getFrom());
 
               const getReceiptInfo = getReceiptInfoMap[from];
               if (!getReceiptInfo)
