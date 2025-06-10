@@ -4,6 +4,8 @@
   "description": "Google App Script test for budgeting",
   "main": "src/index.ts",
   "scripts": {
+    "login": "clasp login",
+    "logout": "clasp logout",
     "start": "clasp push --watch",
     "push": "clasp push",
     "pull": "clasp pull",
@@ -13,7 +15,7 @@
   "author": "TJ Couch",
   "license": "MIT",
   "devDependencies": {
-    "@google/clasp": "^2.4.2",
-    "@types/google-apps-script": "^1.0.78"
+    "@google/clasp": "^2.5.0",
+    "@types/google-apps-script": "^1.0.98"
   }
 }

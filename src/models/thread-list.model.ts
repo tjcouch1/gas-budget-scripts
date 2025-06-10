@@ -187,7 +187,7 @@ Thanks for riding ...
    * Named groups: `cost`, `name`
    */
   const chaseSubjectReceiptRegExp =
-    /^Your \$(?<cost>.+) transaction with (?<name>.+)$/;
+    /^You made a \$(?<cost>.+) transaction with (?<name>.+)$/;
   /**
    * RegExp pattern matching to Chase's refund receipt email subjects
    *
