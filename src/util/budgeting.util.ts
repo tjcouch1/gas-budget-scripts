@@ -1,11 +1,8 @@
-/// <reference path="./../models/receipt-info.model.ts" />
-/// <reference path="./../models/thread-info.model.ts" />
-/// <reference path="./../models/thread-list.model.ts" />
-/// <reference path="./spreadsheet-util.util.ts" />
-/// <reference path="./util.ts" />
-/// <reference path="./variables.util.ts" />
-
-namespace Budgeting {
+import { ReceiptInfoBase } from "../models/receipt-info.model";
+import { ThreadList } from "../models/thread-list.model";
+import { SpreadsheetUtil } from "./spreadsheet-util.util";
+import { Util } from "./util";
+import { Variables } from "./variables.util";
   /** Sheet that has transactions on it and info about it */
   type TransactionSheetInfo = {
     sheet: GoogleAppsScript.Spreadsheet.Sheet;
@@ -93,7 +90,7 @@ namespace Budgeting {
         ? GmailApp.search(getTJGmailSearchQuery(), start, max)
         : GmailApp.search(getTJGmailSearchQuery());
 
-    return new Budgeting.ThreadList(threads);
+    return new ThreadList(threads);
   }
 
   /**
@@ -819,4 +816,13 @@ namespace Budgeting {
 
     return splitTransactionRange;
   }
-}
+
+export const Budgeting = {
+  getChaseReceipts,
+  getTransactionSheetInfos,
+  addTransactionSheet,
+  addTransactionSheets,
+  getAndRecordReceipts,
+  getTransactionSplitCheckboxesRange,
+  splitTransaction,
+};

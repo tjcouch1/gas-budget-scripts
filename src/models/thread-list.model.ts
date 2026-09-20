@@ -1,5 +1,9 @@
-namespace Budgeting {
-  // #region regexp helper functions and stuff
+import { ReceiptInfoBase, EmptyReceipt, ReceiptInfo } from "./receipt-info.model";
+import { ThreadInfo } from "./thread-info.model";
+import { Variables } from "../util/variables.util";
+import { Util } from "../util/util";
+
+// #region regexp helper functions and stuff
 
   /**
    * Provides a comparison of each character to its unicode code point
@@ -402,7 +406,7 @@ Thanks for riding ...
       }
     }
 
-    return new Budgeting.ReceiptInfo(message, cost, name, undefined, type);
+    return new ReceiptInfo(message, cost, name, undefined, type);
   }
 
   /**
@@ -487,7 +491,7 @@ Thanks for riding ...
       }
     }
 
-    return new Budgeting.ReceiptInfo(message, cost, name, undefined, type);
+    return new ReceiptInfo(message, cost, name, undefined, type);
   }
 
   /**
@@ -542,7 +546,7 @@ Thanks for riding ...
           }
         }
 
-        return new Budgeting.ReceiptInfo(message, cost, name, category, type);
+        return new ReceiptInfo(message, cost, name, category, type);
       },
       [paypalReceiptEmailAddress]: (message) =>
         // Don't assume these are TJ's receipts since Gmail forwarding sends them directly
@@ -574,7 +578,7 @@ Thanks for riding ...
               );
 
             // Couldn't process the email. Just return empty message so we make a note
-            return new Budgeting.ReceiptInfo(
+            return new ReceiptInfo(
               message,
               undefined,
               undefined,
@@ -621,7 +625,7 @@ Thanks for riding ...
         // Add an empty receipt for an error line if the thread has no receipts
         if (receiptInfos.length === 0) {
           receiptInfos.push(
-            new Budgeting.EmptyReceipt(
+            new EmptyReceipt(
               threadInfo.thread.getLastMessageDate(),
               threadInfo.thread
             )
@@ -654,7 +658,7 @@ Thanks for riding ...
       // Map email info into receipt infos
       /** All receipt email info */
       threads.forEach((thread) => {
-        const threadInfo = new Budgeting.ThreadInfo(thread);
+        const threadInfo = new ThreadInfo(thread);
 
         try {
           // Try getting receipt info from each message in the thread
@@ -708,4 +712,3 @@ Thanks for riding ...
       });
     }
   }
-}

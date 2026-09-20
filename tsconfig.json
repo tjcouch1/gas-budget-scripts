@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "lib": ["ES2022"],
     "strict": true,
     "noImplicitAny": false,
-    "noImplicitThis": false,
-    "strictPropertyInitialization": false,
     "skipLibCheck": true,
     "types": ["@types/google-apps-script"]
   },

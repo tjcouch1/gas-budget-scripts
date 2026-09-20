@@ -1,10 +1,5 @@
-/// <reference path="./models/receipt-info.model.ts" />
-/// <reference path="./models/thread-info.model.ts" />
-/// <reference path="./models/thread-list.model.ts" />
-/// <reference path="./util/budgeting.util.ts" />
-/// <reference path="./util/spreadsheet-util.util.ts" />
-/// <reference path="./util/util.ts" />
-/// <reference path="./util/variables.util.ts" />
+import { Budgeting } from "./util/budgeting.util";
+import { Variables } from "./util/variables.util";
 
 /** Menu to add to the spreadsheet and to show in the menu bar on desktop */
 const menu: {
@@ -41,7 +36,7 @@ const menu: {
 };
 
 // WARNING: This doesn't seem to run on mobile
-function onOpen() {
+export function onOpen() {
   // Set up menu bar items (desktop only)
   try {
     const ui = SpreadsheetApp.getUi();
@@ -98,8 +93,17 @@ function onOpen() {
   }
 }
 
+const menuActions: Record<string, () => unknown> = {
+  getAndRecordSomeReceiptsNoMark,
+  getAndRecordReceiptsNoMark,
+  getAndRecordSomeReceiptsAndMark,
+  getAndRecordReceiptsAndMark,
+  addTransactionSheet,
+  addTransactionSheets,
+};
+
 /** onEdit trigger to be installed to run with user's permissions */
-function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
+export function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
   // The whole script is loaded and run every edit, so cache busting is useless
   // Variables.onEdit(e);
 
@@ -146,7 +150,8 @@ function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
 
           if (checkedFunctionName) {
             // Run the function
-            const result = this[checkedFunctionName]();
+            const action = menuActions[checkedFunctionName];
+            const result = action ? action() : undefined;
 
             // Write the return from the function next to the menu item
             e.range
@@ -203,23 +208,23 @@ function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
   }
 }
 
-function getAndRecordSomeReceiptsNoMark() {
+export function getAndRecordSomeReceiptsNoMark() {
   return Budgeting.getAndRecordReceipts(0, 50, false);
 }
 
-function getAndRecordReceiptsNoMark() {
+export function getAndRecordReceiptsNoMark() {
   return Budgeting.getAndRecordReceipts(null, null, false);
 }
 
-function getAndRecordSomeReceiptsAndMark() {
+export function getAndRecordSomeReceiptsAndMark() {
   return Budgeting.getAndRecordReceipts(0, 25, true);
 }
 
-function getAndRecordReceiptsAndMark() {
+export function getAndRecordReceiptsAndMark() {
   return Budgeting.getAndRecordReceipts(null, null, true);
 }
 
-function addTransactionSheet() {
+export function addTransactionSheet() {
   const start = Date.now();
   const didAdd = Budgeting.addTransactionSheet();
   const end = Date.now();
@@ -230,7 +235,7 @@ function addTransactionSheet() {
   return didAdd;
 }
 
-function addTransactionSheets() {
+export function addTransactionSheets() {
   const start = Date.now();
   const numSheetsAdded = Budgeting.addTransactionSheets();
   const end = Date.now();
@@ -242,10 +247,10 @@ function addTransactionSheets() {
 }
 
 // Test scripts
-function logTheadById(id: string) {
+export function logTheadById(id: string) {
   Logger.log(GmailApp.getThreadById(id));
 }
-function logReceipts(
+export function logReceipts(
   start: number | null = 0,
   max: number | null = 10,
   shouldMarkProcessed = false
@@ -257,7 +262,7 @@ function logReceipts(
     `AllReceiptInfos: ${JSON.stringify(threadList.getAllReceiptInfos())}`
   ); */
 }
-function logVariables() {
+export function logVariables() {
   const start = Date.now();
   Logger.log(Variables.getVariables());
   Logger.log(
@@ -268,10 +273,10 @@ function logVariables() {
   const end = Date.now();
   Logger.log(end - start);
 }
-function testLogTransactionSheetInfos() {
+export function testLogTransactionSheetInfos() {
   Logger.log(JSON.stringify(Budgeting.getTransactionSheetInfos()));
 }
-function testRangeCachePerformance() {
+export function testRangeCachePerformance() {
   // 150-200ms
   const range = SpreadsheetApp.getActiveSheet().getRange(1, 1, 100, 100);
   // 75-100ms
@@ -290,7 +295,7 @@ function testRangeCachePerformance() {
   range2.getValues();
   Logger.log(end - start);
 }
-function testSplit() {
+export function testSplit() {
   Logger.log(
     JSON.stringify(
       Budgeting.splitTransaction(SpreadsheetApp.getActiveSheet(), 10)
@@ -321,7 +326,7 @@ const MONTHS = [
  * for this function's return
  * @returns name of sheet offset from this sheet by `off`
  */
-function sheetNameOffset(off: number, _seed: number) {
+export function sheetNameOffset(off: number, _seed: number) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheets = ss.getSheets();
   const offInd = ss.getActiveSheet().getIndex() + off;
@@ -341,7 +346,7 @@ function sheetNameOffset(off: number, _seed: number) {
  * for this function's return
  * @returns name of month offset from `month` by `off`
  */
-function getMonthOffset(month: string, off: number, _seed: number) {
+export function getMonthOffset(month: string, off: number, _seed: number) {
   const monthInd = MONTHS.indexOf(month);
   if (monthInd >= 0) {
     return MONTHS[(monthInd + off) % MONTHS.length];
