@@ -2,18 +2,21 @@
   "name": "gas-budget-script-test",
   "version": "1.0.0",
   "description": "Google App Script test for budgeting",
+  "type": "module",
   "main": "src/index.ts",
   "scripts": {
     "login": "clasp login",
     "logout": "clasp logout",
-    "build": "node build.mjs",
-    "start": "node build.mjs && clasp push --watch",
+    "build": "node scripts/build.ts",
+    "start": "node scripts/build.ts --watch --clasp",
     "push": "pnpm run build && clasp push",
     "pull": "clasp pull",
     "open": "clasp open",
     "connect": "clasp clone SCRIPT_PROJECT_ID",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "prepare": "husky"
   },
   "author": "TJ Couch",
   "license": "MIT",
@@ -21,6 +24,7 @@
     "@google/clasp": "^3.4.1",
     "@types/google-apps-script": "^2.0.13",
     "esbuild": "^0.28.2",
+    "husky": "^9.1.7",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"
   },
