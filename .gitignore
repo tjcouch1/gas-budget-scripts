@@ -131,3 +131,6 @@ dist
 
 # GAS files
 .clasp*.json
+
+# Documentation
+docs/

@@ -1,0 +1,6 @@
+# Ignore all files by default
+**/**
+
+# Whitelist source files and appsscript manifest
+!src/**
+!appsscript.json
