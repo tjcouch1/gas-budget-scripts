@@ -8,7 +8,7 @@
     "logout": "clasp logout",
     "build": "node build.mjs",
     "start": "node build.mjs && clasp push --watch",
-    "push": "npm run build && clasp push",
+    "push": "pnpm run build && clasp push",
     "pull": "clasp pull",
     "open": "clasp open",
     "connect": "clasp clone SCRIPT_PROJECT_ID",
@@ -23,5 +23,9 @@
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"
+  },
+  "volta": {
+    "node": "24.16.0",
+    "pnpm": "10.34.5"
   }
 }
