@@ -257,3 +257,73 @@ describe("addTransactionSheet / addTransactionSheets exports", () => {
     }
   });
 });
+
+describe("script lock for existing entry points", () => {
+  it.each([
+    "getAndRecordSomeReceiptsNoMark",
+    "getAndRecordReceiptsNoMark",
+    "getAndRecordSomeReceiptsAndMark",
+    "getAndRecordReceiptsAndMark",
+  ] as const)(
+    "%s waits for the script lock (30 s) and releases it",
+    async (name) => {
+      const env = getEnv();
+      const mod = await load();
+      expect(mod[name]()).toEqual({});
+      expect(env.GmailApp.searches).toHaveLength(1);
+      expect(env.LockService.scriptLock.calls).toEqual([
+        "waitLock:30000",
+        "release",
+      ]);
+      expect(env.LockService.scriptLock.held).toBe(false);
+    },
+  );
+
+  it("the scheduled import fails loudly without importing when the lock is held elsewhere", async () => {
+    const env = getEnv();
+    env.LockService.scriptLock.contended = true;
+    const { getAndRecordSomeReceiptsAndMark } = await load();
+    expect(() => getAndRecordSomeReceiptsAndMark()).toThrow(/Lock timeout/);
+    expect(env.GmailApp.searches).toEqual([]);
+  });
+
+  it("releases the lock when the import throws", async () => {
+    const env = getEnv();
+    env.GmailApp.search = () => {
+      throw new Error("Gmail down");
+    };
+    const { getAndRecordReceiptsAndMark } = await load();
+    expect(() => getAndRecordReceiptsAndMark()).toThrow("Gmail down");
+    expect(env.LockService.scriptLock.calls).toEqual([
+      "waitLock:30000",
+      "release",
+    ]);
+  });
+
+  it("the split checkbox splits under the script lock and releases it, also on error", async () => {
+    const env = getEnv();
+    const sheet = addTransactionSheet(env, "2/18/24 - 3/2/24");
+    sheet.seed("A5", [[new Date("2024-02-20T12:00:00Z"), "Store", 5]]);
+    const { onEditInstalled } = await load();
+    const check = (a1: string) => {
+      sheet.getRange(a1).setValue(true);
+      onEditInstalled({
+        range: sheet.getRange(a1),
+      } as unknown as GoogleAppsScript.Events.SheetsOnEdit);
+    };
+    check("G5");
+    expect(sheet.getRange("C5").getValue()).toBe("=5-R[1]C[0]");
+    expect(env.LockService.scriptLock.calls).toEqual([
+      "waitLock:30000",
+      "release",
+    ]);
+    // Empty row: the split throws, the box stays checked, the lock is still released
+    expect(() => check("G9")).toThrow(/has no content/);
+    expect(sheet.getRange("G9").getValue()).toBe(true);
+    expect(env.LockService.scriptLock.calls.slice(2)).toEqual([
+      "waitLock:30000",
+      "release",
+    ]);
+    expect(env.LockService.scriptLock.held).toBe(false);
+  });
+});

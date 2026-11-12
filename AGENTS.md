@@ -14,14 +14,16 @@ eslint.config.js, .prettierrc.json, .prettierignore   # root level, cover all pa
 web-plan.md                   # Plan for the PWA frontend + GAS JSON API
 
 packages/budget-scripts-gas/  # @budget/scripts-gas: container-bound GAS project (TypeScript)
-  src/index.ts                #   GAS entry point: triggers, menu actions, custom sheet formulas (all exported)
-  src/util/budgeting.util.ts  #   Receipt import, transaction sheet creation, splitTransaction
+  src/index.ts                #   GAS entry point: triggers, menu actions, custom sheet formulas, doGet/doPost (all exported)
+  src/api/                    #   Web App JSON API: router (doGet/doPost), auth (API_KEY), handlers, serialize (DTOs)
+  src/util/budgeting.util.ts  #   Receipt import (recordReceiptsCore), transaction sheet creation, splitTransaction (N children)
+  src/util/lock.util.ts       #   Script-lock helpers shared by the API and existing entry points
   src/util/variables.util.ts  #   Variables!A1:B10 + per-sheet SheetVariables readers (memoized)
   src/util/util.ts, spreadsheet-util.util.ts
   src/models/                 #   receipt-info, thread-info, thread-list (Gmail parsing)
   scripts/build.ts            #   esbuild bundler -> dist/index.js (+ top-level GAS function footer)
   test/*.test.ts              #   Vitest characterization tests
-  test/gas-mocks/             #   In-memory SpreadsheetApp / GmailApp / Logger mocks
+  test/gas-mocks/             #   In-memory SpreadsheetApp / GmailApp / Logger / PropertiesService / LockService / ContentService / Utilities mocks
   appsscript.json             #   GAS manifest (copied to dist/ by the build)
   .claspignore                #   clasp whitelist; the gitignored .clasp.json also lives in this package
   tsconfig.json, tsconfig.test.json, vitest.config.ts
@@ -36,7 +38,7 @@ packages/budget-shared/       # @budget/shared: source-only pure TS (no build st
 
 Paths such as `src/`, `test/`, `scripts/` in the rules below are relative to `packages/budget-scripts-gas/` unless stated otherwise.
 
-**Planned (not yet present):** `packages/budget-web` (`@budget/web`, React/Vite PWA), plus the GAS API work, per `web-plan.md` Steps 2-4. Package-scoped commands: `pnpm --filter @budget/scripts-gas run <script>`. Root `push`/`start`/`login`/`open`/`pull`/`connect` delegate to the GAS package. Update this section as packages land.
+**Planned (not yet present):** `packages/budget-web` (`@budget/web`, React/Vite PWA), per `web-plan.md` Steps 3-4. The GAS API (Step 2) is implemented. Package-scoped commands: `pnpm --filter @budget/scripts-gas run <script>`. Root `push`/`start`/`login`/`open`/`pull`/`connect` delegate to the GAS package. Update this section as packages land.
 
 ---
 

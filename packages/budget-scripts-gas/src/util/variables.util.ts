@@ -42,6 +42,16 @@ export type SheetVariables = {
   TransactionsMax: number;
   /** Location of the first checkbox to click to split a transaction into two - A1 notation */
   SplitCheckboxesStart: string;
+  // Optional keys (web-plan.md section 3.3). Deliberately NOT in SHEET_VARIABLE_NAMES so older tabs
+  // without them keep working for receipt import and native splitting.
+  /** Optional: first envelope-name data cell of the Envelope table - A1 notation */
+  EnvelopesStart?: string;
+  /** Optional: max number of envelope rows */
+  EnvelopesMax?: number;
+  /** Optional: first data cell of the Paid With table (left-most column = option names) - A1 notation */
+  PaidWithStart?: string;
+  /** Optional: max number of rows in the Paid With table */
+  PaidWithMax?: number;
 };
 
 const VARIABLES_SHEET_NAME = "Variables";

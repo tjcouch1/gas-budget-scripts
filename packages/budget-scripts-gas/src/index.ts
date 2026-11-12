@@ -1,5 +1,10 @@
 import { Budgeting } from "./util/budgeting.util";
+import { withScriptLock } from "./util/lock.util";
 import { Variables } from "./util/variables.util";
+
+// Web App JSON API (web-plan.md section 4.4) and its one-time setup helper
+export { doGet, doPost } from "./api/router";
+export { setupGenerateApiKey } from "./api/auth";
 
 /**
  * Functions that can be run from the in-sheet checkbox menu. Looked up by name because the bundle has no
@@ -192,44 +197,52 @@ export function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
           /** The row of the checked transaction relative to the start of the transactions */
           const checkedTransactionIndex = editRow - checkboxesRowBase;
 
-          const result = Budgeting.splitTransaction(
-            editSheet,
-            checkedTransactionIndex,
-          );
+          // Hold the script lock so a web app edit or receipt import cannot interleave
+          withScriptLock(() => {
+            const result = Budgeting.splitTransaction(
+              editSheet,
+              checkedTransactionIndex,
+            );
 
-          // Set selected cell to the cost of the new bottom transaction
-          SpreadsheetApp.setActiveRange(
-            result.offset(
-              result.getNumRows() - 1,
-              result.getNumColumns() - 1,
-              1,
-              1,
-            ),
-          );
+            // Set selected cell to the cost of the new bottom transaction
+            SpreadsheetApp.setActiveRange(
+              result.offset(
+                result.getNumRows() - 1,
+                result.getNumColumns() - 1,
+                1,
+                1,
+              ),
+            );
 
-          // Uncheck the checkbox. Note: this will not happen if an error occurs
-          // to keep a record of the error
-          e.range.setValue("FALSE");
+            // Uncheck the checkbox. Note: this will not happen if an error occurs
+            // to keep a record of the error
+            e.range.setValue("FALSE");
+          });
         }
       }
     }
   }
 }
 
+// The receipt imports hold the script lock so the scheduled import and a web app sync cannot
+// record the same threads twice. If the lock is not free within 30 s they throw (fail loudly).
+
 export function getAndRecordSomeReceiptsNoMark() {
-  return Budgeting.getAndRecordReceipts(0, 50, false);
+  return withScriptLock(() => Budgeting.getAndRecordReceipts(0, 50, false));
 }
 
 export function getAndRecordReceiptsNoMark() {
-  return Budgeting.getAndRecordReceipts(null, null, false);
+  return withScriptLock(() =>
+    Budgeting.getAndRecordReceipts(null, null, false),
+  );
 }
 
 export function getAndRecordSomeReceiptsAndMark() {
-  return Budgeting.getAndRecordReceipts(0, 25, true);
+  return withScriptLock(() => Budgeting.getAndRecordReceipts(0, 25, true));
 }
 
 export function getAndRecordReceiptsAndMark() {
-  return Budgeting.getAndRecordReceipts(null, null, true);
+  return withScriptLock(() => Budgeting.getAndRecordReceipts(null, null, true));
 }
 
 export function addTransactionSheet() {

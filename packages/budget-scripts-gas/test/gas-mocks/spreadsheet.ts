@@ -109,6 +109,10 @@ export class MockRange {
   getFormulas() {
     return this.map((cell) => cell.formula);
   }
+  /** Formula text is stored verbatim (tests write R1C1-style text), so this matches getFormulas */
+  getFormulasR1C1() {
+    return this.getFormulas();
+  }
   getValue() {
     return this.getValues()[0][0];
   }
@@ -266,6 +270,9 @@ export class MockSpreadsheet {
   }
   getSheets() {
     return [...this.sheets];
+  }
+  getSpreadsheetTimeZone() {
+    return "America/Chicago";
   }
   getSheetByName(name: string): any {
     return this.sheets.find((s) => s.getName() === name) ?? null;

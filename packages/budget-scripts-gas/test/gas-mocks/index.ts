@@ -1,7 +1,14 @@
 import { MockGmailApp } from "./gmail";
+import {
+  MockContentService,
+  MockLockService,
+  MockPropertiesService,
+  MockUtilities,
+} from "./services";
 import { MockSpreadsheet, MockSpreadsheetApp } from "./spreadsheet";
 
 export * from "./gmail";
+export * from "./services";
 export * from "./spreadsheet";
 
 /** Sheet handle typed loosely: the mock implements only a subset of the real Sheet interface */
@@ -12,6 +19,10 @@ export interface GasEnv {
   spreadsheet: MockSpreadsheet;
   SpreadsheetApp: MockSpreadsheetApp;
   GmailApp: MockGmailApp;
+  PropertiesService: MockPropertiesService;
+  LockService: MockLockService;
+  ContentService: MockContentService;
+  Utilities: MockUtilities;
   logs: unknown[];
 }
 
@@ -41,12 +52,20 @@ export function installGasGlobals(): GasEnv {
     spreadsheet,
     SpreadsheetApp: new MockSpreadsheetApp(spreadsheet),
     GmailApp: new MockGmailApp(),
+    PropertiesService: new MockPropertiesService(),
+    LockService: new MockLockService(),
+    ContentService: new MockContentService(),
+    Utilities: new MockUtilities(),
     logs,
   };
   currentEnv = env;
   Object.assign(globalThis, {
     SpreadsheetApp: env.SpreadsheetApp,
     GmailApp: env.GmailApp,
+    PropertiesService: env.PropertiesService,
+    LockService: env.LockService,
+    ContentService: env.ContentService,
+    Utilities: env.Utilities,
     Logger: {
       log: (...args: unknown[]) =>
         logs.push(args.length === 1 ? args[0] : args),

@@ -123,6 +123,12 @@ export interface EnvelopeRowDto {
   values: (number | null)[];
 }
 
+/** `doGet` response data (unauthenticated connectivity check). */
+export interface ServiceInfoDto {
+  service: "budget-api";
+  apiVersion: typeof API_VERSION;
+}
+
 export interface PayPeriodStateDto {
   sheets: SheetInfoDto[];
   sheetName: string;
@@ -136,7 +142,10 @@ export interface PayPeriodStateDto {
 }
 
 export interface SyncReceiptsResultDto {
+  /** Total number of receipt rows added across all sheets. */
   receiptInfosAdded: number;
+  /** Receipt rows added per transaction sheet name (only sheets that got rows). */
+  receiptInfosAddedBySheet?: Record<string, number>;
   numErrors: number;
   errors: string[];
   state: PayPeriodStateDto;
