@@ -46,8 +46,16 @@ export function applyChangesToRow(
 export function applySplitToParent(
   row: TransactionRowDto,
   splitTotal: number,
+  parent: { itemNote?: string; envelope?: string } = {},
 ): TransactionRowDto {
-  const next = { ...row, name: buildSplitParentName(row.name) };
+  const next = {
+    ...row,
+    name:
+      parent.itemNote === undefined
+        ? buildSplitParentName(row.name)
+        : buildSplitChildName(row.name, parent.itemNote),
+  };
+  if (parent.envelope !== undefined) next.envelope = parent.envelope;
   if (next.cost !== null) {
     next.cost = Math.round((next.cost - splitTotal) * 100) / 100;
     next.costDisplay = formatMoney(next.cost);
@@ -64,7 +72,10 @@ export function proposedRow(
   if (mutation.action === "updateTransaction") {
     return applyChangesToRow(base, mutation.payload.changes, taxMultiplier);
   }
-  return applySplitToParent(base, 0);
+  return applySplitToParent(base, 0, {
+    itemNote: mutation.payload.parentItemNote,
+    envelope: mutation.payload.parentEnvelope,
+  });
 }
 
 /** What `buildViewRows` needs of a sheet: a pay-period state or one tab of the all-sheets view. */
@@ -150,7 +161,10 @@ export function buildViewRows(
           });
         });
         row = {
-          ...applySplitToParent(row, total),
+          ...applySplitToParent(row, total, {
+            itemNote: m.payload.parentItemNote,
+            envelope: m.payload.parentEnvelope,
+          }),
           key: row.key,
           pending: true,
           splitPending: true,

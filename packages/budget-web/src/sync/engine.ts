@@ -14,12 +14,15 @@ import type {
   Notice,
   PersistedEngine,
   QueuedMutation,
+  SavedMark,
   SplitMutation,
   UpdateMutation,
 } from "./types.ts";
 
 const PERSIST_KEY = "engine";
 const DEFAULT_RETRY_DELAYS_MS = [2000, 5000, 15000, 30000];
+/** How long a row shows "Saved ✓". */
+const SAVED_MARK_MS = 3000;
 
 export interface SyncEngineOptions {
   callApi: CallApi;
@@ -91,6 +94,7 @@ export class SyncEngine {
     loadingAll: false,
     queue: [],
     conflicts: [],
+    recentlySaved: [],
     refreshing: false,
     flushing: false,
     syncingReceipts: false,
@@ -370,6 +374,7 @@ export class SyncEngine {
     sheetName: string,
     row: TransactionRowDto,
     splits: SplitItemInput[],
+    parent: { itemNote?: string; envelope?: string } = {},
   ): void {
     const mutation: SplitMutation = {
       id: this.newId(),
@@ -379,7 +384,15 @@ export class SyncEngine {
       baseRow: row,
       createdAt: this.now(),
       action: "splitTransaction",
-      payload: { splits },
+      payload: {
+        splits,
+        ...(parent.itemNote !== undefined
+          ? { parentItemNote: parent.itemNote }
+          : {}),
+        ...(parent.envelope !== undefined
+          ? { parentEnvelope: parent.envelope }
+          : {}),
+      },
     };
     this.set({ queue: [...this.snapshot.queue, mutation] }, true);
     void this.flush();
@@ -438,6 +451,12 @@ export class SyncEngine {
           rowIndex: m.rowIndex,
           baseFingerprint: m.baseFingerprint,
           splits: m.payload.splits,
+          ...(m.payload.parentItemNote !== undefined
+            ? { parentItemNote: m.payload.parentItemNote }
+            : {}),
+          ...(m.payload.parentEnvelope !== undefined
+            ? { parentEnvelope: m.payload.parentEnvelope }
+            : {}),
         });
         this.onSplitSucceeded(m, data);
       }
@@ -479,6 +498,23 @@ export class SyncEngine {
       );
     }
     this.set({ queue, states, all }, true);
+    this.markSaved(m.sheetName, [m.rowIndex]);
+  }
+
+  /** Shows "Saved ✓" on rows the sheet just confirmed; it clears itself after a few seconds. */
+  private markSaved(sheetName: string, rowIndexes: number[]): void {
+    const marks: SavedMark[] = rowIndexes.map((rowIndex) => ({
+      sheetName,
+      rowIndex,
+    }));
+    this.set({ recentlySaved: [...this.snapshot.recentlySaved, ...marks] });
+    setTimeout(() => {
+      this.set({
+        recentlySaved: this.snapshot.recentlySaved.filter(
+          (s) => !marks.includes(s),
+        ),
+      });
+    }, SAVED_MARK_MS);
   }
 
   private onSplitSucceeded(m: SplitMutation, data: PayPeriodStateDto): void {
@@ -527,6 +563,13 @@ export class SyncEngine {
       void this.refresh(m.sheetName);
     }
     this.set({ queue, states, all, conflicts }, true);
+    this.markSaved(
+      m.sheetName,
+      Array.from(
+        { length: m.payload.splits.length + 1 },
+        (_, i) => m.rowIndex + i,
+      ),
+    );
   }
 
   private findRowByFingerprint(

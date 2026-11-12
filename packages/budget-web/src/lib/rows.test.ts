@@ -6,6 +6,7 @@ import {
   isSplitParent,
   orderEnvelopeOptions,
   stateRows,
+  type ViewRow,
 } from "./rows.ts";
 
 const rows = stateRows(
@@ -58,5 +59,18 @@ describe("orderEnvelopeOptions", () => {
       "A",
       "B",
     ]);
+  });
+});
+
+describe("groupRows keep predicate", () => {
+  it("keeps rows that no longer match the filter while the predicate says so", () => {
+    const aldi: ViewRow = { ...makeRow(0, { envelope: "Gas" }), key: "row:0" };
+    const shell: ViewRow = { ...makeRow(1), key: "row:1" };
+    expect(
+      groupRows([aldi, shell], "uncategorized", "").map((g) => g.id),
+    ).toEqual(["r:row:1"]);
+    expect(
+      groupRows([aldi, shell], "uncategorized", "", (r) => r.key === "row:0"),
+    ).toHaveLength(2);
   });
 });

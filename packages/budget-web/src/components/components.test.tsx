@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  within,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConflictDialog } from "./ConflictDialog.tsx";
 import { EnvelopesView } from "./EnvelopesView.tsx";
@@ -10,67 +16,104 @@ import { makeRow, makeState } from "../test/fixtures.ts";
 import type { EngineSnapshot, Conflict } from "../sync/types.ts";
 
 describe("SplitEditor", () => {
-  function setup(parentValue: number | null = 50) {
+  function setup(
+    parentValue: number | null = 50,
+    parentName = "Target",
+    parentEnvelope = "",
+  ) {
     const onSubmit = vi.fn();
+    const onClose = vi.fn();
     render(
       <SplitEditor
-        parentName="Target"
+        parentName={parentName}
         parentValue={parentValue}
+        parentEnvelope={parentEnvelope}
         taxMultiplier={1.0825}
         envelopeOptions={["Groceries", "Gas"]}
         onSubmit={onSubmit}
-        onCancel={() => {}}
+        onClose={onClose}
       />,
     );
-    return { onSubmit, user: userEvent.setup() };
+    return { onSubmit, onClose, user: userEvent.setup() };
   }
+  const saveSplit = () => screen.getByRole("button", { name: "Save split" });
 
   it("shows live remaining-to-allocate from inline math", async () => {
     const { user } = setup();
-    expect(screen.getByTestId("remaining")).toHaveTextContent("$50.00");
+    expect(screen.getByTestId("remaining")).toHaveValue("$50.00");
     await user.type(screen.getByLabelText("Item 1 amount"), "4.23*2+12.09");
     expect(screen.getByLabelText("Item 1 value")).toHaveTextContent("$20.55");
-    expect(screen.getByTestId("remaining")).toHaveTextContent("$29.45");
+    expect(screen.getByTestId("remaining")).toHaveValue("$29.45");
   });
 
   it("applies the tax multiplier for pre-tax items", async () => {
     const { user } = setup(20);
     await user.type(screen.getByLabelText("Item 1 amount"), "10");
-    await user.click(screen.getAllByLabelText(/Add tax/)[0]);
+    // The first (original) card's tax toggle is disabled; item 1's is the second.
+    await user.click(screen.getAllByLabelText(/Add tax/)[1]);
     expect(screen.getByLabelText("Item 1 value")).toHaveTextContent("$10.83");
-    expect(screen.getByTestId("remaining")).toHaveTextContent("$9.18");
+    expect(screen.getByTestId("remaining")).toHaveValue("$9.18");
   });
 
-  it("disables Split for invalid expressions and over-allocation", async () => {
+  it("disables Save split for invalid expressions and over-allocation", async () => {
     const { user } = setup(10);
-    const submit = screen.getByRole("button", { name: "Split" });
-    expect(submit).toBeDisabled();
+    expect(saveSplit()).toBeDisabled();
     await user.type(screen.getByLabelText("Item 1 amount"), "1+");
-    expect(submit).toBeDisabled();
+    expect(saveSplit()).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "+ Add item" }));
     await user.type(screen.getByLabelText("Item 2 amount"), "2");
-    expect(submit).toBeDisabled(); // item 1 still invalid
+    expect(saveSplit()).toBeDisabled(); // item 1 still invalid
     await user.type(screen.getByLabelText("Item 1 amount"), "1");
-    expect(submit).toBeEnabled();
+    expect(saveSplit()).toBeEnabled();
     await user.clear(screen.getByLabelText("Item 2 amount"));
     await user.type(screen.getByLabelText("Item 2 amount"), "99");
-    expect(submit).toBeDisabled();
+    expect(saveSplit()).toBeDisabled();
     expect(screen.getByTestId("remaining")).toHaveClass("text-red-600");
     expect(screen.getByRole("alert")).toHaveTextContent(
       /more than the original/,
     );
   });
 
-  it("starts with the original entry and one empty item", () => {
-    setup(50);
+  it("starts with a locked-cost original card and one empty item card", () => {
+    setup(50, "Target | cart", "Gas");
     const original = screen.getByTestId("original-entry");
     expect(original).toHaveTextContent("Remaining on original");
-    expect(within(original).queryByRole("textbox")).toBeNull(); // locked
-    expect(screen.getByTestId("remaining")).toHaveTextContent("$50.00");
-    expect(screen.getByLabelText("Item 1 amount")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Item 2 amount")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Fill rest" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Remove item" })).toBeNull();
+    // Cost and tax are read-only; note and envelope are editable.
+    expect(within(original).getByLabelText("Original amount")).toBeDisabled();
+    expect(within(original).getByLabelText(/Add tax/)).toBeDisabled();
+    expect(within(original).getByLabelText("Original note")).toHaveValue(
+      "cart",
+    );
+    expect(within(original).getByTestId("name-prefix")).toHaveTextContent(
+      "Target |",
+    );
+    expect(within(original).getByLabelText("Original envelope")).toHaveValue(
+      "Gas",
+    );
+    expect(
+      within(original).queryByRole("button", { name: /Remove/ }),
+    ).toBeNull();
+    expect(screen.getByTestId("remaining")).toHaveValue("$50.00");
+    expect(screen.getAllByTestId("split-item")).toHaveLength(1);
+    expect(screen.getByLabelText("Item 1 amount")).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull(); // only one item
+  });
+
+  it("puts each item's remove button on the card, not in the note input", async () => {
+    const { user } = setup(50);
+    await user.click(screen.getByRole("button", { name: "+ Add item" }));
+    const cards = screen.getAllByTestId("split-item");
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      const remove = within(card).getByRole("button", { name: /Remove item/ });
+      expect(remove.parentElement?.parentElement).toBe(card);
+      expect(card.querySelector("input")?.contains(remove)).toBe(false);
+    }
+    expect(
+      within(screen.getByTestId("original-entry")).queryByRole("button", {
+        name: /Remove/,
+      }),
+    ).toBeNull();
   });
 
   it("adds and removes items, each reducing the original", async () => {
@@ -78,13 +121,13 @@ describe("SplitEditor", () => {
     await user.type(screen.getByLabelText("Item 1 amount"), "10");
     await user.click(screen.getByRole("button", { name: "+ Add item" }));
     await user.type(screen.getByLabelText("Item 2 amount"), "15");
-    expect(screen.getByTestId("remaining")).toHaveTextContent("$25.00");
-    await user.click(screen.getAllByRole("button", { name: "Remove item" })[0]);
-    expect(screen.getByTestId("remaining")).toHaveTextContent("$35.00");
+    expect(screen.getByTestId("remaining")).toHaveValue("$25.00");
+    await user.click(screen.getByRole("button", { name: "Remove item 1" }));
+    expect(screen.getByTestId("remaining")).toHaveValue("$35.00");
     expect(screen.queryByLabelText("Item 2 amount")).toBeNull();
   });
 
-  it("submits the split items with envelopes", async () => {
+  it("submits the split items with envelopes, sending no parent fields when unchanged", async () => {
     const { user, onSubmit } = setup(50);
     await user.type(screen.getByLabelText("Item 1 note"), "milk");
     await user.type(screen.getByLabelText("Item 1 amount"), "3.5");
@@ -94,24 +137,68 @@ describe("SplitEditor", () => {
     );
     await user.click(screen.getByRole("button", { name: "+ Add item" }));
     await user.type(screen.getByLabelText("Item 2 amount"), "4*2");
-    await user.click(screen.getAllByLabelText(/Add tax/)[1]);
-    await user.click(screen.getByRole("button", { name: "Split" }));
-    expect(onSubmit).toHaveBeenCalledWith([
-      {
-        itemNote: "milk",
-        expression: "3.5",
-        preTax: false,
-        envelope: "Groceries",
-      },
-      { itemNote: "", expression: "4*2", preTax: true, envelope: "" },
-    ]);
+    await user.click(screen.getAllByLabelText(/Add tax/)[2]);
+    await user.click(saveSplit());
+    expect(onSubmit).toHaveBeenCalledWith(
+      [
+        {
+          itemNote: "milk",
+          expression: "3.5",
+          preTax: false,
+          envelope: "Groceries",
+        },
+        { itemNote: "", expression: "4*2", preTax: true, envelope: "" },
+      ],
+      {},
+    );
   });
 
-  it("rejects an item note that would be a formula", async () => {
+  it("submits the original's edited note and envelope", async () => {
+    const { user, onSubmit } = setup(50);
+    await user.type(screen.getByLabelText("Original note"), "household");
+    await user.selectOptions(screen.getByLabelText("Original envelope"), "Gas");
+    await user.type(screen.getByLabelText("Item 1 amount"), "5");
+    await user.click(saveSplit());
+    expect(onSubmit).toHaveBeenCalledWith(expect.any(Array), {
+      itemNote: "household",
+      envelope: "Gas",
+    });
+  });
+
+  it("rejects notes that would be formulas", async () => {
     const { user } = setup(50);
     await user.type(screen.getByLabelText("Item 1 note"), "=1+1");
     await user.type(screen.getByLabelText("Item 1 amount"), "1");
-    expect(screen.getByRole("button", { name: "Split" })).toBeDisabled();
+    expect(saveSplit()).toBeDisabled();
+    await user.clear(screen.getByLabelText("Item 1 note"));
+    expect(saveSplit()).toBeEnabled();
+    await user.type(screen.getByLabelText("Original note"), "@x");
+    expect(saveSplit()).toBeDisabled();
+  });
+
+  it("closes at once when nothing changed, otherwise asks Save / Discard / Go back", async () => {
+    const { user, onClose, onSubmit } = setup(50);
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    await user.type(screen.getByLabelText("Item 1 amount"), "5");
+    expect(screen.getByTestId("dirty-indicator")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    const prompt = screen.getByRole("alertdialog", { name: "Unsaved changes" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await user.click(within(prompt).getByRole("button", { name: "Go back" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(onSubmit).not.toHaveBeenCalled();
+    // The mocked onClose does not unmount, so dismiss the prompt again.
+    await user.click(screen.getByRole("button", { name: "Go back" }));
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -141,12 +228,25 @@ describe("TransactionSheet", () => {
     );
     return { onChange, onSplit, onClose, user: userEvent.setup() };
   }
+  const saveClose = () => screen.getByRole("button", { name: "Save & close" });
 
   it("assigns an envelope with one tap and closes", async () => {
     const { user, onChange, onClose } = setup();
     await user.click(screen.getByRole("button", { name: /Groceries/ }));
     expect(onChange).toHaveBeenCalledWith({ envelope: "Groceries" });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("saves staged edits together with the envelope on a chip tap", async () => {
+    const { user, onChange, onClose } = setup();
+    await user.type(screen.getByLabelText("Name"), " Market");
+    await user.click(screen.getByRole("button", { name: /Groceries/ }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({
+      name: "Aldi Market",
+      envelope: "Groceries",
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("shows envelope balances on chips, negative ones in red", () => {
@@ -169,18 +269,20 @@ describe("TransactionSheet", () => {
     expect(screen.queryByLabelText("Paid with")).toBeNull();
   });
 
-  it("edits cost with inline math and a tax toggle", async () => {
-    const { user, onChange } = setup();
+  it("stages cost edits (inline math and tax toggle) until Save & close", async () => {
+    const { user, onChange, onClose } = setup();
     const input = screen.getByLabelText("Cost");
     await user.clear(input);
     await user.type(input, "2*3+1");
-    expect(screen.getByRole("button", { name: "Save cost" })).toBeEnabled();
     await user.click(screen.getByLabelText(/Add tax/));
-    await user.click(screen.getByRole("button", { name: "Save cost" }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("dirty-indicator")).toBeInTheDocument();
+    await user.click(saveClose());
     expect(onChange).toHaveBeenCalledWith({
       costExpression: "2*3+1",
       costPreTax: true,
     });
+    expect(onClose).toHaveBeenCalled();
   });
 
   it("blocks an invalid cost", async () => {
@@ -188,7 +290,47 @@ describe("TransactionSheet", () => {
     const input = screen.getByLabelText("Cost");
     await user.clear(input);
     await user.type(input, "2/0");
-    expect(screen.getByRole("button", { name: "Save cost" })).toBeDisabled();
+    expect(saveClose()).toBeDisabled();
+  });
+
+  it("edits the name in the title and saves it", async () => {
+    const { user, onChange } = setup();
+    const title = screen.getByLabelText("Name");
+    expect(title).toHaveValue("Aldi");
+    await user.clear(title);
+    await user.type(title, "Aldi Foods");
+    await user.click(saveClose());
+    expect(onChange).toHaveBeenCalledWith({ name: "Aldi Foods" });
+  });
+
+  it("edits only the item note of a split row, keeping the merchant prefix", async () => {
+    const { user, onChange } = setup(
+      { splitGroupId: "g", name: "Aldi | milk" },
+      { isSplitChild: true },
+    );
+    expect(screen.getByTestId("name-prefix")).toHaveTextContent("Aldi |");
+    const note = screen.getByLabelText("Item note");
+    expect(note).toHaveValue("milk");
+    await user.clear(note);
+    await user.type(note, "oat milk");
+    await user.click(saveClose());
+    expect(onChange).toHaveBeenCalledWith({ name: "Aldi | oat milk" });
+  });
+
+  it("keeps the split parent's note editable but not its cost", async () => {
+    const { user, onChange } = setup(
+      {
+        splitGroupId: "g",
+        name: "Aldi | ",
+        costFormula: "=10-R[1]C[0]",
+      },
+      { isSplitParent: true },
+    );
+    expect(screen.queryByLabelText("Cost")).toBeNull();
+    expect(screen.getByText(/split parent/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Item note"), "cart");
+    await user.click(saveClose());
+    expect(onChange).toHaveBeenCalledWith({ name: "Aldi | cart" });
   });
 
   it("opens the split editor from the Split button", async () => {
@@ -197,17 +339,11 @@ describe("TransactionSheet", () => {
     await user.type(screen.getByLabelText("Item 1 amount"), "3");
     await user.click(screen.getByRole("button", { name: "+ Add item" }));
     await user.type(screen.getByLabelText("Item 2 amount"), "2");
-    await user.click(screen.getByRole("button", { name: "Split" }));
+    await user.click(screen.getByRole("button", { name: "Save split" }));
     expect(onSplit).toHaveBeenCalledTimes(1);
     expect(onSplit.mock.calls[0][0]).toHaveLength(2);
+    expect(onSplit.mock.calls[0][1]).toEqual({});
     expect(onClose).toHaveBeenCalled();
-  });
-
-  it("hides cost editing for split parents and name editing for split rows", () => {
-    setup({ splitGroupId: "g", name: "Aldi | " }, { isSplitParent: true });
-    expect(screen.queryByLabelText("Cost")).toBeNull();
-    expect(screen.getByText(/split parent/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Name")).toBeDisabled();
   });
 
   it("hides Split on split children", () => {
@@ -220,7 +356,7 @@ describe("TransactionSheet", () => {
     await user.click(screen.getByText("Edit details"));
     await user.selectOptions(screen.getByLabelText("Paid with"), "Pat Venmo");
     await user.click(screen.getByLabelText("Tax deductible"));
-    await user.click(screen.getByRole("button", { name: "Save details" }));
+    await user.click(saveClose());
     expect(onChange).toHaveBeenCalledWith({
       paidWith: "Pat Venmo",
       taxDeductible: "Yes",
@@ -229,11 +365,55 @@ describe("TransactionSheet", () => {
 
   it("blocks a name that would be a formula", async () => {
     const { user } = setup();
-    await user.click(screen.getByText("Edit details"));
     const name = screen.getByLabelText("Name");
     await user.clear(name);
     await user.type(name, "=cmd()");
-    expect(screen.getByRole("button", { name: "Save details" })).toBeDisabled();
+    expect(saveClose()).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/cannot start/);
+    expect(screen.getByRole("button", { name: /Groceries/ })).toBeDisabled();
+  });
+
+  it("closes without a prompt when nothing changed", async () => {
+    const { user, onClose, onChange } = setup();
+    expect(screen.queryByTestId("dirty-indicator")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("asks Save / Discard / Go back when dismissed with unsaved changes", async () => {
+    const { user, onClose, onChange } = setup();
+    await user.type(screen.getByLabelText("Name"), "x");
+    // Escape and the backdrop use the same path as the close button.
+    await user.keyboard("{Escape}");
+    expect(
+      screen.getByRole("alertdialog", { name: "Unsaved changes" }),
+    ).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByLabelText("Name")).toHaveValue("Aldix");
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Go back" }));
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onChange).toHaveBeenCalledWith({ name: "Aldix" });
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("dismisses on dragging the handle down, with the and closes straight away when clean", async () => {
+    const { onClose } = setup();
+    const handle = screen.getByTestId("drag-handle");
+    fireEvent.pointerDown(handle, { clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientY: 260, pointerId: 1 });
+    fireEvent.pointerUp(handle, { clientY: 260, pointerId: 1 });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -346,6 +526,7 @@ describe("StatusPill", () => {
     loadingAll: false,
     queue: [],
     conflicts: [],
+    recentlySaved: [],
     refreshing: false,
     flushing: false,
     syncingReceipts: false,

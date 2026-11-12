@@ -58,6 +58,8 @@ export function groupRows(
   rows: ViewRow[],
   filter: FilterId,
   query: string,
+  /** Rows that stay listed even when they no longer match (e.g. just categorized, still saving). */
+  keep: (row: ViewRow) => boolean = () => false,
 ): RowGroup[] {
   const groups: RowGroup[] = [];
   for (const row of rows) {
@@ -73,7 +75,9 @@ export function groupRows(
     }
   }
   return groups.filter((g) =>
-    g.rows.some((r) => matchesFilter(r, filter) && matchesSearch(r, query)),
+    g.rows.some(
+      (r) => keep(r) || (matchesFilter(r, filter) && matchesSearch(r, query)),
+    ),
   );
 }
 

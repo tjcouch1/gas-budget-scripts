@@ -18,15 +18,48 @@ import type { EngineSnapshot } from "../sync/types.ts";
 import { TransactionSheet } from "./TransactionSheet.tsx";
 import { inputClass } from "./ui.tsx";
 
+type SaveStatus = "conflict" | "offline" | "saving" | "saved";
+
+const STATUS_LABEL: Record<SaveStatus, string> = {
+  conflict: "Conflict",
+  offline: "Queued – offline",
+  saving: "Saving…",
+  saved: "Saved ✓",
+};
+
+const STATUS_COLOR: Record<SaveStatus, string> = {
+  conflict: "text-red-600",
+  offline: "text-amber-600",
+  saving: "text-sky-600",
+  saved: "text-emerald-600",
+};
+
+/** Where a row's changes stand: not yet at the sheet, in conflict, or just confirmed. */
+function rowStatus(
+  row: ViewRow,
+  s: Pick<EngineSnapshot, "conflicts" | "offline" | "recentlySaved">,
+): SaveStatus | null {
+  if (row.synthetic)
+    return row.pending ? (s.offline ? "offline" : "saving") : null;
+  const same = (m: { sheetName: string; rowIndex: number }) =>
+    m.sheetName === row.sheetName && m.rowIndex === row.rowIndex;
+  if (s.conflicts.some((c) => same(c.mutation))) return "conflict";
+  if (row.pending) return s.offline ? "offline" : "saving";
+  if (s.recentlySaved.some(same)) return "saved";
+  return null;
+}
+
 function RowButton({
   row,
   nested,
   dim,
+  status,
   onOpen,
 }: {
   row: ViewRow;
   nested: boolean;
   dim: boolean;
+  status: SaveStatus | null;
   onOpen: (row: ViewRow) => void;
 }) {
   const uncategorized = row.envelope.trim() === "";
@@ -43,8 +76,16 @@ function RowButton({
           {formatShortDate(row.date)}
           {row.paidWith ? ` · ${row.paidWith}` : ""}
           {row.taxDeductible.trim() ? " · Tax deductible" : ""}
-          {row.pending ? " · syncing…" : ""}
         </span>
+        {status && (
+          <span
+            data-testid="row-status"
+            data-row-status={status}
+            className={`truncate text-xs font-medium ${STATUS_COLOR[status]}`}
+          >
+            {STATUS_LABEL[status]}
+          </span>
+        )}
       </span>
       <span className="flex shrink-0 flex-col items-end">
         <span className="font-medium tabular-nums">
@@ -77,13 +118,12 @@ function RowButton({
   );
 }
 
-type Scope = "current" | "all";
-
 export function ExpensesView({
   engine,
   sheetName,
   state,
   rows: currentRows,
+  showAll,
   snapshot,
 }: {
   engine: SyncEngine;
@@ -91,22 +131,26 @@ export function ExpensesView({
   state: PayPeriodStateDto;
   /** Rows of the selected pay period, with queued edits applied. */
   rows: ViewRow[];
-  snapshot: Pick<EngineSnapshot, "all" | "loadingAll" | "queue">;
+  /** True when the pay-period dropdown is on "All". */
+  showAll: boolean;
+  snapshot: Pick<
+    EngineSnapshot,
+    "all" | "loadingAll" | "queue" | "conflicts" | "offline" | "recentlySaved"
+  >;
 }) {
   const [filter, setFilter] = useState<FilterId>("uncategorized");
   const [query, setQuery] = useState("");
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const [scope, setScope] = useState<Scope>("current");
   const { all, loadingAll, queue } = snapshot;
 
   // All pay periods read every tab, so they load on demand only (cached rows show meanwhile).
   useEffect(() => {
-    if (scope === "all") void engine.loadAll();
-  }, [scope, engine]);
+    if (showAll) void engine.loadAll();
+  }, [showAll, engine]);
 
   const allRows = useMemo(
     () =>
-      scope === "all" && all
+      showAll && all
         ? all.sheets.flatMap((sheet) =>
             buildViewRows(
               {
@@ -119,13 +163,23 @@ export function ExpensesView({
             ),
           )
         : [],
-    [scope, all, queue],
+    [showAll, all, queue],
   );
-  const rows = scope === "all" ? allRows : currentRows;
+  const rows = showAll ? allRows : currentRows;
 
+  // Rows whose save is in flight or just confirmed stay listed so the user sees the result.
+  const { conflicts, offline, recentlySaved } = snapshot;
+  const statuses = useMemo(() => {
+    const map = new Map<string, SaveStatus>();
+    for (const r of rows) {
+      const status = rowStatus(r, { conflicts, offline, recentlySaved });
+      if (status) map.set(r.key, status);
+    }
+    return map;
+  }, [rows, conflicts, offline, recentlySaved]);
   const groups = useMemo(
-    () => groupRows(rows, filter, query),
-    [rows, filter, query],
+    () => groupRows(rows, filter, query, (r) => statuses.has(r.key)),
+    [rows, filter, query, statuses],
   );
   const counts = useMemo(() => {
     const result = {} as Record<FilterId, number>;
@@ -139,7 +193,7 @@ export function ExpensesView({
   // The tab the open row lives in: edits and splits go to it with its own fingerprint.
   const openSheetName = openRow?.sheetName ?? sheetName;
   const openAllSheet =
-    scope === "all" && openRow
+    showAll && openRow
       ? all?.sheets.find((x) => x.name === openSheetName)
       : undefined;
   const serverRow =
@@ -165,21 +219,12 @@ export function ExpensesView({
     <div>
       <div className="sticky top-0 z-10 space-y-2 bg-slate-50 pb-2 pt-1 dark:bg-slate-950">
         <div className="flex gap-2">
-          <select
-            aria-label="Transactions shown"
-            className="min-h-11 w-36 shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-base dark:border-slate-600 dark:bg-slate-900"
-            value={scope}
-            onChange={(e) => setScope(e.target.value as Scope)}
-          >
-            <option value="current">This pay period</option>
-            <option value="all">All pay periods</option>
-          </select>
           <input
             className={`${inputClass} min-w-0 flex-1`}
             type="search"
             aria-label="Search"
             placeholder={
-              scope === "all"
+              showAll
                 ? "Search all pay periods"
                 : "Search name, envelope, paid with, date"
             }
@@ -211,7 +256,7 @@ export function ExpensesView({
         </div>
       </div>
 
-      {scope === "all" && !all ? (
+      {showAll && !all ? (
         <p role="status" className="py-10 text-center text-slate-500">
           {loadingAll
             ? "Loading all pay periods…"
@@ -229,7 +274,7 @@ export function ExpensesView({
         <ul className="space-y-3">
           {groups.map((g, gi) => (
             <li key={g.id} className="space-y-1">
-              {scope === "all" &&
+              {showAll &&
                 g.rows[0].sheetName !== groups[gi - 1]?.rows[0].sheetName && (
                   <h3 className="px-1 pt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
                     {g.rows[0].sheetName}
@@ -241,7 +286,11 @@ export function ExpensesView({
                     key={r.key}
                     row={r}
                     nested={g.rows.length > 1 && i > 0}
-                    dim={!(matchesFilter(r, filter) && matchesSearch(r, query))}
+                    dim={
+                      !statuses.has(r.key) &&
+                      !(matchesFilter(r, filter) && matchesSearch(r, query))
+                    }
+                    status={statuses.get(r.key) ?? null}
                     onOpen={(row) => setOpenKey(row.key)}
                   />
                 ))}
@@ -268,8 +317,8 @@ export function ExpensesView({
           onChange={(changes) =>
             engine.enqueueUpdate(openSheetName, serverRow, changes)
           }
-          onSplit={(splits) =>
-            engine.enqueueSplit(openSheetName, serverRow, splits)
+          onSplit={(splits, parent) =>
+            engine.enqueueSplit(openSheetName, serverRow, splits, parent)
           }
           onClose={() => setOpenKey(null)}
         />

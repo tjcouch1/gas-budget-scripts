@@ -25,7 +25,13 @@ export interface UpdateMutation extends MutationBase {
 
 export interface SplitMutation extends MutationBase {
   action: "splitTransaction";
-  payload: { splits: SplitItemInput[] };
+  payload: {
+    splits: SplitItemInput[];
+    /** New item note after " | " for the original row (written with the split). */
+    parentItemNote?: string;
+    /** New envelope for the original row (written with the split). */
+    parentEnvelope?: string;
+  };
 }
 
 export type QueuedMutation = UpdateMutation | SplitMutation;
@@ -36,6 +42,12 @@ export interface Conflict {
   mutation: QueuedMutation;
   /** The sheet's current row ("Current Remote Value"); null if the row can no longer be found. */
   current: TransactionRowDto | null;
+}
+
+/** A row the sheet confirmed a moment ago; the list shows "Saved ✓" for it briefly. */
+export interface SavedMark {
+  sheetName: string;
+  rowIndex: number;
 }
 
 export interface Notice {
@@ -56,6 +68,8 @@ export interface EngineSnapshot {
   loadingAll: boolean;
   queue: QueuedMutation[];
   conflicts: Conflict[];
+  /** Rows whose changes reached the sheet in the last few seconds (not persisted). */
+  recentlySaved: SavedMark[];
   refreshing: boolean;
   flushing: boolean;
   syncingReceipts: boolean;

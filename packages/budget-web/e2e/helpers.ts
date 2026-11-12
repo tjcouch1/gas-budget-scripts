@@ -81,7 +81,7 @@ export async function connect(page: Page) {
   await dialog.getByLabel("API key").fill(API_KEY);
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(dialog.getByRole("status")).toContainText("Saved");
-  await dialog.getByRole("button", { name: "Close" }).click();
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.getByRole("status").first()).toBeVisible();
   await expect(page.getByLabel("Pay period")).toBeVisible();
   await expect(syncedPill(page)).toBeVisible();

@@ -37,10 +37,11 @@ test.describe("connection and loading", () => {
     );
     await dialog.getByRole("button", { name: "Save" }).click();
     await expect(dialog.getByRole("status")).toContainText("Saved");
-    await dialog.getByRole("button", { name: "Close" }).click();
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
 
+    // Three pay-period tabs plus the "All" option
     await expect(page.getByLabel("Pay period").locator("option")).toHaveCount(
-      3,
+      4,
     );
     await expect(
       page.getByRole("tab", { name: /^Uncategorized/ }),
@@ -96,7 +97,7 @@ test.describe("editing", () => {
     await openTransaction(page, "Imaginary Books");
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Cost").fill("=1+3.23*2");
-    await dialog.getByRole("button", { name: "Save cost" }).click();
+    await dialog.getByRole("button", { name: "Save & close" }).click();
 
     await expect
       .poll(
@@ -112,7 +113,7 @@ test.describe("editing", () => {
     // A plain number is stored as a number, not a formula
     await openTransaction(page, "Imaginary Books");
     await page.getByRole("dialog").getByLabel("Cost").fill("20.5");
-    await page.getByRole("button", { name: "Save cost" }).click();
+    await page.getByRole("button", { name: "Save & close" }).click();
     await expect
       .poll(
         async () =>
@@ -137,7 +138,7 @@ test.describe("editing", () => {
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Cost").fill("10");
     await dialog.getByLabel(/Add tax/).check();
-    await dialog.getByRole("button", { name: "Save cost" }).click();
+    await dialog.getByRole("button", { name: "Save & close" }).click();
     await expect
       .poll(
         async () =>
@@ -155,17 +156,19 @@ test.describe("editing", () => {
     await connect(page);
     await openTransaction(page, "Faux Bakery");
     const dialog = page.getByRole("dialog");
-    await dialog.getByText("Edit details").click();
+    // The name is the editable title; Paid with and Tax deductible are under Edit details
     await dialog.getByLabel("Name", { exact: true }).fill("=SUM(1)");
     await expect(dialog.getByText("Names cannot start with")).toBeVisible();
     await expect(
-      dialog.getByRole("button", { name: "Save details" }),
+      dialog.getByRole("button", { name: "Save & close" }),
     ).toBeDisabled();
 
     await dialog.getByLabel("Name", { exact: true }).fill("Faux Bakery Two");
+    await dialog.getByText("Edit details").click();
     await dialog.getByLabel("Paid with").selectOption("Debit");
     await dialog.getByLabel("Tax deductible").check();
-    await dialog.getByRole("button", { name: "Save details" }).click();
+    await expect(dialog.getByTestId("dirty-indicator")).toBeVisible();
+    await dialog.getByRole("button", { name: "Save & close" }).click();
 
     await expect
       .poll(async () => {
@@ -197,8 +200,8 @@ test.describe("splitting", () => {
     await dialog.getByLabel("Item 2 note").fill("Soda");
     await dialog.getByLabel("Item 2 amount").fill("2");
     await dialog.getByLabel("Item 2 envelope").selectOption("Groceries");
-    await expect(dialog.getByTestId("remaining")).toContainText("$5.54");
-    await dialog.getByRole("button", { name: "Split", exact: true }).click();
+    await expect(dialog.getByTestId("remaining")).toHaveValue("$5.54");
+    await dialog.getByRole("button", { name: "Save split" }).click();
 
     await expect
       .poll(async () => (await backend.dump(sheetName))[12]?.values[COL.name])
@@ -232,16 +235,17 @@ test.describe("splitting", () => {
     await dialog.getByRole("button", { name: "Split", exact: true }).click();
     await dialog.getByLabel("Item 1 note").fill("Napkins");
     await dialog.getByLabel("Item 1 amount").fill("4.23*2+12.09");
+    // The first card (the original) has a disabled tax toggle; item 1's is next
     await dialog
       .getByLabel(/Add tax/)
-      .first()
+      .nth(1)
       .check();
     await dialog.getByLabel("Item 1 envelope").selectOption("Household");
     await dialog.getByRole("button", { name: "+ Add item" }).click();
     await dialog.getByLabel("Item 2 note").fill("Gift");
     await dialog.getByLabel("Item 2 amount").fill("10");
     await dialog.getByLabel("Item 2 envelope").selectOption("Gifts");
-    await dialog.getByRole("button", { name: "Split", exact: true }).click();
+    await dialog.getByRole("button", { name: "Save split" }).click();
 
     await expect
       .poll(async () =>
@@ -259,15 +263,209 @@ test.describe("splitting", () => {
     expect(gift.rowIndex).toBe(napkins.rowIndex + 1);
   });
 
-  test("names of rows in a split group cannot be edited", async ({ page }) => {
+  test("renames a split row through the title input, editing only the item note", async ({
+    page,
+    sheetName,
+  }) => {
     await connect(page);
     await page.getByRole("tab", { name: /^All/ }).click();
     await openTransaction(page, "Fake Mart | Paper towels");
     const dialog = page.getByRole("dialog");
-    await dialog.getByText("Edit details").click();
-    await expect(
-      dialog.getByText("Names of split rows cannot be edited here."),
-    ).toBeVisible();
+    // The merchant prefix is static text; only the note is an input
+    await expect(dialog.getByTestId("name-prefix")).toHaveText("Fake Mart |");
+    await expect(dialog.getByLabel("Item note")).toHaveValue("Paper towels");
+    await dialog.getByLabel("Item note").fill("Kitchen towels");
+    await dialog.getByRole("button", { name: "Save & close" }).click();
+
+    await expect
+      .poll(async () => (await backend.dump(sheetName))[1].values[COL.name])
+      .toBe("Fake Mart | Kitchen towels");
+    const rows = await backend.dump(sheetName);
+    // Cost, envelope, and the rest of the group are untouched
+    expect(rows[1].formulas[COL.cost]).toBe("=1.0825*(9.5)");
+    expect(rows[1].values[COL.envelope]).toBe("Household");
+    expect(rows[0].values[COL.name]).toBe("Fake Mart | ");
+    expect(rows[2].values[COL.name]).toBe("Fake Mart | Birthday card");
+  });
+
+  test("renames the split parent note and an unsplit row from the title", async ({
+    page,
+    sheetName,
+  }) => {
+    await connect(page);
+    await page.getByRole("tab", { name: /^All/ }).click();
+    await openTransaction(page, "Fake Mart | ");
+    await page.getByRole("dialog").getByLabel("Item note").fill("Cart");
+    await page.getByRole("button", { name: "Save & close" }).click();
+    await expect
+      .poll(async () => (await backend.dump(sheetName))[0].values[COL.name])
+      .toBe("Fake Mart | Cart");
+    // Still one group: the cost formula is untouched
+    expect((await backend.dump(sheetName))[0].formulas[COL.cost]).toBe(
+      "=87.5-R[1]C[0]-R[2]C[0]",
+    );
+
+    await openTransaction(page, "Sample Cafe");
+    await page
+      .getByRole("dialog")
+      .getByLabel("Name", { exact: true })
+      .fill("Sample Bistro");
+    await page.getByRole("button", { name: "Save & close" }).click();
+    await expect
+      .poll(async () => (await backend.dump(sheetName))[3].values[COL.name])
+      .toBe("Sample Bistro");
+  });
+
+  test("splits with the original's note and envelope edited", async ({
+    page,
+    sheetName,
+  }) => {
+    await connect(page);
+    await openTransaction(page, "Jane Example - Lunch money");
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Split", exact: true }).click();
+
+    const original = dialog.getByTestId("original-entry");
+    await expect(original.getByLabel("Original amount")).toBeDisabled();
+    await original.getByLabel("Original note").fill("Mine");
+    await original.getByLabel("Original envelope").selectOption("Dining Out");
+    await dialog.getByLabel("Item 1 note").fill("Theirs");
+    await dialog.getByLabel("Item 1 amount").fill("5");
+    await dialog.getByLabel("Item 1 envelope").selectOption("Groceries");
+    await expect(dialog.getByTestId("remaining")).toHaveValue("$10.00");
+    await dialog.getByRole("button", { name: "Save split" }).click();
+
+    await expect
+      .poll(async () => (await backend.dump(sheetName))[11]?.values[COL.name])
+      .toBe("Jane Example - Lunch money | Theirs");
+    const rows = await backend.dump(sheetName);
+    const parent = rows[10];
+    expect(parent.values[COL.name]).toBe("Jane Example - Lunch money | Mine");
+    expect(parent.formulas[COL.cost]).toBe("=15-R[1]C[0]");
+    expect(parent.values[COL.envelope]).toBe("Dining Out");
+    expect(rows[11].values[COL.envelope]).toBe("Groceries");
+    expect(rows[11].values[COL.cost]).toBe(5);
+    await expect(syncedPill(page)).toBeVisible();
+  });
+
+  test("dismissing a split with changes asks Save / Discard / Go back", async ({
+    page,
+    sheetName,
+  }) => {
+    await connect(page);
+    await openTransaction(page, "Jane Example - Lunch money");
+    const dialog = page.getByRole("dialog", { name: "Transaction" });
+    await dialog.getByRole("button", { name: "Split", exact: true }).click();
+    const split = page.getByRole("dialog", { name: "Split transaction" });
+    await split.getByLabel("Item 1 amount").fill("5");
+    await split.getByRole("button", { name: "Close", exact: true }).click();
+    const prompt = page.getByRole("alertdialog", { name: "Unsaved changes" });
+    await prompt.getByRole("button", { name: "Go back" }).click();
+    await expect(split.getByLabel("Item 1 amount")).toHaveValue("5");
+    await split.getByRole("button", { name: "Close", exact: true }).click();
+    await prompt.getByRole("button", { name: "Discard" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect((await backend.dump(sheetName))[10].values[COL.name]).toBe(
+      "Jane Example - Lunch money",
+    );
+  });
+});
+
+test.describe("unsaved changes and save status", () => {
+  test("dismissing with changes asks Save / Discard / Go back; no prompt without changes", async ({
+    page,
+    sheetName,
+  }) => {
+    await connect(page);
+    // Nothing changed: closing is immediate
+    await openTransaction(page, "Faux Bakery");
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    await openTransaction(page, "Faux Bakery");
+    const dialog = page.getByRole("dialog", { name: "Transaction" });
+    const prompt = page.getByRole("alertdialog", { name: "Unsaved changes" });
+    const name = dialog.getByLabel("Name", { exact: true });
+    await name.fill("Faux Bakery Edited");
+    await expect(dialog.getByTestId("dirty-indicator")).toBeVisible();
+
+    // Go back keeps editing (x button)
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await prompt.getByRole("button", { name: "Go back" }).click();
+    await expect(prompt).toHaveCount(0);
+    await expect(name).toHaveValue("Faux Bakery Edited");
+
+    // Escape opens the prompt too; Discard drops the edit
+    await page.keyboard.press("Escape");
+    await expect(prompt).toBeVisible();
+    await prompt.getByRole("button", { name: "Discard" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(findRow(await backend.dump(sheetName), "Faux Bakery")).toBeTruthy();
+
+    // Tapping the backdrop with changes prompts too
+    await openTransaction(page, "Faux Bakery");
+    await name.fill("Nope");
+    await page.mouse.click(195, 20);
+    await expect(prompt).toBeVisible();
+    await prompt.getByRole("button", { name: "Go back" }).click();
+
+    // Swipe down (drag the handle) opens the prompt; Save writes the change
+    await name.fill("Faux Bakery Edited");
+    const handle = dialog.getByTestId("drag-handle");
+    const box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2, box.y + 200, { steps: 5 });
+    await page.mouse.up();
+    await expect(prompt).toBeVisible();
+    await prompt.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect
+      .poll(async () =>
+        (await backend.dump(sheetName)).some(
+          (r) => r.values[COL.name] === "Faux Bakery Edited",
+        ),
+      )
+      .toBe(true);
+    // The discarded edits never reached the sheet
+    expect(
+      (await backend.dump(sheetName)).some(
+        (r) => r.values[COL.name] === "Nope",
+      ),
+    ).toBe(false);
+  });
+
+  test("each row shows Saving…, then Saved ✓ once the sheet has the change", async ({
+    page,
+    sheetName,
+  }) => {
+    await connect(page);
+    // Slow the write down so the pending state is observable
+    await page.route("**/macros/s/demo/exec", async (route) => {
+      if (route.request().postData()?.includes('"updateTransaction"'))
+        await new Promise((r) => setTimeout(r, 800));
+      await route.continue();
+    });
+    await openTransaction(page, "Test Hardware");
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: /^Household/ })
+      .click();
+    const status = page
+      .getByRole("button", { name: /Test Hardware/ })
+      .getByTestId("row-status");
+    await expect(status).toHaveText("Saving…");
+    await expect(status).toHaveText("Saved ✓");
+    expect(
+      findRow(await backend.dump(sheetName), "Test Hardware").values[
+        COL.envelope
+      ],
+    ).toBe("Household");
+    // It clears itself a few seconds later
+    await expect(status).toHaveCount(0, { timeout: 8000 });
   });
 });
 
@@ -347,6 +545,11 @@ test.describe("offline", () => {
     await expect(page.locator('[data-status="offline"]')).toContainText(
       "1 queued",
     );
+    await expect(
+      page
+        .getByRole("button", { name: /Imaginary Books/ })
+        .getByTestId("row-status"),
+    ).toHaveText("Queued – offline");
     expect(
       findRow(await backend.dump(sheetName), "Imaginary Books").values[
         COL.envelope
@@ -413,7 +616,7 @@ test.describe("sheets without the optional variables", () => {
     ).toHaveCount(0);
     await dialog.getByText("Edit details").click();
     await expect(dialog.getByLabel("Paid with")).toHaveCount(0);
-    await dialog.getByRole("button", { name: "Close" }).click();
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
 
     await page.getByRole("button", { name: "Envelopes" }).click();
     await expect(
@@ -438,6 +641,8 @@ test.describe("all pay periods", () => {
     sheetName,
   }) => {
     await connect(page);
+    // The old separate scope selector is gone; "All" lives in the pay-period dropdown
+    await expect(page.getByLabel("Transactions shown")).toHaveCount(0);
     // Not loaded until chosen
     await expect(page.getByText("Faux Bakery")).toHaveCount(1); // current tab only
     const all = (await callApi({ action: "getAllTransactions" })).data;
@@ -445,9 +650,7 @@ test.describe("all pay periods", () => {
     expect(names).toHaveLength(3);
     const previous = names[1];
 
-    await page
-      .getByLabel("Transactions shown")
-      .selectOption({ label: "All pay periods" });
+    await page.getByLabel("Pay period").selectOption({ label: "All" });
     // One heading per tab, newest first
     for (const name of names)
       await expect(page.getByRole("heading", { name })).toBeVisible();
@@ -488,9 +691,7 @@ test.describe("all pay periods", () => {
     await connect(page);
     const all = (await callApi({ action: "getAllTransactions" })).data;
     const previous: string = all.sheets[1].name;
-    await page
-      .getByLabel("Transactions shown")
-      .selectOption({ label: "All pay periods" });
+    await page.getByLabel("Pay period").selectOption({ label: "All" });
     await page.getByLabel("Search").fill("Faux Bakery");
     const dialog = page.getByRole("dialog");
     await page
@@ -501,8 +702,8 @@ test.describe("all pay periods", () => {
     await dialog.getByRole("button", { name: "Split", exact: true }).click();
     await dialog.getByLabel("Item 1 note").fill("Rolls");
     await dialog.getByLabel("Item 1 amount").fill("2.5");
-    await expect(dialog.getByTestId("remaining")).toContainText("$3.75");
-    await dialog.getByRole("button", { name: "Split", exact: true }).click();
+    await expect(dialog.getByTestId("remaining")).toHaveValue("$3.75");
+    await dialog.getByRole("button", { name: "Save split" }).click();
     await expect
       .poll(async () =>
         (await backend.dump(previous)).some(

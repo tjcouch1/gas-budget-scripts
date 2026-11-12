@@ -707,3 +707,66 @@ describe("SyncEngine all pay periods", () => {
     expect(engine.getSnapshot().all).toBeNull();
   });
 });
+
+describe("SyncEngine split parent fields and saved marks", () => {
+  const items = [
+    { itemNote: "milk", expression: "3", preTax: false, envelope: "Gas" },
+  ];
+
+  it("sends the original's note and envelope with the split and shows them optimistically", async () => {
+    const { engine, calls } = newEngine((req) =>
+      req.action === "getState" ? makeState(twoRows()) : new Promise(() => {}),
+    );
+    await engine.init();
+    engine.enqueueSplit(SHEET, twoRows()[0], items, {
+      itemNote: "household",
+      envelope: "Groceries",
+    });
+    await flush();
+    expect(calls.find((c) => c.action === "splitTransaction")).toMatchObject({
+      splits: items,
+      parentItemNote: "household",
+      parentEnvelope: "Groceries",
+    });
+    const rows = rowsOf(engine);
+    expect(rows[0]).toMatchObject({
+      name: "Aldi | household",
+      envelope: "Groceries",
+      splitPending: true,
+    });
+    expect(rows[1].name).toBe("Aldi | milk");
+  });
+
+  it("omits the parent fields when none were edited", async () => {
+    const { engine, calls } = newEngine((req) =>
+      req.action === "getState" ? makeState(twoRows()) : new Promise(() => {}),
+    );
+    await engine.init();
+    engine.enqueueSplit(SHEET, twoRows()[0], items);
+    await flush();
+    const sent = calls.find((c) => c.action === "splitTransaction")!;
+    expect(sent).not.toHaveProperty("parentItemNote");
+    expect(sent).not.toHaveProperty("parentEnvelope");
+  });
+
+  it("marks saved rows briefly after the sheet confirms a change", async () => {
+    vi.useFakeTimers();
+    try {
+      const saved = { ...twoRows()[0], envelope: "Gas", fingerprint: "n" };
+      const { engine } = newEngine((req) =>
+        req.action === "getState" ? makeState(twoRows()) : saved,
+      );
+      await engine.init();
+      engine.enqueueUpdate(SHEET, twoRows()[0], { envelope: "Gas" });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(engine.getSnapshot().queue).toHaveLength(0);
+      expect(engine.getSnapshot().recentlySaved).toEqual([
+        { sheetName: SHEET, rowIndex: 0 },
+      ]);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(engine.getSnapshot().recentlySaved).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
