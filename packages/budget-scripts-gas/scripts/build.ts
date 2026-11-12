@@ -153,7 +153,9 @@ async function run(): Promise<void> {
     outfile,
     format: "iife",
     globalName: "_entry",
-    target: "es2022",
+    // es2019: lowers class fields, #private, ?. and ?? so the bundle does not depend on how
+    // new the Apps Script V8 parser is (web-plan.md section 0.B.8 and Step 2.5)
+    target: "es2019",
     // Keep unminified so code is human-readable and inspectable on script.google.com
     minify: false,
     // Output is written in onEnd so the GAS footer can be regenerated from the current
