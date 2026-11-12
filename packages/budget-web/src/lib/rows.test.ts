@@ -25,10 +25,7 @@ describe("groupRows", () => {
       ["Target | milk", "Target | toy"],
     ]);
   });
-  it("filters tax deductible and issues", () => {
-    expect(
-      groupRows(rows, "taxDeductible", "").map((g) => g.rows[0].name),
-    ).toEqual(["Shell"]);
+  it("filters issues", () => {
     expect(groupRows(rows, "issues", "").map((g) => g.rows[0].name)).toEqual([
       "Broken",
     ]);

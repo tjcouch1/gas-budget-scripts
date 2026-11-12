@@ -219,7 +219,7 @@ export function TransactionSheet(props: TransactionSheetProps) {
               checked={preTax}
               onChange={(e) => setPreTax(e.target.checked)}
             />
-            Pre-Tax (× {props.taxMultiplier})
+            Add tax ×{props.taxMultiplier}
           </label>
         </form>
       ) : (

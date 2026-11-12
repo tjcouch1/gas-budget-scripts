@@ -36,7 +36,7 @@ describe("SplitEditor", () => {
   it("applies the tax multiplier for pre-tax items", async () => {
     const { user } = setup(20);
     await user.type(screen.getByLabelText("Item 1 amount"), "10");
-    await user.click(screen.getAllByLabelText(/Pre-Tax/)[0]);
+    await user.click(screen.getAllByLabelText(/Add tax/)[0]);
     expect(screen.getByLabelText("Item 1 value")).toHaveTextContent("$10.83");
     expect(screen.getByTestId("remaining")).toHaveTextContent("$9.18");
   });
@@ -47,6 +47,7 @@ describe("SplitEditor", () => {
     expect(submit).toBeDisabled();
     await user.type(screen.getByLabelText("Item 1 amount"), "1+");
     expect(submit).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "+ Add item" }));
     await user.type(screen.getByLabelText("Item 2 amount"), "2");
     expect(submit).toBeDisabled(); // item 1 still invalid
     await user.type(screen.getByLabelText("Item 1 amount"), "1");
@@ -55,6 +56,32 @@ describe("SplitEditor", () => {
     await user.type(screen.getByLabelText("Item 2 amount"), "99");
     expect(submit).toBeDisabled();
     expect(screen.getByTestId("remaining")).toHaveClass("text-red-600");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /more than the original/,
+    );
+  });
+
+  it("starts with the original entry and one empty item", () => {
+    setup(50);
+    const original = screen.getByTestId("original-entry");
+    expect(original).toHaveTextContent("Remaining on original");
+    expect(within(original).queryByRole("textbox")).toBeNull(); // locked
+    expect(screen.getByTestId("remaining")).toHaveTextContent("$50.00");
+    expect(screen.getByLabelText("Item 1 amount")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Item 2 amount")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Fill rest" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove item" })).toBeNull();
+  });
+
+  it("adds and removes items, each reducing the original", async () => {
+    const { user } = setup(50);
+    await user.type(screen.getByLabelText("Item 1 amount"), "10");
+    await user.click(screen.getByRole("button", { name: "+ Add item" }));
+    await user.type(screen.getByLabelText("Item 2 amount"), "15");
+    expect(screen.getByTestId("remaining")).toHaveTextContent("$25.00");
+    await user.click(screen.getAllByRole("button", { name: "Remove item" })[0]);
+    expect(screen.getByTestId("remaining")).toHaveTextContent("$35.00");
+    expect(screen.queryByLabelText("Item 2 amount")).toBeNull();
   });
 
   it("submits the split items with envelopes", async () => {
@@ -65,8 +92,9 @@ describe("SplitEditor", () => {
       screen.getByLabelText("Item 1 envelope"),
       "Groceries",
     );
+    await user.click(screen.getByRole("button", { name: "+ Add item" }));
     await user.type(screen.getByLabelText("Item 2 amount"), "4*2");
-    await user.click(screen.getAllByLabelText(/Pre-Tax/)[1]);
+    await user.click(screen.getAllByLabelText(/Add tax/)[1]);
     await user.click(screen.getByRole("button", { name: "Split" }));
     expect(onSubmit).toHaveBeenCalledWith([
       {
@@ -79,19 +107,10 @@ describe("SplitEditor", () => {
     ]);
   });
 
-  it("fills the rest into an item", async () => {
-    const { user } = setup(50);
-    await user.type(screen.getByLabelText("Item 1 amount"), "10");
-    await user.click(screen.getAllByRole("button", { name: "Fill rest" })[1]);
-    expect(screen.getByLabelText("Item 2 amount")).toHaveValue("40");
-    expect(screen.getByTestId("remaining")).toHaveTextContent("$0.00");
-  });
-
   it("rejects an item note that would be a formula", async () => {
     const { user } = setup(50);
     await user.type(screen.getByLabelText("Item 1 note"), "=1+1");
     await user.type(screen.getByLabelText("Item 1 amount"), "1");
-    await user.type(screen.getByLabelText("Item 2 amount"), "1");
     expect(screen.getByRole("button", { name: "Split" })).toBeDisabled();
   });
 });
@@ -150,13 +169,13 @@ describe("TransactionSheet", () => {
     expect(screen.queryByLabelText("Paid with")).toBeNull();
   });
 
-  it("edits cost with inline math and a pre-tax toggle", async () => {
+  it("edits cost with inline math and a tax toggle", async () => {
     const { user, onChange } = setup();
     const input = screen.getByLabelText("Cost");
     await user.clear(input);
     await user.type(input, "2*3+1");
     expect(screen.getByRole("button", { name: "Save cost" })).toBeEnabled();
-    await user.click(screen.getByLabelText(/Pre-Tax/));
+    await user.click(screen.getByLabelText(/Add tax/));
     await user.click(screen.getByRole("button", { name: "Save cost" }));
     expect(onChange).toHaveBeenCalledWith({
       costExpression: "2*3+1",
@@ -176,6 +195,7 @@ describe("TransactionSheet", () => {
     const { user, onSplit, onClose } = setup();
     await user.click(screen.getByRole("button", { name: "Split" }));
     await user.type(screen.getByLabelText("Item 1 amount"), "3");
+    await user.click(screen.getByRole("button", { name: "+ Add item" }));
     await user.type(screen.getByLabelText("Item 2 amount"), "2");
     await user.click(screen.getByRole("button", { name: "Split" }));
     expect(onSplit).toHaveBeenCalledTimes(1);
@@ -322,6 +342,8 @@ describe("StatusPill", () => {
     ready: true,
     currentSheet: null,
     states: {},
+    all: null,
+    loadingAll: false,
     queue: [],
     conflicts: [],
     refreshing: false,

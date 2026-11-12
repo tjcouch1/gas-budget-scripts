@@ -12,16 +12,17 @@ export interface ViewRow extends TransactionRowDto {
   synthetic?: boolean;
   /** True when this row has a queued split. */
   splitPending?: boolean;
+  /** The tab the row belongs to. Set by `buildViewRows`. */
+  sheetName?: string;
   /** Key for React lists. */
   key: string;
 }
 
-export type FilterId = "uncategorized" | "all" | "taxDeductible" | "issues";
+export type FilterId = "uncategorized" | "all" | "issues";
 
 export const FILTERS: { id: FilterId; label: string }[] = [
   { id: "uncategorized", label: "Uncategorized" },
   { id: "all", label: "All" },
-  { id: "taxDeductible", label: "Tax deductible" },
   { id: "issues", label: "Errors/Notes" },
 ];
 
@@ -31,8 +32,6 @@ export function matchesFilter(row: ViewRow, filter: FilterId): boolean {
       return true;
     case "uncategorized":
       return row.envelope.trim() === "";
-    case "taxDeductible":
-      return row.taxDeductible.trim().toLowerCase() === "yes";
     case "issues":
       return row.isError || row.isNote;
   }
