@@ -454,6 +454,97 @@ describe("getState", () => {
   });
 });
 
+describe("getAllTransactions", () => {
+  beforeEach(() => {
+    sheet.seed("A5", [
+      [D, "Store | ", 5.5, "=BALANCE(0)", "Food", "Credit", "Yes"],
+      [D2, "Cafe", 3, "=BALANCE(1)", "", "Credit", ""],
+    ]);
+    env.spreadsheet
+      .getSheetByName(OLDER_SHEET)!
+      .seed("A5", [[D, "Old shop", 9, "=BALANCE(0)", "", "", ""]]);
+  });
+
+  it("returns every sheet newest first with transactions, fingerprints and option lists", async () => {
+    const res = await api("getAllTransactions");
+    expect(res.ok).toBe(true);
+    expect(res.data.taxMultiplier).toBe(1.0825);
+    expect(res.data.sheets.map((x: any) => x.name)).toEqual([
+      SHEET,
+      OLDER_SHEET,
+    ]);
+    const [current, older] = res.data.sheets;
+    expect(current).toMatchObject({
+      startDate: "2024-02-18",
+      endDate: "2024-03-02",
+      isGap: false,
+      envelopeOptions: ["Food", "Gas", "Fun"],
+      paidWithOptions: ["Credit", "Sam Venmo", "Cash"],
+    });
+    expect(current.transactions).toHaveLength(2);
+    expect(older.isGap).toBe(true);
+    expect(older.envelopeOptions).toBeNull();
+    expect(older.paidWithOptions).toBeNull();
+    expect(older.transactions[0].name).toBe("Old shop");
+    // Rows are identical to the per-sheet getState (same fingerprints), so edits can use them
+    expect(current.transactions).toEqual((await getState(SHEET)).transactions);
+    expect(older.transactions).toEqual(
+      (await getState(OLDER_SHEET)).transactions,
+    );
+  });
+
+  it("lets a row from another sheet be edited with its own sheetName and fingerprint", async () => {
+    const { data } = await api("getAllTransactions");
+    const row = data.sheets[1].transactions[0];
+    const res = await api("updateTransaction", {
+      sheetName: OLDER_SHEET,
+      rowIndex: row.rowIndex,
+      baseFingerprint: row.fingerprint,
+      changes: { name: "Renamed" },
+    });
+    expect(res.ok).toBe(true);
+    expect(res.data.name).toBe("Renamed");
+  });
+
+  it("reads each sheet with one batch read per kind of data and no per-row I/O", async () => {
+    const reads: string[] = [];
+    for (const method of [
+      "getValues",
+      "getFormulas",
+      "getDisplayValues",
+      "getNotes",
+      "getBackgrounds",
+    ] as const) {
+      const original = MockRange.prototype[method];
+      vi.spyOn(MockRange.prototype, method).mockImplementation(function (
+        this: MockRange,
+      ) {
+        if (this.getNumRows() === 1 && this.getNumColumns() === 1)
+          reads.push(`single-cell ${method}`);
+        reads.push(method);
+        return (original as () => unknown).call(this) as never;
+      } as never);
+    }
+    expect((await api("getAllTransactions")).ok).toBe(true);
+    expect(reads.filter((r) => r.startsWith("single-cell"))).toEqual([]);
+    // Per sheet: 5 transaction reads, plus the option tables (values + display + paid with)
+    expect(reads.filter((r) => r === "getNotes")).toHaveLength(2);
+    expect(reads.filter((r) => r === "getFormulas")).toHaveLength(2);
+  });
+
+  it("is read only: no script lock, and it needs the API key", async () => {
+    env.LockService.scriptLock.contended = true;
+    expect((await api("getAllTransactions")).ok).toBe(true);
+    expect(env.LockService.scriptLock.calls).toEqual([]);
+    const bad = await call({
+      apiVersion: 1,
+      apiKey: "wrong",
+      action: "getAllTransactions",
+    });
+    expect(bad.error.code).toBe("unauthorized");
+  });
+});
+
 describe("updateTransaction", () => {
   beforeEach(() => {
     sheet.seed("A5", [

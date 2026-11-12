@@ -11,6 +11,7 @@ import {
 import { ApiError, getErrorMessage } from "./api-error";
 import { isAuthorized } from "./auth";
 import {
+  handleGetAllTransactions,
   handleGetState,
   handleSplitTransaction,
   handleSyncReceipts,
@@ -72,6 +73,9 @@ export function handleApiRequest(body: unknown): ApiResponse<unknown> {
     switch (req.action) {
       case "getState":
         result = handleGetState(req);
+        break;
+      case "getAllTransactions":
+        result = handleGetAllTransactions();
         break;
       case "updateTransaction":
         result = handleUpdateTransaction(req);

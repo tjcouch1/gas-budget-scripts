@@ -4,6 +4,7 @@
  */
 import {
   computeRowFingerprint,
+  type AllTransactionsDto,
   type EnvelopeRowDto,
   type PayPeriodStateDto,
   type SheetInfoDto,
@@ -349,5 +350,30 @@ export function buildPayPeriodState(sheetName?: string): {
       envelopeOptions: options.envelopeOptions,
     },
     warnings: options.warnings,
+  };
+}
+
+/**
+ * Builds the `getAllTransactions` response: every transaction tab (newest first) with its
+ * transactions and option lists. One batch read per kind of data per tab (no per-row I/O)
+ */
+export function buildAllTransactions(): AllTransactionsDto {
+  const infos = getSortedTransactionSheetInfos();
+  if (infos.length === 0)
+    throw new ApiError("not_found", "No transaction sheets found");
+  return {
+    taxMultiplier: Number(Variables.getVariables().TaxMultiplier),
+    sheets: infos.map((info) => {
+      const options = readSheetOptions(info.sheet);
+      return {
+        name: info.sheet.getName(),
+        startDate: formatSheetBoundaryDate(info.startDate),
+        endDate: formatSheetBoundaryDate(info.endDate),
+        isGap: info.sheet.getName().includes("(Gap)"),
+        transactions: toTransactionList(readTransactionTable(info.sheet)),
+        envelopeOptions: options.envelopeOptions,
+        paidWithOptions: options.paidWithOptions,
+      };
+    }),
   };
 }

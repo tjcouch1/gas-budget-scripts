@@ -37,6 +37,11 @@ export interface GetStateRequest extends BaseRequest {
   sheetName?: string;
 }
 
+/** Reads every pay-period tab's transactions (the "All pay periods" view). Read only. */
+export interface GetAllTransactionsRequest extends BaseRequest {
+  action: "getAllTransactions";
+}
+
 export interface UpdateTransactionRequest extends BaseRequest {
   action: "updateTransaction";
   sheetName: string;
@@ -61,6 +66,7 @@ export interface SyncReceiptsRequest extends BaseRequest {
 
 export type ApiRequest =
   | GetStateRequest
+  | GetAllTransactionsRequest
   | UpdateTransactionRequest
   | SplitTransactionRequest
   | SyncReceiptsRequest;
@@ -113,6 +119,21 @@ export interface SheetInfoDto {
   /** yyyy-MM-dd */
   endDate: string;
   isGap: boolean;
+}
+
+/** One pay-period tab in a `getAllTransactions` response. Edits use this `name` as `sheetName`. */
+export interface SheetTransactionsDto extends SheetInfoDto {
+  /** Null entries are interior empty rows (same as `PayPeriodStateDto.transactions`). */
+  transactions: (TransactionRowDto | null)[];
+  /** The tab's own option lists; null when it has no sheet variables for them. */
+  envelopeOptions: string[] | null;
+  paidWithOptions: string[] | null;
+}
+
+/** `getAllTransactions` response data: every transaction tab, newest first. */
+export interface AllTransactionsDto {
+  taxMultiplier: number;
+  sheets: SheetTransactionsDto[];
 }
 
 export interface EnvelopeRowDto {

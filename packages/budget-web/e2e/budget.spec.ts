@@ -3,6 +3,7 @@ import { CURRENT_PERIOD } from "../../budget-scripts-gas/test/fixtures/sheets.ts
 import {
   API_KEY,
   backend,
+  callApi,
   COL,
   connect,
   expect,
@@ -135,7 +136,7 @@ test.describe("editing", () => {
     await openTransaction(page, "Imaginary Books");
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Cost").fill("10");
-    await dialog.getByLabel(/Pre-Tax/).check();
+    await dialog.getByLabel(/Add tax/).check();
     await dialog.getByRole("button", { name: "Save cost" }).click();
     await expect
       .poll(
@@ -192,6 +193,7 @@ test.describe("splitting", () => {
     await dialog.getByLabel("Item 1 note").fill("Pizza");
     await dialog.getByLabel("Item 1 amount").fill("1+3.23*2");
     await dialog.getByLabel("Item 1 envelope").selectOption("Dining Out");
+    await dialog.getByRole("button", { name: "+ Add item" }).click();
     await dialog.getByLabel("Item 2 note").fill("Soda");
     await dialog.getByLabel("Item 2 amount").fill("2");
     await dialog.getByLabel("Item 2 envelope").selectOption("Groceries");
@@ -231,10 +233,11 @@ test.describe("splitting", () => {
     await dialog.getByLabel("Item 1 note").fill("Napkins");
     await dialog.getByLabel("Item 1 amount").fill("4.23*2+12.09");
     await dialog
-      .getByLabel(/Pre-Tax/)
+      .getByLabel(/Add tax/)
       .first()
       .check();
     await dialog.getByLabel("Item 1 envelope").selectOption("Household");
+    await dialog.getByRole("button", { name: "+ Add item" }).click();
     await dialog.getByLabel("Item 2 note").fill("Gift");
     await dialog.getByLabel("Item 2 amount").fill("10");
     await dialog.getByLabel("Item 2 envelope").selectOption("Gifts");
@@ -426,5 +429,89 @@ test.describe("envelopes", () => {
     await expect(page.getByTestId("remain-Groceries")).toBeVisible();
     await page.getByLabel("Show all columns").check();
     await expect(page.getByRole("table")).toContainText("Spent YTD");
+  });
+});
+
+test.describe("all pay periods", () => {
+  test("shows uncategorized rows of every tab and edits a row of another tab", async ({
+    page,
+    sheetName,
+  }) => {
+    await connect(page);
+    // Not loaded until chosen
+    await expect(page.getByText("Faux Bakery")).toHaveCount(1); // current tab only
+    const all = (await callApi({ action: "getAllTransactions" })).data;
+    const names: string[] = all.sheets.map((s: { name: string }) => s.name);
+    expect(names).toHaveLength(3);
+    const previous = names[1];
+
+    await page
+      .getByLabel("Transactions shown")
+      .selectOption({ label: "All pay periods" });
+    // One heading per tab, newest first
+    for (const name of names)
+      await expect(page.getByRole("heading", { name })).toBeVisible();
+    // The previous tab's uncategorized "Faux Bakery" is now listed too
+    await expect(page.getByText("Faux Bakery")).toHaveCount(2);
+    // Searching spans every tab
+    await page.getByLabel("Search").fill("Test Hardware");
+    await expect(page.getByRole("heading", { name: names[2] })).toBeVisible();
+
+    await page.getByLabel("Search").fill("Faux Bakery");
+    await page
+      .getByRole("heading", { name: previous })
+      .locator("xpath=following-sibling::div")
+      .getByRole("button", { name: /Faux Bakery/ })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: /Groceries/ }).click();
+
+    await expect
+      .poll(
+        async () =>
+          findRow(await backend.dump(previous), "Faux Bakery").values[
+            COL.envelope
+          ],
+      )
+      .toBe("Groceries");
+    // The current tab's own Faux Bakery is untouched
+    expect(
+      findRow(await backend.dump(sheetName), "Faux Bakery").values[
+        COL.envelope
+      ],
+    ).toBe("");
+    await expect(syncedPill(page)).toBeVisible();
+  });
+
+  test("splits a row of another tab", async ({ page, sheetName }) => {
+    expect(sheetName).toBeTruthy(); // the fixture resets the backend
+    await connect(page);
+    const all = (await callApi({ action: "getAllTransactions" })).data;
+    const previous: string = all.sheets[1].name;
+    await page
+      .getByLabel("Transactions shown")
+      .selectOption({ label: "All pay periods" });
+    await page.getByLabel("Search").fill("Faux Bakery");
+    const dialog = page.getByRole("dialog");
+    await page
+      .getByRole("heading", { name: previous })
+      .locator("xpath=following-sibling::div")
+      .getByRole("button", { name: /Faux Bakery/ })
+      .click();
+    await dialog.getByRole("button", { name: "Split", exact: true }).click();
+    await dialog.getByLabel("Item 1 note").fill("Rolls");
+    await dialog.getByLabel("Item 1 amount").fill("2.5");
+    await expect(dialog.getByTestId("remaining")).toContainText("$3.75");
+    await dialog.getByRole("button", { name: "Split", exact: true }).click();
+    await expect
+      .poll(async () =>
+        (await backend.dump(previous)).some(
+          (r) => r.values[COL.name] === "Faux Bakery | Rolls",
+        ),
+      )
+      .toBe(true);
+    const rows = await backend.dump(previous);
+    const parent = findRow(rows, "Faux Bakery | ");
+    expect(parent.formulas[COL.cost]).toBe("=6.25-R[1]C[0]");
   });
 });

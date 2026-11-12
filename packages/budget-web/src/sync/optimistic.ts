@@ -3,7 +3,6 @@ import {
   buildSplitParentName,
   evaluateMathExpression,
   formatSplitCostFormula,
-  type PayPeriodStateDto,
   type TransactionChanges,
   type TransactionRowDto,
 } from "@budget/shared";
@@ -68,14 +67,23 @@ export function proposedRow(
   return applySplitToParent(base, 0);
 }
 
+/** What `buildViewRows` needs of a sheet: a pay-period state or one tab of the all-sheets view. */
+export interface RowSource {
+  sheetName: string;
+  taxMultiplier: number;
+  transactions: (TransactionRowDto | null)[];
+}
+
 /**
  * Server rows with queued mutations applied optimistically. Queued splits mark
  * the parent and add synthetic placeholder children (without shifting real
  * row indexes, which later queued edits still refer to).
  */
 export function buildViewRows(
-  state: PayPeriodStateDto | undefined,
+  state: RowSource | undefined,
   queue: QueuedMutation[],
+  /** True when rows of several sheets are shown together: keys and group ids get the sheet name. */
+  scoped = false,
 ): ViewRow[] {
   if (!state) return [];
   const mutationsByRow = new Map<number, QueuedMutation[]>();
@@ -86,9 +94,24 @@ export function buildViewRows(
     mutationsByRow.set(m.rowIndex, list);
   }
   const rows: ViewRow[] = [];
-  for (const t of state.transactions) {
-    if (!t) continue;
-    let row: ViewRow = { ...t, key: `row:${t.rowIndex}` };
+  const prefix = scoped ? `${state.sheetName}#` : "";
+  for (const original of state.transactions) {
+    if (!original) continue;
+    const t: TransactionRowDto = scoped
+      ? {
+          ...original,
+          splitGroupId:
+            original.splitGroupId === null
+              ? null
+              : `${prefix}${original.splitGroupId}`,
+        }
+      : original;
+    const pendingGroupId = t.splitGroupId ?? `${prefix}pending:${t.rowIndex}`;
+    let row: ViewRow = {
+      ...t,
+      key: `${prefix}row:${t.rowIndex}`,
+      sheetName: state.sheetName,
+    };
     const synthetic: ViewRow[] = [];
     for (const m of mutationsByRow.get(t.rowIndex) ?? []) {
       row.pending = true;
@@ -108,7 +131,8 @@ export function buildViewRows(
           total += value;
           synthetic.push({
             ...t,
-            key: `split:${m.id}:${i}`,
+            key: `${prefix}split:${m.id}:${i}`,
+            sheetName: state.sheetName,
             rowIndex: -1 - i,
             name: buildSplitChildName(t.name, s.itemNote),
             cost: value,
@@ -120,7 +144,7 @@ export function buildViewRows(
             note: "",
             isError: false,
             isNote: false,
-            splitGroupId: t.splitGroupId ?? `pending:${t.rowIndex}`,
+            splitGroupId: pendingGroupId,
             pending: true,
             synthetic: true,
           });
@@ -130,7 +154,7 @@ export function buildViewRows(
           key: row.key,
           pending: true,
           splitPending: true,
-          splitGroupId: t.splitGroupId ?? `pending:${t.rowIndex}`,
+          splitGroupId: pendingGroupId,
         };
       }
     }

@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PayPeriodStateDto, TransactionRowDto } from "@budget/shared";
+import type {
+  AllTransactionsDto,
+  PayPeriodStateDto,
+  TransactionRowDto,
+} from "@budget/shared";
 import { ApiError, type ApiRequestBody, type CallApi } from "../api/client.ts";
 import { MemoryKeyValueStore } from "../crypto/kv-store.ts";
 import { flush, makeRow, makeState } from "../test/fixtures.ts";
@@ -587,5 +591,119 @@ describe("SyncEngine receipts and local data", () => {
     expect(engine.getSnapshot().queue).toHaveLength(0);
     expect(engine.getSnapshot().states).toEqual({});
     expect(await store.get("engine")).toBeUndefined();
+  });
+});
+
+describe("SyncEngine all pay periods", () => {
+  const OLD = "2/17/26 - 3/2/26";
+  const makeAll = (): AllTransactionsDto => ({
+    taxMultiplier: 1.0825,
+    sheets: [
+      {
+        name: SHEET,
+        startDate: "2026-03-03",
+        endDate: "2026-03-16",
+        isGap: false,
+        transactions: twoRows(),
+        envelopeOptions: ["Groceries"],
+        paidWithOptions: null,
+      },
+      {
+        name: OLD,
+        startDate: "2026-02-17",
+        endDate: "2026-03-02",
+        isGap: false,
+        transactions: [makeRow(0, { name: "Old shop" })],
+        envelopeOptions: null,
+        paidWithOptions: null,
+      },
+    ],
+  });
+  const oldRows = (engine: SyncEngine) =>
+    buildViewRows(
+      {
+        sheetName: OLD,
+        taxMultiplier: 1.0825,
+        transactions: engine.getSnapshot().all!.sheets[1].transactions,
+      },
+      engine.getSnapshot().queue,
+      true,
+    );
+
+  it("loads every tab on demand only, caches it, and persists it", async () => {
+    const { engine, calls, store } = newEngine((req) =>
+      req.action === "getAllTransactions" ? makeAll() : makeState(twoRows()),
+    );
+    await engine.init();
+    expect(calls.map((c) => c.action)).toEqual(["getState"]);
+    await engine.loadAll();
+    expect(calls.map((c) => c.action)).toEqual([
+      "getState",
+      "getAllTransactions",
+    ]);
+    expect(engine.getSnapshot().all?.sheets).toHaveLength(2);
+    expect(engine.getSnapshot().loadingAll).toBe(false);
+    await flush();
+    expect((await store.get<{ all: unknown }>("engine"))?.all).toBeTruthy();
+    // A new engine shows the cached all-tabs data before any request
+    const again = newEngine(() => makeState(twoRows()), store);
+    await again.engine.init();
+    expect(again.engine.getSnapshot().all?.sheets).toHaveLength(2);
+  });
+
+  it("edits a row of another tab with that tab's sheetName and fingerprint", async () => {
+    const all = makeAll();
+    const target = all.sheets[1].transactions[0]!;
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getAllTransactions") return all;
+      if (req.action === "updateTransaction")
+        return { ...target, envelope: "Groceries", fingerprint: "new-fp" };
+      return makeState(twoRows());
+    });
+    await engine.init();
+    await engine.loadAll();
+    engine.enqueueUpdate(OLD, target, { envelope: "Groceries" });
+    // Optimistic while queued
+    expect(oldRows(engine)[0]).toMatchObject({
+      envelope: "Groceries",
+      pending: true,
+      sheetName: OLD,
+    });
+    await engine.flush();
+    expect(calls.at(-1)).toMatchObject({
+      action: "updateTransaction",
+      sheetName: OLD,
+      rowIndex: 0,
+      baseFingerprint: target.fingerprint,
+    });
+    expect(engine.getSnapshot().queue).toEqual([]);
+    const cached = engine.getSnapshot().all!.sheets[1].transactions[0];
+    expect(cached).toMatchObject({
+      envelope: "Groceries",
+      fingerprint: "new-fp",
+    });
+  });
+
+  it("scopes keys and split group ids by sheet when rows of several tabs are shown", () => {
+    const grouped = makeRow(0, { splitGroupId: "0", name: "A | " });
+    const rows = [SHEET, OLD].flatMap((name) =>
+      buildViewRows(
+        { sheetName: name, taxMultiplier: 1, transactions: [grouped] },
+        [],
+        true,
+      ),
+    );
+    expect(new Set(rows.map((r) => r.key)).size).toBe(2);
+    expect(new Set(rows.map((r) => r.splitGroupId)).size).toBe(2);
+  });
+
+  it("clears the all-tabs cache with the local data", async () => {
+    const { engine } = newEngine((req) =>
+      req.action === "getAllTransactions" ? makeAll() : makeState(twoRows()),
+    );
+    await engine.init();
+    await engine.loadAll();
+    await engine.clearLocalData();
+    expect(engine.getSnapshot().all).toBeNull();
   });
 });

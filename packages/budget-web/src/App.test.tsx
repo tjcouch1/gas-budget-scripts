@@ -117,3 +117,66 @@ describe("App", () => {
     expect(screen.getByTestId("remain-Groceries")).toHaveTextContent("$280.00");
   });
 });
+
+describe("App: all pay periods", () => {
+  const OLD = "2/17/26 - 3/2/26";
+  const oldRow = makeRow(0, { name: "Old Hardware", fingerprint: "old-fp" });
+
+  it("loads every tab only when chosen, searches across tabs, and edits with the row's own sheet", async () => {
+    window.location.hash = "#/expenses";
+    const state = makeState(rows());
+    const all = {
+      taxMultiplier: 1.0825,
+      sheets: [
+        {
+          name: state.sheetName,
+          startDate: "2026-03-03",
+          endDate: "2026-03-16",
+          isGap: false,
+          transactions: rows(),
+          envelopeOptions: ["Groceries", "Gas"],
+          paidWithOptions: null,
+        },
+        {
+          name: OLD,
+          startDate: "2026-02-17",
+          endDate: "2026-03-02",
+          isGap: false,
+          transactions: [oldRow],
+          envelopeOptions: ["Groceries", "Gas"],
+          paidWithOptions: null,
+        },
+      ],
+    };
+    const { sent, user } = await setup((req) => {
+      if (req.action === "getState") return { ok: true, data: state };
+      if (req.action === "getAllTransactions") return { ok: true, data: all };
+      return {
+        ok: true,
+        data: { ...oldRow, envelope: "Gas", fingerprint: "n" },
+      };
+    });
+    await screen.findByRole("button", { name: /Aldi/ });
+    expect(sent.some((s) => s.action === "getAllTransactions")).toBe(false);
+    expect(screen.queryByRole("tab", { name: /Tax deductible/ })).toBeNull();
+
+    await user.selectOptions(
+      screen.getByLabelText("Transactions shown"),
+      "All pay periods",
+    );
+    await user.click(
+      await screen.findByRole("button", { name: /Old Hardware/ }),
+    );
+    // Heading per tab
+    expect(screen.getByRole("heading", { name: OLD })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Gas/ }));
+    await waitFor(() =>
+      expect(sent.find((s) => s.action === "updateTransaction")).toMatchObject({
+        sheetName: OLD,
+        rowIndex: 0,
+        baseFingerprint: "old-fp",
+        changes: { envelope: "Gas" },
+      }),
+    );
+  });
+});

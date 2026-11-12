@@ -1,4 +1,5 @@
 import type {
+  AllTransactionsDto,
   PayPeriodStateDto,
   SplitItemInput,
   TransactionChanges,
@@ -49,6 +50,10 @@ export interface EngineSnapshot {
   ready: boolean;
   currentSheet: string | null;
   states: Record<string, PayPeriodStateDto>;
+  /** Every pay-period tab's transactions; loaded on demand by the "All pay periods" view. */
+  all: AllTransactionsDto | null;
+  /** True while `getAllTransactions` is in flight. */
+  loadingAll: boolean;
   queue: QueuedMutation[];
   conflicts: Conflict[];
   refreshing: boolean;
@@ -63,6 +68,7 @@ export interface EngineSnapshot {
 export interface PersistedEngine {
   currentSheet: string | null;
   states: Record<string, PayPeriodStateDto>;
+  all?: AllTransactionsDto | null;
   queue: QueuedMutation[];
   conflicts: Conflict[];
 }

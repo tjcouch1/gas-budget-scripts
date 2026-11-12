@@ -1,4 +1,5 @@
 import type {
+  AllTransactionsDto,
   PayPeriodStateDto,
   SplitItemInput,
   SyncReceiptsResultDto,
@@ -47,14 +48,38 @@ function isRow(data: unknown): data is TransactionRowDto {
   );
 }
 
+function replaceInList(
+  list: (TransactionRowDto | null)[],
+  row: TransactionRowDto,
+): (TransactionRowDto | null)[] {
+  const transactions = [...list];
+  while (transactions.length <= row.rowIndex) transactions.push(null);
+  transactions[row.rowIndex] = row;
+  return transactions;
+}
+
 function replaceRow(
   state: PayPeriodStateDto,
   row: TransactionRowDto,
 ): PayPeriodStateDto {
-  const transactions = [...state.transactions];
-  while (transactions.length <= row.rowIndex) transactions.push(null);
-  transactions[row.rowIndex] = row;
-  return { ...state, transactions };
+  return { ...state, transactions: replaceInList(state.transactions, row) };
+}
+
+/** Replaces one sheet's transactions in the all-sheets cache (no-op when it is not cached). */
+function patchAll(
+  all: AllTransactionsDto | null,
+  sheetName: string,
+  update: (
+    transactions: (TransactionRowDto | null)[],
+  ) => (TransactionRowDto | null)[],
+): AllTransactionsDto | null {
+  if (!all || !all.sheets.some((x) => x.name === sheetName)) return all;
+  return {
+    ...all,
+    sheets: all.sheets.map((x) =>
+      x.name === sheetName ? { ...x, transactions: update(x.transactions) } : x,
+    ),
+  };
 }
 
 export class SyncEngine {
@@ -62,6 +87,8 @@ export class SyncEngine {
     ready: false,
     currentSheet: null,
     states: {},
+    all: null,
+    loadingAll: false,
     queue: [],
     conflicts: [],
     refreshing: false,
@@ -110,6 +137,7 @@ export class SyncEngine {
     const data: PersistedEngine = {
       currentSheet: s.currentSheet,
       states: s.states,
+      all: s.all,
       queue: s.queue,
       conflicts: s.conflicts,
     };
@@ -137,6 +165,7 @@ export class SyncEngine {
           ...this.snapshot,
           currentSheet: saved.currentSheet,
           states: saved.states ?? {},
+          all: saved.all ?? null,
           queue: saved.queue ?? [],
           conflicts: saved.conflicts ?? [],
         };
@@ -170,6 +199,7 @@ export class SyncEngine {
     this.set({
       currentSheet: null,
       states: {},
+      all: null,
       queue: [],
       conflicts: [],
       notice: null,
@@ -213,6 +243,27 @@ export class SyncEngine {
     });
   }
 
+  /**
+   * Loads every pay-period tab's transactions (the "All pay periods" view). On demand only:
+   * it reads every tab, so it is heavier than `refresh`. The cache stays visible meanwhile.
+   */
+  loadAll(): Promise<void> {
+    return this.run(async () => {
+      this.set({ loadingAll: true });
+      try {
+        const { data } = await this.options.callApi<AllTransactionsDto>({
+          action: "getAllTransactions",
+        });
+        this.set({ all: data, offline: false }, true);
+        this.retryAttempt = 0;
+      } catch (error) {
+        this.handleReadError(error);
+      } finally {
+        this.set({ loadingAll: false });
+      }
+    });
+  }
+
   private acceptState(state: PayPeriodStateDto): void {
     const current =
       this.snapshot.currentSheet &&
@@ -222,6 +273,11 @@ export class SyncEngine {
     this.set(
       {
         states: { ...this.snapshot.states, [state.sheetName]: state },
+        all: patchAll(
+          this.snapshot.all,
+          state.sheetName,
+          () => state.transactions,
+        ),
         currentSheet: this.snapshot.currentSheet ?? current,
       },
       true,
@@ -399,13 +455,16 @@ export class SyncEngine {
   ): void {
     let queue = this.removeFromQueue(m.id);
     let states = this.snapshot.states;
+    let all = this.snapshot.all;
     const state = states[m.sheetName];
     let newRow: TransactionRowDto | null = null;
     if (isState(data)) {
       states = { ...states, [data.sheetName]: data };
+      all = patchAll(all, data.sheetName, () => data.transactions);
       newRow = data.transactions[m.rowIndex] ?? null;
-    } else if (isRow(data) && state) {
-      states = { ...states, [m.sheetName]: replaceRow(state, data) };
+    } else if (isRow(data)) {
+      if (state) states = { ...states, [m.sheetName]: replaceRow(state, data) };
+      all = patchAll(all, m.sheetName, (t) => replaceInList(t, data));
       newRow = data;
     }
     // Re-base later mutations that were chained on this row's previous fingerprint.
@@ -419,15 +478,17 @@ export class SyncEngine {
           : q,
       );
     }
-    this.set({ queue, states }, true);
+    this.set({ queue, states, all }, true);
   }
 
   private onSplitSucceeded(m: SplitMutation, data: PayPeriodStateDto): void {
     let queue = this.removeFromQueue(m.id);
     const conflicts: Conflict[] = [...this.snapshot.conflicts];
     let states = this.snapshot.states;
+    let all = this.snapshot.all;
     if (isState(data)) {
       states = { ...states, [data.sheetName]: data };
+      all = patchAll(all, data.sheetName, () => data.transactions);
       // Rows below the split moved; find each later mutation's row by fingerprint.
       const shift = m.payload.splits.length;
       const rebased: QueuedMutation[] = [];
@@ -465,7 +526,7 @@ export class SyncEngine {
       // Unexpected shape: pull fresh state; later mutations will be conflict-checked by the server.
       void this.refresh(m.sheetName);
     }
-    this.set({ queue, states, conflicts }, true);
+    this.set({ queue, states, all, conflicts }, true);
   }
 
   private findRowByFingerprint(
@@ -499,10 +560,16 @@ export class SyncEngine {
       if (current && state) {
         states = { ...states, [m.sheetName]: replaceRow(state, current) };
       }
+      const all = current
+        ? patchAll(this.snapshot.all, m.sheetName, (t) =>
+            replaceInList(t, current),
+          )
+        : this.snapshot.all;
       this.set(
         {
           queue: this.removeFromQueue(m.id),
           states,
+          all,
           conflicts: [
             ...this.snapshot.conflicts,
             { id: this.newId(), mutation: m, current },

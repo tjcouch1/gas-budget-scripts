@@ -137,6 +137,7 @@ export function App({
             sheetName={state.sheetName}
             state={state}
             rows={rows}
+            snapshot={snapshot}
           />
         ) : (
           <EnvelopesView state={state} warnings={snapshot.warnings} />

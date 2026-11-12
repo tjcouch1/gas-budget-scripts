@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PayPeriodStateDto } from "@budget/shared";
 import { formatMoney, formatShortDate } from "../lib/format.ts";
 import {
@@ -13,6 +13,8 @@ import {
   type ViewRow,
 } from "../lib/rows.ts";
 import type { SyncEngine } from "../sync/engine.ts";
+import { buildViewRows } from "../sync/optimistic.ts";
+import type { EngineSnapshot } from "../sync/types.ts";
 import { TransactionSheet } from "./TransactionSheet.tsx";
 import { inputClass } from "./ui.tsx";
 
@@ -75,20 +77,51 @@ function RowButton({
   );
 }
 
+type Scope = "current" | "all";
+
 export function ExpensesView({
   engine,
   sheetName,
   state,
-  rows,
+  rows: currentRows,
+  snapshot,
 }: {
   engine: SyncEngine;
   sheetName: string;
   state: PayPeriodStateDto;
+  /** Rows of the selected pay period, with queued edits applied. */
   rows: ViewRow[];
+  snapshot: Pick<EngineSnapshot, "all" | "loadingAll" | "queue">;
 }) {
   const [filter, setFilter] = useState<FilterId>("uncategorized");
   const [query, setQuery] = useState("");
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const [scope, setScope] = useState<Scope>("current");
+  const { all, loadingAll, queue } = snapshot;
+
+  // All pay periods read every tab, so they load on demand only (cached rows show meanwhile).
+  useEffect(() => {
+    if (scope === "all") void engine.loadAll();
+  }, [scope, engine]);
+
+  const allRows = useMemo(
+    () =>
+      scope === "all" && all
+        ? all.sheets.flatMap((sheet) =>
+            buildViewRows(
+              {
+                sheetName: sheet.name,
+                taxMultiplier: all.taxMultiplier,
+                transactions: sheet.transactions,
+              },
+              queue,
+              true,
+            ),
+          )
+        : [],
+    [scope, all, queue],
+  );
+  const rows = scope === "all" ? allRows : currentRows;
 
   const groups = useMemo(
     () => groupRows(rows, filter, query),
@@ -102,32 +135,58 @@ export function ExpensesView({
       ).length;
     return result;
   }, [rows]);
+  const openRow = rows.find((r) => r.key === openKey && !r.synthetic) ?? null;
+  // The tab the open row lives in: edits and splits go to it with its own fingerprint.
+  const openSheetName = openRow?.sheetName ?? sheetName;
+  const openAllSheet =
+    scope === "all" && openRow
+      ? all?.sheets.find((x) => x.name === openSheetName)
+      : undefined;
+  const serverRow =
+    openRow &&
+    (openAllSheet ? openAllSheet.transactions : state.transactions).find(
+      (t) => t?.rowIndex === openRow.rowIndex,
+    );
+  const rawEnvelopeOptions = openAllSheet
+    ? openAllSheet.envelopeOptions
+    : state.envelopeOptions;
   const options = useMemo(
     () =>
-      state.envelopeOptions
+      rawEnvelopeOptions
         ? orderEnvelopeOptions(
-            state.envelopeOptions,
-            rows.filter((r) => !r.synthetic),
+            rawEnvelopeOptions,
+            rows.filter((r) => !r.synthetic && r.sheetName === openSheetName),
           )
         : null,
-    [state.envelopeOptions, rows],
+    [rawEnvelopeOptions, rows, openSheetName],
   );
-
-  const openRow = rows.find((r) => r.key === openKey && !r.synthetic) ?? null;
-  const serverRow =
-    openRow && state.transactions.find((t) => t?.rowIndex === openRow.rowIndex);
 
   return (
     <div>
       <div className="sticky top-0 z-10 space-y-2 bg-slate-50 pb-2 pt-1 dark:bg-slate-950">
-        <input
-          className={inputClass}
-          type="search"
-          aria-label="Search"
-          placeholder="Search name, envelope, paid with, date"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
+        <div className="flex gap-2">
+          <select
+            aria-label="Transactions shown"
+            className="min-h-11 w-36 shrink-0 rounded-lg border border-slate-300 bg-white px-2 text-base dark:border-slate-600 dark:bg-slate-900"
+            value={scope}
+            onChange={(e) => setScope(e.target.value as Scope)}
+          >
+            <option value="current">This pay period</option>
+            <option value="all">All pay periods</option>
+          </select>
+          <input
+            className={`${inputClass} min-w-0 flex-1`}
+            type="search"
+            aria-label="Search"
+            placeholder={
+              scope === "all"
+                ? "Search all pay periods"
+                : "Search name, envelope, paid with, date"
+            }
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
         <div
           className="flex gap-2 overflow-x-auto"
           role="tablist"
@@ -152,7 +211,13 @@ export function ExpensesView({
         </div>
       </div>
 
-      {groups.length === 0 ? (
+      {scope === "all" && !all ? (
+        <p role="status" className="py-10 text-center text-slate-500">
+          {loadingAll
+            ? "Loading all pay periods…"
+            : "All pay periods could not be loaded yet. Check your connection and try again."}
+        </p>
+      ) : groups.length === 0 ? (
         <p className="py-10 text-center text-slate-500">
           {rows.length === 0
             ? "No transactions in this pay period yet."
@@ -162,20 +227,25 @@ export function ExpensesView({
         </p>
       ) : (
         <ul className="space-y-3">
-          {groups.map((g) => (
-            <li
-              key={g.id}
-              className="divide-y divide-slate-100 overflow-hidden rounded-xl shadow-sm ring-1 ring-slate-200 dark:divide-slate-800 dark:ring-slate-700"
-            >
-              {g.rows.map((r, i) => (
-                <RowButton
-                  key={r.key}
-                  row={r}
-                  nested={g.rows.length > 1 && i > 0}
-                  dim={!(matchesFilter(r, filter) && matchesSearch(r, query))}
-                  onOpen={(row) => setOpenKey(row.key)}
-                />
-              ))}
+          {groups.map((g, gi) => (
+            <li key={g.id} className="space-y-1">
+              {scope === "all" &&
+                g.rows[0].sheetName !== groups[gi - 1]?.rows[0].sheetName && (
+                  <h3 className="px-1 pt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
+                    {g.rows[0].sheetName}
+                  </h3>
+                )}
+              <div className="divide-y divide-slate-100 overflow-hidden rounded-xl shadow-sm ring-1 ring-slate-200 dark:divide-slate-800 dark:ring-slate-700">
+                {g.rows.map((r, i) => (
+                  <RowButton
+                    key={r.key}
+                    row={r}
+                    nested={g.rows.length > 1 && i > 0}
+                    dim={!(matchesFilter(r, filter) && matchesSearch(r, query))}
+                    onOpen={(row) => setOpenKey(row.key)}
+                  />
+                ))}
+              </div>
             </li>
           ))}
         </ul>
@@ -187,15 +257,19 @@ export function ExpensesView({
           row={openRow}
           isSplitParent={isSplitParent(openRow, rows)}
           isSplitChild={isSplitChild(openRow, rows)}
-          taxMultiplier={state.taxMultiplier}
+          taxMultiplier={
+            all && openAllSheet ? all.taxMultiplier : state.taxMultiplier
+          }
           envelopeOptions={options}
-          envelopes={state.envelopes}
-          paidWithOptions={state.paidWithOptions}
+          envelopes={openSheetName === state.sheetName ? state.envelopes : null}
+          paidWithOptions={
+            openAllSheet ? openAllSheet.paidWithOptions : state.paidWithOptions
+          }
           onChange={(changes) =>
-            engine.enqueueUpdate(sheetName, serverRow, changes)
+            engine.enqueueUpdate(openSheetName, serverRow, changes)
           }
           onSplit={(splits) =>
-            engine.enqueueSplit(sheetName, serverRow, splits)
+            engine.enqueueSplit(openSheetName, serverRow, splits)
           }
           onClose={() => setOpenKey(null)}
         />

@@ -5,6 +5,7 @@
 import {
   formatSplitCostFormula,
   isUnsafeFreeText,
+  type AllTransactionsDto,
   type PayPeriodStateDto,
   type SyncReceiptsResultDto,
   type TaxDeductibleValue,
@@ -15,6 +16,7 @@ import { tryWithScriptLock } from "../util/lock.util";
 import { Variables } from "../util/variables.util";
 import { ApiError, getErrorMessage } from "./api-error";
 import {
+  buildAllTransactions,
   buildPayPeriodState,
   COL,
   getTransactionSheet,
@@ -184,6 +186,11 @@ function mutateUnderLock<T>(
       );
     },
   );
+}
+
+/** `getAllTransactions`: the transactions of every pay-period sheet (read only, no lock) */
+export function handleGetAllTransactions(): HandlerResult<AllTransactionsDto> {
+  return { data: buildAllTransactions() };
 }
 
 /** `getState`: the state of one pay-period sheet (read only, no lock) */
