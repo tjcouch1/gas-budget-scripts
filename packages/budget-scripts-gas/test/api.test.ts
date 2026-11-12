@@ -782,6 +782,21 @@ describe("updateTransaction", () => {
     expect(sheet.getRange("E9").getValue()).toBe("");
   });
 
+  it("lets a split-group row change only the item note after the |", async () => {
+    sheet.seed("A5", [
+      [D, "Store | ", "=5.5-R[1]C[0]", "=BALANCE(0)", "", "Credit", ""],
+      [D, "Store | milk", 2, "=BALANCE(1)", "", "Credit", ""],
+    ]);
+    expect((await update(1, { name: "Store | whole milk" })).ok).toBe(true);
+    expect((await update(0, { name: "Store | groceries" })).ok).toBe(true);
+    expect(sheet.getRange("B5:C6").getValues()).toEqual([
+      ["Store | groceries", "=5.5-R[1]C[0]"],
+      ["Store | whole milk", 2],
+    ]);
+    for (const name of ["Other | milk", "Store milk", "Stor | milk"])
+      expect((await update(1, { name })).error?.code).toBe("bad_request");
+  });
+
   it("rejects cost edits on a split parent and name edits on split-group rows", async () => {
     sheet.seed("A5", [
       [D, "Store | ", "=5.5-R[1]C[0]", "=BALANCE(0)", "", "Credit", ""],
@@ -1054,6 +1069,98 @@ describe("splitTransaction", () => {
       ["Store | jam", 2],
     ]);
   });
+
+  it("writes the parent's item note and envelope atomically with the split", async () => {
+    sheet.seed("A5", [
+      [D, "Costco", 40, "=BALANCE(0)", "", "Credit", "Yes"],
+      [D2, "Next", 7, "=BALANCE(1)", "Gas", "Cash", ""],
+    ]);
+    const res = await split(
+      0,
+      [
+        item({ itemNote: "milk", expression: "4", envelope: "Food" }),
+        item({
+          itemNote: "toy",
+          expression: "5",
+          preTax: false,
+          envelope: "Fun",
+        }),
+      ],
+      { parentItemNote: "household", parentEnvelope: "Gas" },
+    );
+    expect(res.ok).toBe(true);
+    expect(rows(4)).toEqual([
+      [
+        D,
+        "Costco | household",
+        "=40-R[1]C[0]-R[2]C[0]",
+        "=BALANCE(0)",
+        "Gas",
+        "Credit",
+        "Yes",
+      ],
+      [D, "Costco | milk", "=1.0825*(4)", "=BALANCE(1)", "Food", "Credit", ""],
+      [D, "Costco | toy", 5, "=BALANCE(2)", "Fun", "Credit", ""],
+      [D2, "Next", 7, "=BALANCE(3)", "Gas", "Cash", ""],
+    ]);
+    expect(res.data.transactions.map((t: any) => t.splitGroupId)).toEqual([
+      "0",
+      "0",
+      "0",
+      null,
+    ]);
+  });
+
+  it("renames an already-split parent's note and keeps its own prefix for new children", async () => {
+    sheet.seed("A5", [
+      [D, "Store | old", "=5.5-R[1]C[0]", "=BALANCE(0)", "Food", "Credit", ""],
+      [D, "Store | bread", "=1.0825*(2)", "=BALANCE(1)", "Food", "Credit", ""],
+    ]);
+    const res = await split(0, [item({ itemNote: "eggs", expression: "1" })], {
+      parentItemNote: "groceries",
+      parentEnvelope: "",
+    });
+    expect(res.ok).toBe(true);
+    expect(rows(3).map((r) => [r[1], r[2], r[4]])).toEqual([
+      ["Store | groceries", "=5.5-R[1]C[0]-R[2]C[0]", ""],
+      ["Store | bread", "=1.0825*(2)", "Food"],
+      ["Store | eggs", "=1.0825*(1)", ""],
+    ]);
+  });
+
+  it("without the parent fields the parent keeps the native name and envelope", async () => {
+    sheet.seed("A5", [[D, "Costco", 40, "=BALANCE(0)", "Food", "Credit", ""]]);
+    expect((await split(0, [item()])).ok).toBe(true);
+    expect(rows(2).map((r) => [r[1], r[4]])).toEqual([
+      ["Costco | ", "Food"],
+      ["Costco | ", ""],
+    ]);
+  });
+
+  it.each([
+    [
+      { parentItemNote: "=cmd" },
+      "parentItemNote must not start with =, +, -, or @",
+    ],
+    [{ parentItemNote: 5 }, "parentItemNote must be a string"],
+    [
+      { parentEnvelope: "@x" },
+      "parentEnvelope must not start with =, +, -, or @",
+    ],
+    [
+      { parentEnvelope: "Rent" },
+      'parentEnvelope "Rent" is not one of the sheet\'s options',
+    ],
+  ])(
+    "rejects bad parent fields %j and writes nothing",
+    async (extra, message) => {
+      sheet.seed("A5", [[D, "Costco", 40, "=BALANCE(0)", "", "Credit", ""]]);
+      const before = snapshot(sheet);
+      const res = await split(0, [item()], extra);
+      expect(res.error).toEqual({ code: "bad_request", message });
+      expect(snapshot(sheet)).toEqual(before);
+    },
+  );
 
   it("shifts following rows (cols 0-2 and 4-5 with notes and formats) down by N", async () => {
     sheet.seed("A5", [

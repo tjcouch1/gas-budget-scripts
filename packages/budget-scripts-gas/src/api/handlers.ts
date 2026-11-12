@@ -4,6 +4,7 @@
  */
 import {
   formatSplitCostFormula,
+  getSplitGroupKey,
   isUnsafeFreeText,
   type AllTransactionsDto,
   type PayPeriodStateDto,
@@ -11,7 +12,11 @@ import {
   type TaxDeductibleValue,
   type TransactionRowDto,
 } from "@budget/shared";
-import { Budgeting, type SplitChildSpec } from "../util/budgeting.util";
+import {
+  Budgeting,
+  type SplitChildSpec,
+  type SplitParentSpec,
+} from "../util/budgeting.util";
 import { tryWithScriptLock } from "../util/lock.util";
 import { Variables } from "../util/variables.util";
 import { ApiError, getErrorMessage } from "./api-error";
@@ -292,7 +297,16 @@ export function handleUpdateTransaction(
       /** Unchanged cells are written back as read: formula if there is one, else value */
       const asRead = (col: number) => rowFormulas[col] || rowValues[col];
 
-      if (changes.name !== undefined && current.name.includes("|"))
+      // A row in a split group may only change the item note after its "|": the text before
+      // it must stay the same, or the row would fall out of its group.
+      if (
+        changes.name !== undefined &&
+        current.name.includes("|") &&
+        !(
+          changes.name.includes("|") &&
+          getSplitGroupKey(changes.name) === getSplitGroupKey(current.name)
+        )
+      )
         badRequest(
           "Cannot rename a row in a split group (its name contains |) because that could break the group",
         );
@@ -386,11 +400,25 @@ export function handleSplitTransaction(
 ): HandlerResult<PayPeriodStateDto> {
   const { sheetName, sheet, rowIndex, baseFingerprint, force } =
     getTarget(request);
-  const childSpecs = validateSplits(request.splits, sheetOptionsGetter(sheet));
+  const getOptions = sheetOptionsGetter(sheet);
+  const childSpecs = validateSplits(request.splits, getOptions);
+  const parentSpec: SplitParentSpec = {};
+  if (request.parentItemNote !== undefined)
+    parentSpec.itemNote = requireSafeText(
+      request.parentItemNote,
+      "parentItemNote",
+    );
+  if (request.parentEnvelope !== undefined)
+    parentSpec.category = requireOption(
+      request.parentEnvelope,
+      () => getOptions().envelopeOptions,
+      "parentEnvelope",
+      "EnvelopesStart/EnvelopesMax",
+    );
 
   mutateUnderLock(sheet, rowIndex, baseFingerprint, force, () => {
     try {
-      Budgeting.splitTransaction(sheet, rowIndex, childSpecs);
+      Budgeting.splitTransaction(sheet, rowIndex, childSpecs, parentSpec);
     } catch (e) {
       if (SPLIT_USER_ERROR_REGEX.test(getErrorMessage(e)))
         badRequest(getErrorMessage(e));

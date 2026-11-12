@@ -673,6 +673,14 @@ export type SplitChildSpec = {
   type: string | undefined;
 };
 
+/** Optional edits to the original (parent) row, written atomically with the split by the web API */
+export type SplitParentSpec = {
+  /** New text after ` | ` in the parent's name. `undefined` keeps the native `<name> | ` result */
+  itemNote?: string;
+  /** New envelope (category) for the parent. `undefined` leaves it unchanged */
+  category?: string;
+};
+
 /**
  * The single child the checkbox (native) split creates: blank item note, `=${TaxMultiplier}*(0)`,
  * blank envelope, and the parent's Paid with
@@ -709,12 +717,14 @@ function doesTransactionRowInfoHaveContent(
  * @param sheet sheet on which to split transaction
  * @param transactionIndex index of transaction to split relative to first transaction (0)
  * @param childSpecs new child rows to add after the group. Defaults to the native single child
+ * @param parentSpec optional parent item note and envelope (web API only; the native split passes none)
  * @returns range containing new transaction rows
  */
 export function splitTransaction(
   sheet: GoogleAppsScript.Spreadsheet.Sheet,
   transactionIndex: number,
   childSpecs: SplitChildSpec[] = getDefaultSplitChildSpecs(),
+  parentSpec: SplitParentSpec = {},
 ) {
   if (childSpecs.length < 1)
     throw new Error("Must add at least one row when splitting a transaction");
@@ -844,9 +854,12 @@ export function splitTransaction(
     if (i === 0)
       return {
         ...transaction,
-        name: `${transaction.name}${
-          transaction.name?.includes("|") ? "" : " | "
-        }`,
+        name:
+          parentSpec.itemNote === undefined
+            ? `${transaction.name}${
+                transaction.name?.includes("|") ? "" : " | "
+              }`
+            : buildSplitChildName(`${transaction.name}`, parentSpec.itemNote),
         cost: `${
           Util.isString(transaction.cost) && transaction.cost.startsWith("=")
             ? ""
@@ -945,6 +958,11 @@ export function splitTransaction(
       newFirstTransactionInfo.cost,
     ],
   ]);
+
+  if (parentSpec.category !== undefined)
+    getTransactionMetadataRange(transactionsInGroup[0].range)
+      .offset(0, 0, 1, 1)
+      .setValue(parentSpec.category);
 
   return splitTransactionRange;
 }

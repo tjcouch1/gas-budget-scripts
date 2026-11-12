@@ -57,6 +57,10 @@ export interface SplitTransactionRequest extends BaseRequest {
   rowIndex: number;
   baseFingerprint: string;
   splits: SplitItemInput[];
+  /** New text after " | " in the original row's name (written with the split). Omit to keep the native `<name> | `. */
+  parentItemNote?: string;
+  /** New envelope for the original row (written with the split). Omit to leave it unchanged. */
+  parentEnvelope?: string;
   force?: boolean;
 }
 

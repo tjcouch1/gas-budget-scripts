@@ -31,3 +31,11 @@ export function buildSplitChildName(
 export function isUnsafeFreeText(text: string): boolean {
   return /^\s*[=+\-@]/.test(text);
 }
+
+/**
+ * What groups a split row with its siblings: the text before the first "|", right-trimmed
+ * (see `doTransactionRowInfosSeemEqual`). A rename of a split row must keep this unchanged.
+ */
+export function getSplitGroupKey(name: string): string {
+  return name.split("|")[0].trimEnd();
+}

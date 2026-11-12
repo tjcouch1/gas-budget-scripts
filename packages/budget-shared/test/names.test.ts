@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSplitChildName,
   buildSplitParentName,
+  getSplitGroupKey,
   getSplitNamePrefix,
   isUnsafeFreeText,
 } from "../src/index.ts";
@@ -49,4 +50,13 @@ describe("isUnsafeFreeText", () => {
       expect(isUnsafeFreeText(text)).toBe(false);
     },
   );
+});
+
+describe("getSplitGroupKey", () => {
+  it("is the text before the first |, right-trimmed", () => {
+    expect(getSplitGroupKey("Store | milk")).toBe("Store");
+    expect(getSplitGroupKey("Store | ")).toBe("Store");
+    expect(getSplitGroupKey("Store|milk | x")).toBe("Store");
+    expect(getSplitGroupKey("Store")).toBe("Store");
+  });
 });
