@@ -134,3 +134,18 @@ dist
 
 # Documentation
 docs/
+# Workspace build output and caches
+packages/*/dist/
+packages/*/coverage/
+.pnpm-store/
+
+# Generated license artifacts (web package, see web-plan.md Step 3.8)
+packages/budget-web/public/licenses.html
+packages/budget-web/licenses.json
+packages/budget-web/licenses-raw.json
+
+# Demo backend bundle, Playwright output
+packages/*/.demo/
+packages/budget-web/test-results/
+packages/budget-web/playwright-report/
+packages/budget-web/blob-report/
