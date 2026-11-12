@@ -9,8 +9,9 @@ const server = createDemoServer(backend);
 server.listen(port, "127.0.0.1", () => {
   console.log("");
   console.log("Demo backend (real doPost/doGet on in-memory GAS mocks)");
-  console.log(`  Web app URL: http://localhost:${port}${EXEC_PATH}`);
+  console.log(`  Web app URL: http://127.0.0.1:${port}${EXEC_PATH}`);
   console.log(`  API key:     ${DEMO_API_KEY}`);
+  console.log("  Web app (Vite): http://127.0.0.1:5173/");
   console.log("  Paste both into the web app's Settings dialog.");
   console.log("  State is in memory; restart (or POST /__debug/reset) resets.");
   console.log("");

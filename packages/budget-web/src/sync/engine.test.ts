@@ -105,6 +105,19 @@ describe("SyncEngine reads", () => {
     await engine.init();
     expect(engine.getSnapshot().notice).toMatchObject({ hint: "settings" });
   });
+
+  it("clears the Settings notice once a refresh succeeds (credentials were saved)", async () => {
+    let configured = false;
+    const { engine } = newEngine(() => {
+      if (!configured) throw new ApiError("not_configured", "no credentials");
+      return makeState(twoRows());
+    });
+    await engine.init();
+    expect(engine.getSnapshot().notice).toMatchObject({ hint: "settings" });
+    configured = true;
+    await engine.refresh();
+    expect(engine.getSnapshot().notice).toBeNull();
+  });
 });
 
 describe("SyncEngine updates", () => {

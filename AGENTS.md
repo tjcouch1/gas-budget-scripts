@@ -24,6 +24,8 @@ packages/budget-scripts-gas/  # @budget/scripts-gas: container-bound GAS project
   scripts/build.ts            #   esbuild bundler -> dist/index.js (+ top-level GAS function footer)
   test/*.test.ts              #   Vitest characterization tests
   test/gas-mocks/             #   In-memory SpreadsheetApp / GmailApp / Logger / PropertiesService / LockService / ContentService / Utilities mocks
+  test/fixtures/              #   Shared pure-data fixtures: receipts.ts (sample emails + expected parse results), sheets.ts (demo/sample sheet data)
+  dev/, scripts/dev-server.ts #   Local demo backend: real doPost/doGet on the mocks + HTTP server (`pnpm run demo`), bundled to .demo/ (gitignored)
   appsscript.json             #   GAS manifest (copied to dist/ by the build)
   .claspignore                #   clasp whitelist; the gitignored .clasp.json also lives in this package
   tsconfig.json, tsconfig.test.json, vitest.config.ts
@@ -41,6 +43,7 @@ packages/budget-web/          # @budget/web: React 19 + Vite + Tailwind v4 PWA (
   src/sync/                   #   engine.ts (cache, FIFO queue, conflicts, receipts), optimistic.ts
   src/lib/, src/components/   #   pure row/split helpers; React UI
   src/**/*.test.ts(x)         #   Vitest (jsdom, @testing-library/react, fake-indexeddb)
+  e2e/, playwright.config.ts  #   Playwright (Chromium) end-to-end tests against the demo backend + Vite dev server
   scripts/generate-licenses.ts, license-checker.config.json, additional-licenses/   # postinstall/build: public/licenses.html (gitignored)
   scripts/generate-icons.ts   #   one-off helper that wrote public/icon-*.png
 .github/workflows/deploy-web.yml   # Pages deploy from main (Pages source "GitHub Actions"; no gh-pages branch)
@@ -124,4 +127,6 @@ Branches: `main` is development and is used with a **test** budget sheet. `deplo
 1. Tests use Vitest with in-memory GAS mocks (`test/gas-mocks/`). `test/setup.ts` calls `vi.resetModules()` and reinstalls fresh globals before every test, so import `src/` modules dynamically inside each test (`const load = () => import("../src/...")`). `vitest.config.ts` pins `TZ=America/Chicago`, which matches `appsscript.json`.
 2. Mocks implement only what `src/` calls today. They do not evaluate formulas or adjust relative references on `copyTo`. When new code uses another GAS API (e.g. `PropertiesService`, `LockService`, `ContentService`, `Utilities`, `GmailLabel.addToThreads`, `GmailApp.moveThreadsToArchive`, `Range.getFormulasR1C1`), extend the mocks minimally and add tests.
 3. Every behavior change or new feature needs tests. Backend API handlers are tested by calling the exported `doPost`/`doGet` with mock event objects.
-4. **Before completing any task, run and pass all of:** `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm test`, and `pnpm run build`. This is the same set as Husky pre-commit plus CI. The root scripts cover every package.
+4. **Fixtures:** sample receipt emails and their expected parse results live only in `test/fixtures/receipts.ts`; sample sheet data lives in `test/fixtures/sheets.ts`. Unit tests, the demo backend, and e2e import them. Do not inline email text in tests (single-use error cases excepted) and do not copy fixture data elsewhere. Keep them pure data (no mocks/globals) so e2e can import them.
+5. **Demo backend and e2e:** `pnpm run demo` starts the demo backend (`packages/budget-scripts-gas/dev`: the real `doPost`/`doGet` on the mocks, `MockSpreadsheet.evaluateFormulas = true`) and Vite. It is test/dev tooling only: never point it at real data, and the mocks must not leak into `src/`. The dev-only `http://localhost` URL allowance in `validateGasUrl` is gated by `import.meta.env.DEV`; the production bundle must contain no dev URL or key (check `dist`). The server's `/__debug/*` endpoints (`GET health|sheets|sheet?name=|threads`, `POST reset|mutate|receipts|lock`) exist for tests only and do not exist on real GAS. E2E tests (`pnpm run test:e2e`, `packages/budget-web/e2e/`) run with one worker against one shared in-memory backend and call `/__debug/reset` before every test. Add an e2e test for a new user-visible flow, and keep `pnpm test` unit-only.
+6. **Before completing any task, run and pass all of:** `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm test`, `pnpm run build`, and `pnpm run test:e2e` (CI runs e2e as a separate job). This is the same set as Husky pre-commit plus CI. The root scripts cover every package.

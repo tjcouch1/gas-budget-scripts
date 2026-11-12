@@ -418,6 +418,10 @@ Each step ends with all quality gates green (`AGENTS.md` §5.4) and a separate c
    - Steps: checkout → `pnpm/action-setup@v4` (10.34.5) → `setup-node@v4` (`node-version-file: package.json`, cache pnpm; or the copied `.github/actions/get-volta-node-version` composite action that reads `volta.node`, as the game-boy repo does) → `pnpm install --frozen-lockfile` → `pnpm --filter @budget/web run test` → `PAGES_BASE=/${{ github.event.repository.name }}/ pnpm --filter @budget/web run build` → `actions/configure-pages@v5` → `actions/upload-pages-artifact@v3` (`path: packages/budget-web/dist`) → a separate `deploy` job (`needs: build`, `environment: { name: github-pages, url: ${{ steps.deployment.outputs.page_url }} }`) running `actions/deploy-pages@v4`. The game-boy repo's release/version-bump jobs are **not** copied. `pnpm install` runs the web `postinstall` license generation, so `licenses.html` is in the artifact. Owner must enable Pages with source "GitHub Actions" first (§0.D).
 2. `ci.yml` needs no new steps: the root scripts cover all packages after Step 1. Make sure `pnpm run build` builds the web app too, so CI catches build breaks.
 
+### Local demo backend and e2e tests
+
+**Status: implemented.** `pnpm run demo` runs the real `doPost`/`doGet` on the in-memory mocks (`packages/budget-scripts-gas/dev`, seeded from `test/fixtures/`) plus the Vite dev server, so the owner can try the app without Google. `packages/budget-web/e2e` has Playwright (Chromium) tests of the main flows; CI runs them in a separate `e2e` job. The mock spreadsheet evaluates arithmetic and relative formulas on read (opt-in); envelope balances are static numbers in the demo. Dev builds (only) accept `http://localhost` / `127.0.0.1` web app URLs. See README and AGENTS.md section 5.
+
 ### Step 5: Hand-off checklist (agent reports to user)
 
 - What the user must do now: §0.A, §0.A2 (point the deployed app at the **test** sheet first), §0.B.2–9, §0.D (enable Pages with source "GitHub Actions").

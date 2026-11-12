@@ -197,7 +197,13 @@ export class SyncEngine {
               : { action: "getState" },
           );
         this.acceptState(data);
-        this.set({ offline: false, warnings }, true);
+        // A successful read means the connection works now, so a "go to Settings" notice
+        // (e.g. from the first load before credentials were saved) is stale.
+        const notice =
+          this.snapshot.notice?.hint === "settings"
+            ? null
+            : this.snapshot.notice;
+        this.set({ offline: false, warnings, notice }, true);
         this.retryAttempt = 0;
       } catch (error) {
         this.handleReadError(error);

@@ -110,11 +110,10 @@ export class MockRange {
     );
   }
   getDisplayValues() {
-    return this.map((cell, r, c) => {
+    return this.map((_cell, r, c) => {
       const value = this.sheet.valueAt(this.row + r, this.col + c);
-      // Like a currency format: evaluated formula results show two decimals
-      return cell.formula &&
-        this.sheet.spreadsheet.evaluateFormulas &&
+      // Like a number format: with formula evaluation on (demo server), numbers show two decimals
+      return this.sheet.spreadsheet.evaluateFormulas &&
         typeof value === "number"
         ? value.toFixed(2)
         : String(value ?? "");

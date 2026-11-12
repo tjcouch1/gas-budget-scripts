@@ -102,6 +102,28 @@ pnpm --filter @budget/web run preview   # serve the production build
 
 The web app asks for the Apps Script web app URL and API key in its Settings dialog and stores them encrypted on the device; nothing secret is in the bundle. `pnpm install` (and `build`) generate `packages/budget-web/public/licenses.html` (open source licenses, gitignored). To publish: enable **Settings -> Pages -> Source: GitHub Actions** once, then pushes to `main` that touch the web or shared packages (or a manual run of "Deploy web app to GitHub Pages") deploy the site.
 
+### Local demo (fake backend)
+
+```bash
+pnpm run demo
+```
+
+Starts the **demo backend** and the Vite dev server together. The backend is the real `doPost`/`doGet` from `packages/budget-scripts-gas/src` running on the in-memory GAS mocks, seeded with obviously fake data: a Variables sheet, a Template, three pay-period tabs (the oldest has no optional `EnvelopesStart`/`PaidWithStart` keys), ~27 transactions including uncategorized ones, an existing split group, envelope balances, Paid With options, and fake Gmail receipts (Chase/Venmo/PayPal) that "Import receipts" adds. Nothing touches Google. Then:
+
+1. Open <http://127.0.0.1:5173/>.
+2. In Settings paste the web app URL `http://127.0.0.1:8787/macros/s/demo/exec` and the API key `dev-key` (both are printed when the backend starts). Local `http://localhost`/`127.0.0.1` URLs are accepted **only in dev builds** (`import.meta.env.DEV`); production builds accept only `script.google.com` deployment URLs.
+
+State lives in memory; restart the demo to reset it. Limits: the mock evaluates arithmetic and relative (`R[1]C[0]`) cell formulas on read, so costs and Current Balance stay live, but the envelope table (Spent/Remain/...) holds plain numbers and does **not** update when transactions change. Run the backend alone with `pnpm --filter @budget/scripts-gas run dev:server` (`DEMO_PORT` changes the port, default 8787). The server also exposes test-only `/__debug/*` endpoints (see AGENTS.md section 5).
+
+### End-to-end tests
+
+```bash
+pnpm exec playwright install chromium   # once (from packages/budget-web, or add --with-deps on Linux)
+pnpm run test:e2e
+```
+
+Playwright (Chromium) starts the demo backend (port 8788) and the Vite dev server (port 5174), resets the backend before every test, and drives the real UI: settings, loading, categorizing, cost math, splitting (pre-tax on/off), details, conflicts, offline queue, receipt import, and tabs without optional keys. Assertions on the sheet read the mock sheet through `/__debug/sheet`. The report is written to `packages/budget-web/playwright-report/`. `pnpm test` stays unit-only and fast.
+
 ### Open Apps Script Project
 
 ```bash
@@ -121,13 +143,13 @@ pnpm run test:watch     # Vitest in watch mode
 pnpm run test:coverage  # Vitest with v8 coverage (HTML report in packages/*/coverage/)
 ```
 
-Tests run against in-memory mocks of the Apps Script globals (`SpreadsheetApp`, `GmailApp`, `Logger`) in `packages/budget-scripts-gas/test/gas-mocks/`. They are characterization tests: they pin the current spreadsheet behavior (cell values, formulas, labels) so refactors can be verified. Mocks do not evaluate formulas or adjust relative references on `copyTo`.
+Tests run against in-memory mocks of the Apps Script globals (`SpreadsheetApp`, `GmailApp`, `Logger`) in `packages/budget-scripts-gas/test/gas-mocks/`. They are characterization tests: they pin the current spreadsheet behavior (cell values, formulas, labels) so refactors can be verified. Mocks do not evaluate formulas (unless the demo server opts in) or adjust relative references on `copyTo`. Sample emails with their expected parse results (`test/fixtures/receipts.ts`) and sample sheet data (`test/fixtures/sheets.ts`) are shared by the unit tests and the demo backend: change an email format in one place.
 
 > **TypeScript versions**: `typescript` is aliased to `@typescript/typescript6` because typescript-eslint needs the TS 6 API, while `@typescript/native` (TypeScript 7) provides the `tsc` used by `typecheck`. Revisit once typescript-eslint supports TS 7.
 
 > **Git Hook**: Husky runs `format:check`, `lint`, `typecheck` and `test` as a pre-commit hook.
 
-> **CI**: `.github/workflows/ci.yml` runs format check, lint, typecheck, tests with coverage and build on pushes to `main` and on pull requests.
+> **CI**: `.github/workflows/ci.yml` runs format check, lint, typecheck, tests with coverage and build on pushes to `main` and on pull requests, plus a separate `e2e` job (Playwright, Chromium) that uploads the Playwright report as an artifact when it fails.
 
 ---
 

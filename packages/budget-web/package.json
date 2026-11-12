@@ -9,6 +9,8 @@
     "generate:licenses": "node scripts/generate-licenses.ts",
     "build": "pnpm run generate:licenses && tsc --noEmit && vite build",
     "preview": "vite preview",
+    "demo": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -24,6 +26,7 @@
     "react-dom": "19.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.0",
     "@tailwindcss/vite": "4.3.5",
     "@testing-library/dom": "10.4.2",
     "@testing-library/jest-dom": "7.0.1",

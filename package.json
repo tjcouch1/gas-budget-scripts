@@ -15,6 +15,8 @@
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
     "test:watch": "pnpm -r run test:watch",
+    "test:e2e": "pnpm --filter @budget/web run test:e2e",
+    "demo": "pnpm --parallel --filter @budget/scripts-gas --filter @budget/web run demo",
     "test:coverage": "pnpm -r run test:coverage",
     "prepare": "husky",
     "lint": "eslint .",
