@@ -46,7 +46,7 @@ packages/budget-web/          # @budget/web: React 19 + Vite + Tailwind v4 PWA (
   e2e/, playwright.config.ts  #   Playwright (Chromium) end-to-end tests against the demo backend + Vite dev server
   scripts/generate-licenses.ts, license-checker.config.json, additional-licenses/   # postinstall/build: public/licenses.html (gitignored)
   scripts/generate-icons.ts   #   one-off helper that wrote public/icon-*.png
-.github/workflows/deploy-web.yml   # Pages deploy from main (Pages source "GitHub Actions"; no gh-pages branch)
+.github/workflows/deploy-web.yml   # Pages deploy from deploy-budget-sheet (merge main into it; Pages source "GitHub Actions"; github-pages environment must allow that branch; no gh-pages branch)
 .github/actions/get-volta-node-version/   # reads volta.node for the deploy workflow
 ```
 

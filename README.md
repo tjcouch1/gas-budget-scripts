@@ -100,7 +100,7 @@ pnpm --filter @budget/web run build     # tsc + vite build -> packages/budget-we
 pnpm --filter @budget/web run preview   # serve the production build
 ```
 
-The web app asks for the Apps Script web app URL and API key in its Settings dialog and stores them encrypted on the device; nothing secret is in the bundle. `pnpm install` (and `build`) generate `packages/budget-web/public/licenses.html` (open source licenses, gitignored). To publish: enable **Settings -> Pages -> Source: GitHub Actions** once, then pushes to `main` that touch the web or shared packages (or a manual run of "Deploy web app to GitHub Pages") deploy the site.
+The web app asks for the Apps Script web app URL and API key in its Settings dialog and stores them encrypted on the device; nothing secret is in the bundle. `pnpm install` (and `build`) generate `packages/budget-web/public/licenses.html` (open source licenses, gitignored). To publish: enable **Settings -> Pages -> Source: GitHub Actions** once, also allow the production branch under **Settings -> Environments -> github-pages -> Deployment branches** (the default policy only allows `main`). The site deploys from `deploy-budget-sheet`, the production branch used with the real sheet: merge `main` into `deploy-budget-sheet` (a push that touches the web or shared packages), or run "Deploy web app to GitHub Pages" manually on that branch. Pushes to `main` do not deploy.
 
 ### Local demo (fake backend)
 
@@ -122,7 +122,7 @@ pnpm exec playwright install chromium   # once (from packages/budget-web, or add
 pnpm run test:e2e
 ```
 
-Playwright (Chromium) starts the demo backend (port 8788) and the Vite dev server (port 5174), resets the backend before every test, and drives the real UI: settings, loading, categorizing, cost math, splitting (pre-tax on/off), details, conflicts, offline queue, receipt import, and tabs without optional keys. Assertions on the sheet read the mock sheet through `/__debug/sheet`. The report is written to `packages/budget-web/playwright-report/`. `pnpm test` stays unit-only and fast.
+Playwright (Chromium) starts the demo backend (port 8788) and the Vite dev server (port 5174), resets the backend before every test, and drives the real UI: settings, loading, categorizing, cost math, splitting (add tax on/off), all pay periods, details, conflicts, offline queue, receipt import, and tabs without optional keys. Assertions on the sheet read the mock sheet through `/__debug/sheet`. The report is written to `packages/budget-web/playwright-report/`. `pnpm test` stays unit-only and fast.
 
 ### Open Apps Script Project
 
