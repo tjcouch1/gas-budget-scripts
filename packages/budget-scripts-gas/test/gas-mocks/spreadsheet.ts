@@ -8,7 +8,11 @@
  * - A string written via setValues/setValue that starts with "=" is stored as a formula and its
  *   value is the formula text itself (there is no formula evaluation).
  * - copyTo copies value/formula/note/background verbatim (no relative reference adjustment).
+ * - Formulas are not evaluated unless `MockSpreadsheet.evaluateFormulas` is set (used by the local
+ *   demo server). Then reads evaluate arithmetic formulas, including R1C1 relative references such
+ *   as `R[1]C[0]` and `RC[-1]`, on every read. Anything else keeps the formula text as its value.
  */
+import { evaluateMathExpression } from "@budget/shared";
 
 export interface Cell {
   value: unknown;
@@ -101,10 +105,20 @@ export class MockRange {
   }
 
   getValues() {
-    return this.map((cell) => cell.value);
+    return this.map((_cell, r, c) =>
+      this.sheet.valueAt(this.row + r, this.col + c),
+    );
   }
   getDisplayValues() {
-    return this.map((cell) => String(cell.value ?? ""));
+    return this.map((cell, r, c) => {
+      const value = this.sheet.valueAt(this.row + r, this.col + c);
+      // Like a currency format: evaluated formula results show two decimals
+      return cell.formula &&
+        this.sheet.spreadsheet.evaluateFormulas &&
+        typeof value === "number"
+        ? value.toFixed(2)
+        : String(value ?? "");
+    });
   }
   getFormulas() {
     return this.map((cell) => cell.formula);
@@ -221,6 +235,43 @@ export class MockSheet {
     return c;
   }
 
+  /** Cell value; evaluates the cell's formula first if the spreadsheet evaluates formulas */
+  valueAt(row: number, col: number, depth = 0): unknown {
+    const cell = this.cell(row, col);
+    if (!cell.formula || !this.spreadsheet.evaluateFormulas) return cell.value;
+    return this.evaluateFormula(cell.formula, row, col, depth) ?? cell.value;
+  }
+
+  private evaluateFormula(
+    formula: string,
+    row: number,
+    col: number,
+    depth: number,
+  ): number | null {
+    if (depth > 200) return null;
+    let unresolved = false;
+    const expression = formula
+      .slice(1)
+      .replace(
+        /R(?:\[(-?\d+)\])?C(?:\[(-?\d+)\])?/g,
+        (_match, dr = "0", dc = "0") => {
+          const value = this.valueAt(
+            row + Number(dr),
+            col + Number(dc),
+            depth + 1,
+          );
+          if (value === "" || value === null || value === undefined)
+            return "(0)";
+          if (typeof value !== "number") {
+            unresolved = true;
+            return "(0)";
+          }
+          return `(${value})`;
+        },
+      );
+    return unresolved ? null : evaluateMathExpression(expression);
+  }
+
   getName() {
     return this.name;
   }
@@ -260,6 +311,8 @@ export class MockSheet {
 
 export class MockSpreadsheet {
   sheets: MockSheet[] = [];
+  /** Evaluate arithmetic formulas on read (off by default: tests pin the stored formula text) */
+  evaluateFormulas = false;
   activeSheet: MockSheet | undefined;
 
   addSheet(name: string): any {

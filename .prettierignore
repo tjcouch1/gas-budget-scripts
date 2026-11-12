@@ -3,3 +3,7 @@ coverage
 node_modules
 pnpm-lock.yaml
 packages/budget-web/public/licenses.html
+.demo
+playwright-report
+test-results
+blob-report

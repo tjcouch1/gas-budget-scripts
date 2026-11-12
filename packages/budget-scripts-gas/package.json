@@ -17,7 +17,9 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "dev:server": "node scripts/dev-server.ts",
+    "demo": "node scripts/dev-server.ts"
   },
   "author": "TJ Couch",
   "license": "MIT",
