@@ -1,9 +1,27 @@
 import { Budgeting } from "./util/budgeting.util";
 import { Variables } from "./util/variables.util";
 
+/**
+ * Functions that can be run from the in-sheet checkbox menu. Looked up by name because the bundle has no
+ * `this`-based global lookup and esbuild may rename the underlying functions.
+ */
+const menuActions = {
+  getAndRecordSomeReceiptsNoMark,
+  getAndRecordReceiptsNoMark,
+  getAndRecordSomeReceiptsAndMark,
+  getAndRecordReceiptsAndMark,
+  addTransactionSheet,
+  addTransactionSheets,
+} satisfies Record<string, () => unknown>;
+
+type MenuActionName = keyof typeof menuActions;
+
 /** Menu to add to the spreadsheet and to show in the menu bar on desktop */
 const menu: {
-  [menuName: string]: ({ name: string; functionName: string } | undefined)[];
+  [menuName: string]: (
+    | { name: string; functionName: MenuActionName }
+    | undefined
+  )[];
 } = {
   Budgeting: [
     {
@@ -93,19 +111,9 @@ export function onOpen() {
   }
 }
 
-const menuActions: Record<string, () => unknown> = {
-  getAndRecordSomeReceiptsNoMark,
-  getAndRecordReceiptsNoMark,
-  getAndRecordSomeReceiptsAndMark,
-  getAndRecordReceiptsAndMark,
-  addTransactionSheet,
-  addTransactionSheets,
-};
-
 /** onEdit trigger to be installed to run with user's permissions */
 export function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
   // The whole script is loaded and run every edit, so cache busting is useless
-  // Variables.onEdit(e);
 
   if (e.range.isChecked()) {
     // #region Handle menu checkboxes
@@ -134,7 +142,7 @@ export function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
           /** The current row to check against the checked row relative to the start of the menu */
           let currentMenuEntryIndex = 0;
           /** The name of the function to run */
-          let checkedFunctionName: string | undefined;
+          let checkedFunctionName: MenuActionName | "" | undefined;
           menuObjectEntries.some(([, menuEntries]) => {
             currentMenuEntryIndex += 1;
             menuEntries.some((menuEntry) => {
@@ -150,8 +158,7 @@ export function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
 
           if (checkedFunctionName) {
             // Run the function
-            const action = menuActions[checkedFunctionName];
-            const result = action ? action() : undefined;
+            const result: unknown = menuActions[checkedFunctionName]();
 
             // Write the return from the function next to the menu item
             e.range

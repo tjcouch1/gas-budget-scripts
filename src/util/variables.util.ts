@@ -52,7 +52,7 @@ function getVariablesRange() {
   if (variablesRangeCache) return variablesRangeCache;
 
   variablesRangeCache =
-    SpreadsheetApp.getActiveSheet().getRange(VARIABLES_RANGE);
+    SpreadsheetApp.getActiveSpreadsheet().getRange(VARIABLES_RANGE);
 
   return variablesRangeCache!;
 }

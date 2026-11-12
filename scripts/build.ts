@@ -18,7 +18,7 @@
  * 4. Supports `--watch` for rebuild-on-save and `--clasp` for live-syncing to Google Apps Script.
  */
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as esbuild from "esbuild";
@@ -65,15 +65,17 @@ function getExportedFunctionNames(filePath: string): string[] {
   const content = fs.readFileSync(filePath, "utf-8");
   const functions: string[] = [];
 
-  // Match direct function exports: `export function myFunction(...)`
+  // Match direct function exports: `export function myFunction(...)` / `export async function myFunction(...)`
   // Regex breakdown:
   //   ^               - Start of line (thanks to 'm' flag)
   //   export\s+       - The keyword 'export' followed by one or more spaces
+  //   (?:async\s+)?   - Optional 'async' keyword followed by one or more spaces
   //   function\s+     - The keyword 'function' followed by one or more spaces
   //   ([a-zA-Z0-9_$]+)- Capture group 1: valid JavaScript identifier characters
   //   \s*\(           - Optional whitespace followed by opening parenthesis of argument list
   //   /gm             - Global matching across all lines
-  const fnRegex = /^export\s+function\s+([a-zA-Z0-9_$]+)\s*\(/gm;
+  const fnRegex =
+    /^export\s+(?:async\s+)?function\s+([a-zA-Z0-9_$]+)\s*\(/gm;
   let match: RegExpExecArray | null;
   while ((match = fnRegex.exec(content)) !== null) {
     functions.push(match[1]);
@@ -112,18 +114,15 @@ function getExportedFunctionNames(filePath: string): string[] {
  * 3. Functions available in the script editor's "Run" / "Debug" dropdown.
  *
  * If a function is only attached to `globalThis` or nested inside `_entry`, GAS will not
- * detect it as a callable top-level function. This footer bridges that gap by:
- * - Copying properties to `globalThis` for dynamic lookups (e.g., spreadsheet menu execution).
- * - Generating explicit top-level `function <name>(...args)` definitions that forward calls to `_entry`.
+ * detect it as a callable top-level function. This footer bridges that gap by generating explicit
+ * top-level `function <name>(...args)` definitions that forward calls to `_entry`. These declarations
+ * are also global properties, so name-based lookups (e.g., `Ui.addItem` menu entries) resolve them too.
  *
  * @param exposedFunctions List of function names to expose globally.
- * @returns JavaScript code to be injected as the bundle footer.
+ * @returns JavaScript code to be appended to the bundle.
  */
 function createFooter(exposedFunctions: string[]): string {
   return `
-// Expose functions onto globalThis for dynamic invocation (e.g., spreadsheet menu clicks)
-Object.assign(globalThis, _entry);
-
 // Explicit top-level function declarations for Google Apps Script AST parser:
 // allows triggers (onOpen), custom formulas (=sheetNameOffset), and the editor dropdown to find them.
 ${exposedFunctions
@@ -149,36 +148,50 @@ async function run(): Promise<void> {
   ensureDistDir();
   copyManifest();
 
-  const exposedFunctions = getExportedFunctionNames(entryFile);
-  console.log(
-    `Discovered ${exposedFunctions.length} exported functions from src/index.ts:\n` +
-      exposedFunctions.map((f) => `  - ${f}`).join("\n")
-  );
+  const outfile = path.join(distDir, "index.js");
 
   const buildOptions: esbuild.BuildOptions = {
     entryPoints: [entryFile],
     bundle: true,
-    outfile: path.join(distDir, "index.js"),
+    outfile,
     format: "iife",
     globalName: "_entry",
     target: "es2022",
     // Keep unminified so code is human-readable and inspectable on script.google.com
     minify: false,
-    footer: {
-      js: createFooter(exposedFunctions),
-    },
+    // Output is written in onEnd so the GAS footer can be regenerated from the current
+    // exports of src/index.ts on every (re)build, including in --watch mode.
+    write: false,
     plugins: [
       {
-        name: "gas-rebuild-notifier",
+        name: "gas-footer-writer",
         setup(build) {
           build.onEnd((result) => {
-            if (result.errors.length === 0) {
-              // Ensure manifest stays copied if dist was cleaned or touched
-              copyManifest();
-              console.log(
-                `[${new Date().toLocaleTimeString()}] Successfully built dist/index.js and dist/appsscript.json.`
-              );
-            }
+            if (result.errors.length > 0) return;
+
+            const exposedFunctions = getExportedFunctionNames(entryFile);
+            console.log(
+              `Discovered ${exposedFunctions.length} exported functions from src/index.ts:\n` +
+                exposedFunctions.map((f) => `  - ${f}`).join("\n")
+            );
+
+            const bundle = result.outputFiles?.find(
+              (file) => path.resolve(file.path) === outfile
+            );
+            if (!bundle) throw new Error(`esbuild did not produce ${outfile}`);
+
+            const contents = bundle.text + createFooter(exposedFunctions);
+            // Skip identical writes so clasp --watch does not push unchanged bundles
+            const existing = fs.existsSync(outfile)
+              ? fs.readFileSync(outfile, "utf-8")
+              : undefined;
+            if (existing !== contents) fs.writeFileSync(outfile, contents);
+
+            // Ensure manifest stays copied if dist was cleaned or touched
+            copyManifest();
+            console.log(
+              `[${new Date().toLocaleTimeString()}] Successfully built dist/index.js and dist/appsscript.json.`
+            );
           });
         },
       },
@@ -204,9 +217,16 @@ async function run(): Promise<void> {
       );
 
       // Gracefully terminate child clasp process when the user stops the script (Ctrl+C)
-      const cleanup = () => {
-        ctx.dispose();
-        claspProcess.kill();
+      const cleanup = async () => {
+        await ctx.dispose();
+        if (process.platform === "win32" && claspProcess.pid !== undefined) {
+          // With `shell: true`, kill() only stops the cmd.exe wrapper on Windows; kill the whole tree
+          spawnSync("taskkill", ["/pid", String(claspProcess.pid), "/T", "/F"], {
+            stdio: "ignore",
+          });
+        } else {
+          claspProcess.kill();
+        }
         process.exit(0);
       };
 

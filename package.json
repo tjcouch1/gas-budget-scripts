@@ -12,7 +12,7 @@
     "push": "pnpm run build && clasp push",
     "pull": "clasp pull",
     "open": "clasp open",
-    "connect": "clasp clone SCRIPT_PROJECT_ID",
+    "connect": "clasp clone SCRIPT_PROJECT_ID --rootDir ./dist",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",

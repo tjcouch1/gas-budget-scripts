@@ -1,6 +1,5 @@
 import { ReceiptInfoBase } from "../models/receipt-info.model";
 import { ThreadList } from "../models/thread-list.model";
-import { SpreadsheetUtil } from "./spreadsheet-util.util";
 import { Util } from "./util";
 import { Variables } from "./variables.util";
   /** Sheet that has transactions on it and info about it */

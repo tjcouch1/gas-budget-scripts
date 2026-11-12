@@ -1,6 +1,10 @@
+# clasp pushes from rootDir (./dist). Push matches these patterns relative to rootDir
+# (e.g. `index.js`), while `clasp push --watch` matches relative to the project root
+# (e.g. `dist/index.js`), so the whitelist must match both forms.
+
 # Ignore all files by default
 **/**
 
-# Whitelist source files and appsscript manifest
-!src/**
-!appsscript.json
+# Whitelist the bundled script and the appsscript manifest
+!**/*.js
+!**/appsscript.json
