@@ -4,7 +4,14 @@ import prettier from "eslint-config-prettier";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "coverage/**", "node_modules/**"] },
+  {
+    ignores: [
+      "**/dist/**",
+      "**/coverage/**",
+      "**/node_modules/**",
+      "packages/budget-web/public/licenses.html",
+    ],
+  },
   eslint.configs.recommended,
   tseslint.configs.recommended,
   {
@@ -21,7 +28,11 @@ export default tseslint.config(
   },
   {
     // Build tooling and configs run in Node
-    files: ["scripts/**/*.ts", "*.config.{js,ts}"],
+    files: [
+      "packages/*/scripts/**/*.ts",
+      "*.config.{js,ts}",
+      "packages/*/*.config.{js,ts}",
+    ],
     languageOptions: { globals: { process: "readonly", console: "readonly" } },
   },
   prettier,

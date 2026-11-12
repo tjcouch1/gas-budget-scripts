@@ -4,30 +4,46 @@ All AI coding agents and contributors MUST adhere strictly to the rules below.
 
 ## 0. Current Repository Layout (read first)
 
-**Today** this repository is a **single-package** `pnpm` project: a container-bound Google Apps Script (GAS) project written in TypeScript.
+This repository is a `pnpm` **workspace** (`pnpm-workspace.yaml`, `packages/*`).
 
 ```text
-src/index.ts                  # GAS entry point: triggers, menu actions, custom sheet formulas (all exported)
-src/util/budgeting.util.ts    # Receipt import, transaction sheet creation, splitTransaction
-src/util/variables.util.ts    # Variables!A1:B10 + per-sheet SheetVariables readers (memoized)
-src/util/util.ts, spreadsheet-util.util.ts
-src/models/                   # receipt-info, thread-info, thread-list (Gmail parsing)
-scripts/build.ts              # esbuild bundler -> dist/index.js (+ top-level GAS function footer)
-test/*.test.ts                # Vitest characterization tests
-test/gas-mocks/               # In-memory SpreadsheetApp / GmailApp / Logger mocks
-.github/workflows/ci.yml      # CI: format:check, lint, typecheck, test:coverage, build
-appsscript.json               # GAS manifest (copied to dist/ by the build)
-web-plan.md                   # Plan for the PWA frontend + GAS JSON API (not yet implemented)
+package.json                  # Workspace root: shared devDeps + scripts that delegate to every package
+pnpm-workspace.yaml           # packages: ["packages/*"]
+eslint.config.js, .prettierrc.json, .prettierignore   # root level, cover all packages
+.github/workflows/ci.yml      # CI: format:check, lint, typecheck, test:coverage, build (root scripts)
+web-plan.md                   # Plan for the PWA frontend + GAS JSON API
+
+packages/budget-scripts-gas/  # @budget/scripts-gas: container-bound GAS project (TypeScript)
+  src/index.ts                #   GAS entry point: triggers, menu actions, custom sheet formulas (all exported)
+  src/util/budgeting.util.ts  #   Receipt import, transaction sheet creation, splitTransaction
+  src/util/variables.util.ts  #   Variables!A1:B10 + per-sheet SheetVariables readers (memoized)
+  src/util/util.ts, spreadsheet-util.util.ts
+  src/models/                 #   receipt-info, thread-info, thread-list (Gmail parsing)
+  scripts/build.ts            #   esbuild bundler -> dist/index.js (+ top-level GAS function footer)
+  test/*.test.ts              #   Vitest characterization tests
+  test/gas-mocks/             #   In-memory SpreadsheetApp / GmailApp / Logger mocks
+  appsscript.json             #   GAS manifest (copied to dist/ by the build)
+  .claspignore                #   clasp whitelist; the gitignored .clasp.json also lives in this package
+  tsconfig.json, tsconfig.test.json, vitest.config.ts
+
+packages/budget-shared/       # @budget/shared: source-only pure TS (no build step, no DOM/GAS globals)
+  src/types.ts                #   API DTOs and request/response types
+  src/math.ts                 #   evaluateMathExpression (parser), formatSplitCostFormula
+  src/fingerprint.ts          #   computeRowFingerprint (FNV-1a), shared by client and server
+  src/names.ts                #   split-name helpers, isUnsafeFreeText
+  test/*.test.ts
 ```
 
-**Planned (not yet present):** `web-plan.md` Step 1 converts the repo into a `pnpm` workspace with `packages/budget-scripts-gas` (the code above), `packages/budget-shared` (`@budget/shared`) and `packages/budget-web` (React/Vite PWA). Rules below that name `packages/...` apply once those packages exist; until then, apply them to the equivalent root paths. When the migration lands, update section 0 of this file.
+Paths such as `src/`, `test/`, `scripts/` in the rules below are relative to `packages/budget-scripts-gas/` unless stated otherwise.
+
+**Planned (not yet present):** `packages/budget-web` (`@budget/web`, React/Vite PWA), plus the GAS API work, per `web-plan.md` Steps 2-4. Package-scoped commands: `pnpm --filter @budget/scripts-gas run <script>`. Root `push`/`start`/`login`/`open`/`pull`/`connect` delegate to the GAS package. Update this section as packages land.
 
 ---
 
 ## 1. CRITICAL SECURITY RULES (ZERO TOLERANCE)
 
 1. **NEVER Hardcode Secrets, URLs, or Personal Identifiers:**
-   - **NEVER** commit, hardcode, or place real Google Apps Script Web App Deployment URLs (`https://script.google.com/macros/s/<id>/exec`), Script IDs, API keys, tokens, Spreadsheet IDs, or personal email addresses in any source file, test file, configuration file, `.env` file committed to git, or documentation. Use placeholders such as `SCRIPT_PROJECT_ID`, `<deployment-id>`, and `@example.com` addresses in tests (see `test/gas-mocks/index.ts`). Public vendor sender addresses already in `src/` (Chase/PayPal/Venmo) are not personal identifiers.
+   - **NEVER** commit, hardcode, or place real Google Apps Script Web App Deployment URLs (`https://script.google.com/macros/s/<id>/exec`), Script IDs, API keys, tokens, Spreadsheet IDs, or personal email addresses in any source file, test file, configuration file, `.env` file committed to git, or documentation. Use placeholders such as `SCRIPT_PROJECT_ID`, `<deployment-id>`, and `@example.com` addresses in tests (see `packages/budget-scripts-gas/test/gas-mocks/index.ts`). Public vendor sender addresses already in `src/` (Chase/PayPal/Venmo) are not personal identifiers.
    - In the GAS code, all secrets (such as `API_KEY`) MUST be read at runtime from `PropertiesService.getScriptProperties()`.
    - In the web app, the GAS Deployment URL and `API_KEY` MUST be provided by the user at runtime via the UI Settings dialog.
    - `.clasp*.json` files are gitignored (they contain the Script ID). Never commit them.
@@ -76,7 +92,7 @@ Branches: `main` is development and is used with a **test** budget sheet. `deplo
    - Always use `pnpm` (Volta-pinned: Node `24.16.0`, `pnpm 10.34.5`). Never use `npm` or `yarn`.
    - TypeScript: `typescript` is aliased to `@typescript/typescript6` (typescript-eslint needs the TS 6 API), while `@typescript/native` (TypeScript 7) provides `tsc` for `typecheck`. Keep both aliases. New packages must use the root-installed versions; do not add a separate `typescript` version.
    - ESLint (flat config `eslint.config.js`, typescript-eslint + `eslint-config-prettier`) and Prettier (`.prettierrc.json`) are enforced in pre-commit and CI.
-   - Once the shared package exists, keep shared DTOs, the fingerprint function, the inline math parser, and the formula builder in `@budget/shared`. Never duplicate them in frontend or backend.
+   - Keep shared DTOs, the fingerprint function, the inline math parser, and the formula builder in `@budget/shared`. Never duplicate them in frontend or backend.
 2. **GAS build pipeline (`scripts/build.ts`):**
    - The entry point is `src/index.ts`. Any function that GAS must call (triggers, menu actions, custom formulas, `doGet`/`doPost`, editor-run helpers) MUST be exported from `src/index.ts` as `export function name(...)` or `export { name } from "..."`. The build discovers exports by regex and emits top-level `function name(...args)` wrappers.
    - Menu actions are dispatched by name via the `menuActions` map in `src/index.ts`. Add new menu items to both `menu` and `menuActions`.
@@ -95,4 +111,4 @@ Branches: `main` is development and is used with a **test** budget sheet. `deplo
 1. Tests use Vitest with in-memory GAS mocks (`test/gas-mocks/`). `test/setup.ts` calls `vi.resetModules()` and reinstalls fresh globals before every test, so import `src/` modules dynamically inside each test (`const load = () => import("../src/...")`). `vitest.config.ts` pins `TZ=America/Chicago`, which matches `appsscript.json`.
 2. Mocks implement only what `src/` calls today. They do not evaluate formulas or adjust relative references on `copyTo`. When new code uses another GAS API (e.g. `PropertiesService`, `LockService`, `ContentService`, `Utilities`, `GmailLabel.addToThreads`, `GmailApp.moveThreadsToArchive`, `Range.getFormulasR1C1`), extend the mocks minimally and add tests.
 3. Every behavior change or new feature needs tests. Backend API handlers are tested by calling the exported `doPost`/`doGet` with mock event objects.
-4. **Before completing any task, run and pass all of:** `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm test`, and `pnpm run build`. This is the same set as Husky pre-commit plus CI. After the workspace migration, these root scripts must cover every package.
+4. **Before completing any task, run and pass all of:** `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm test`, and `pnpm run build`. This is the same set as Husky pre-commit plus CI. The root scripts cover every package.
