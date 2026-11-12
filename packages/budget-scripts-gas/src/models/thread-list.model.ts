@@ -606,6 +606,18 @@ export class ThreadList {
   /** Array of receipt-related thread info */
   public readonly threadInfos: ThreadInfo[] = [];
 
+  #ignoredThreads: GoogleAppsScript.Gmail.GmailThread[] = [];
+  /**
+   * Threads that have no receipts and no errors (e.g. statements, alerts, marketing). They are not in
+   * `threadInfos`, so `getAllReceiptInfos()` does not record them, but they are labeled when marking
+   * so later runs skip them (web-plan.md section 4.2).
+   *
+   * A getter (not an own property) so `JSON.stringify(threadList)` output is unchanged.
+   */
+  public get ignoredThreads(): GoogleAppsScript.Gmail.GmailThread[] {
+    return this.#ignoredThreads;
+  }
+
   #allReceiptInfosCache: ReceiptInfoBase[] | undefined;
   /**
    * Returns an array of all receipt email info - flat mapped from threadInfos and contains thread notes and errors baked into the receipts
@@ -698,13 +710,17 @@ export class ThreadList {
 
       // Save the thread info if there were any receipts in the thread or there was an error
       if (threadInfo.hasInformation()) this.threadInfos.push(threadInfo);
-      else if (threadInfo.notes.length > 0)
-        // Log any notes we are throwing out so we know
-        Logger.log(
-          `Ignoring thread ${thread.getId()} that has notes but no relevant info. Notes: ${
-            threadInfo.notes
-          }`,
-        );
+      else {
+        // Keep the thread so it can be labeled as ignored when marking
+        this.#ignoredThreads.push(thread);
+        if (threadInfo.notes.length > 0)
+          // Log any notes we are throwing out so we know
+          Logger.log(
+            `Ignoring thread ${thread.getId()} that has notes but no relevant info. Notes: ${
+              threadInfo.notes
+            }`,
+          );
+      }
     });
   }
 }

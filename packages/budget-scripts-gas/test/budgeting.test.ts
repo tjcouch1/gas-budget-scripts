@@ -252,7 +252,7 @@ describe("recording receipts", () => {
     expect(sheet.getRange("B5").getBackgrounds()).toEqual([[null]]);
   });
 
-  it("notes errors in red on the name cell, does not mark errored threads, and alerts the user", async () => {
+  it("notes errors in red on the name cell, does not archive errored threads, and alerts the user", async () => {
     const env = getEnv();
     const bad = makeThread({
       from: "Weird <weird@example.org>",
@@ -273,6 +273,16 @@ describe("recording receipts", () => {
     expect(sheet.getRange("C5").getBackgrounds()).toEqual([["#E8A9CA"]]);
     expect(bad.archived).toBe(false);
     expect(good.archived).toBe(true);
+    // web-plan.md section 4.2: errored threads are labeled (and left in the inbox) so they are
+    // not re-scanned and re-written on later runs
+    expect(bad.labels.map((l) => l.getName())).toEqual([
+      "Receipts/Scripted",
+      "Receipts/Error",
+    ]);
+    expect(good.labels.map((l) => l.getName())).toEqual([
+      "Receipts/Scripted",
+      "Receipts",
+    ]);
     expect(env.SpreadsheetApp.ui.alerts).toEqual([
       "There were 1 errors while processing. Please review.",
     ]);
@@ -352,7 +362,7 @@ describe("recording receipts", () => {
     );
   });
 
-  it("does nothing for a non-receipt-only thread: it is neither recorded nor marked", async () => {
+  it("does not record a non-receipt-only thread but labels it Receipts/Scripted + Receipts/Ignored when marking", async () => {
     const env = getEnv();
     const t = makeThread({
       from: "Chase <no.reply.alerts@chase.com>",
@@ -362,11 +372,88 @@ describe("recording receipts", () => {
     env.GmailApp.threads = [t];
     const { getAndRecordReceipts } = await load();
     expect(getAndRecordReceipts(null, null, true)).toEqual({});
-    // NOTE: possible bug: threads with only non-receipt messages are dropped without being
-    // labeled/archived, so they are re-scanned on every run (AGENTS.md describes a
-    // Receipts/Ignored label for this, which does not exist in the code)
+    // Intended behavior change (web-plan.md section 4.2, GitHub issue #5): ignored threads are
+    // labeled (and left in the inbox) so later runs skip them. Previously: no labels.
+    expect(t.archived).toBe(false);
+    expect(t.labels.map((l) => l.getName())).toEqual([
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ]);
+  });
+
+  it("does not label a non-receipt-only thread when not marking", async () => {
+    const env = getEnv();
+    const t = makeThread({
+      from: "Chase <no.reply.alerts@chase.com>",
+      subject: "Statement ready",
+      body: "hi",
+    });
+    env.GmailApp.threads = [t];
+    const { getAndRecordReceipts } = await load();
+    expect(getAndRecordReceipts(null, null, false)).toEqual({});
     expect(t.archived).toBe(false);
     expect(t.labels).toEqual([]);
+    expect(env.GmailApp.createdLabels).toEqual([]);
+  });
+
+  it("marks threads with the Gmail batch APIs in chunks of at most 100", async () => {
+    const env = getEnv();
+    const sheet250 = addTransactionSheet(env, "3/3/24 - 3/16/24", {
+      max: 300,
+    });
+    const valid = Array.from({ length: 250 }, (_, i) =>
+      makeThread(chase("1.00", `Shop ${i}`, "2024-03-05T12:00:00Z")),
+    );
+    const ignored = Array.from({ length: 3 }, () =>
+      makeThread({
+        from: "Chase <no.reply.alerts@chase.com>",
+        subject: "Statement ready",
+        body: "hi",
+      }),
+    );
+    env.GmailApp.threads = [...valid, ...ignored];
+    const { getAndRecordReceipts } = await load();
+    expect(getAndRecordReceipts(null, null, true)).toEqual({
+      "3/3/24 - 3/16/24": 250,
+    });
+    expect(sheet250.getRange("B5").getValue()).toBe("Shop 0");
+    expect(
+      env.GmailApp.getUserLabelByName("Receipts/Scripted")!.addToThreadsCalls,
+    ).toEqual([100, 100, 53]);
+    expect(
+      env.GmailApp.getUserLabelByName("Receipts")!.addToThreadsCalls,
+    ).toEqual([100, 100, 50]);
+    expect(env.GmailApp.moveThreadsToArchiveCalls).toEqual([100, 100, 50]);
+    expect(
+      env.GmailApp.getUserLabelByName("Receipts/Ignored")!.addToThreadsCalls,
+    ).toEqual([3]);
+    expect(env.GmailApp.getUserLabelByName("Receipts/Error")).toBeNull();
+    expect(valid.every((t) => t.archived)).toBe(true);
+    expect(ignored.some((t) => t.archived)).toBe(false);
+  });
+
+  it("recordReceiptsCore returns errors instead of alerting or throwing", async () => {
+    const env = getEnv();
+    env.SpreadsheetApp.uiAvailable = false;
+    const bad = makeThread({
+      from: "Weird <weird@example.org>",
+      subject: "huh",
+      body: "",
+      date: new Date("2024-02-20T12:00:00Z"),
+    });
+    const good = makeThread(chase("1.00", "Shop", "2024-02-21T12:00:00Z"));
+    env.GmailApp.threads = [bad, good];
+    const { getChaseReceipts, recordReceiptsCore } = await load();
+    const result = recordReceiptsCore(getChaseReceipts(null, null), true);
+    expect(result.receiptInfosAdded).toEqual({ [SHEET]: 2 });
+    expect(result.numErrors).toBe(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain(
+      "No function to handle receipt message from weird@example.org",
+    );
+    expect(env.SpreadsheetApp.ui.alerts).toEqual([]);
+    expect(good.archived).toBe(true);
+    expect(bad.archived).toBe(false);
   });
 });
 

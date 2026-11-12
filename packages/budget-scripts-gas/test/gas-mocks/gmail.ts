@@ -1,9 +1,27 @@
 /** Minimal in-memory mock of the parts of GmailApp used by src/. */
 
+/** Max threads the Gmail batch APIs accept per call (real limit) */
+export const GMAIL_BATCH_LIMIT = 100;
+
+function assertBatchSize(method: string, threads: unknown[]) {
+  if (threads.length > GMAIL_BATCH_LIMIT)
+    throw new Error(
+      `${method}: at most ${GMAIL_BATCH_LIMIT} threads per call, got ${threads.length}`,
+    );
+}
+
 export class MockLabel {
+  /** Sizes of each addToThreads call, to test chunking */
+  addToThreadsCalls: number[] = [];
   constructor(readonly name: string) {}
   getName() {
     return this.name;
+  }
+  addToThreads(threads: MockThread[]) {
+    assertBatchSize("GmailLabel.addToThreads", threads);
+    this.addToThreadsCalls.push(threads.length);
+    threads.forEach((t) => t.labels.push(this));
+    return this;
   }
 }
 
@@ -110,6 +128,14 @@ export class MockGmailApp {
     this.labels.set(name, label);
     this.createdLabels.push(name);
     return label;
+  }
+  /** Sizes of each moveThreadsToArchive call, to test chunking */
+  moveThreadsToArchiveCalls: number[] = [];
+  moveThreadsToArchive(threads: MockThread[]) {
+    assertBatchSize("GmailApp.moveThreadsToArchive", threads);
+    this.moveThreadsToArchiveCalls.push(threads.length);
+    threads.forEach((t) => (t.archived = true));
+    return this;
   }
   getThreadById(id: string) {
     return this.threads.find((t) => t.getId() === id) ?? null;

@@ -53,22 +53,50 @@ function getGmailLabel(
   return label;
 }
 
+/** Max threads the Gmail batch APIs (`addToThreads`, `moveThreadsToArchive`) accept per call */
+const GMAIL_BATCH_SIZE = 100;
+
+/** Calls `fn` with consecutive chunks of at most `GMAIL_BATCH_SIZE` threads */
+function forEachThreadChunk(
+  threads: GoogleAppsScript.Gmail.GmailThread[],
+  fn: (chunk: GoogleAppsScript.Gmail.GmailThread[]) => void,
+) {
+  for (let i = 0; i < threads.length; i += GMAIL_BATCH_SIZE)
+    fn(threads.slice(i, i + GMAIL_BATCH_SIZE));
+}
+
+/** Adds the label (created on first use) to all the threads, in batches. Does nothing for no threads */
+function addLabelToThreads(
+  labelName: string,
+  threads: GoogleAppsScript.Gmail.GmailThread[],
+) {
+  if (threads.length === 0) return;
+  const label = getGmailLabel(labelName);
+  forEachThreadChunk(threads, (chunk) => label.addToThreads(chunk));
+}
+
 /**
- * Marks a thread as processed by these receipt-recording scripts
- *
- * @param thread thread to mark as processed
+ * Marks threads as processed by these receipt-recording scripts using the Gmail batch APIs
+ * (web-plan.md section 4.2):
+ * - `Receipts/Scripted` on every thread, so later searches skip them
+ * - `Receipts` + archive on valid receipt threads
+ * - `Receipts/Error` on errored threads (left in the inbox so the user sees them)
+ * - `Receipts/Ignored` on threads with no receipts and no errors (left in the inbox)
  */
-function markThreadProcessed(thread: GoogleAppsScript.Gmail.GmailThread) {
-  // Get the script label
-  const scriptLabel = getGmailLabel();
-  const receiptLabel = getGmailLabel("Receipts");
+function markThreadsProcessed(
+  valid: GoogleAppsScript.Gmail.GmailThread[],
+  errored: GoogleAppsScript.Gmail.GmailThread[],
+  ignored: GoogleAppsScript.Gmail.GmailThread[],
+) {
+  Logger.log(
+    `Marking threads processed! Valid: ${valid.length}, errored: ${errored.length}, ignored: ${ignored.length}`,
+  );
 
-  Logger.log(`Marking thread ${thread.getId()} processed!`);
-
-  // Add the labels and archive the thread
-  thread.addLabel(scriptLabel);
-  thread.addLabel(receiptLabel);
-  thread.moveToArchive();
+  addLabelToThreads("Receipts/Scripted", [...valid, ...errored, ...ignored]);
+  addLabelToThreads("Receipts", valid);
+  forEachThreadChunk(valid, (chunk) => GmailApp.moveThreadsToArchive(chunk));
+  addLabelToThreads("Receipts/Error", errored);
+  addLabelToThreads("Receipts/Ignored", ignored);
 }
 
 /**
@@ -378,17 +406,29 @@ function recordReceiptsOnSheet(
   return receiptInfos.length;
 }
 
+/** Result of recording receipts without any UI interaction */
+export type RecordReceiptsResult = {
+  /** Map from transaction sheet name to number of receipts added on that sheet */
+  receiptInfosAdded: { [transactionSheetName: string]: number };
+  /** Number of errors found while processing the threads */
+  numErrors: number;
+  /** The error messages (one per error) */
+  errors: string[];
+};
+
 /**
- * Record receipt info in the spreadsheet in the active sheet
+ * Record receipt info in the spreadsheet and optionally mark the threads processed. Never calls
+ * `SpreadsheetApp.getUi()`, so it is safe in web app and trigger executions. Errors found while
+ * parsing threads are returned, not thrown. It still throws if a receipt fits no transaction sheet
+ * or a sheet has too few empty rows.
  *
  * @param threadList threads and receipt info for emails to record
  * @param shouldMarkProcessed set to true to mark the threads as processed by these scripts. Defaults to false
- * @returns information about how many receipts were recorded into which sheet
  */
-function recordReceipts(
+export function recordReceiptsCore(
   threadList: ThreadList,
   shouldMarkProcessed: boolean = false,
-) {
+): RecordReceiptsResult {
   const receiptInfos = threadList.getAllReceiptInfos();
   /** Map from transaction sheet name to number of receipts added on that sheet */
   const receiptInfosAdded: { [transactionSheetName: string]: number } = {};
@@ -423,19 +463,50 @@ function recordReceipts(
   }
 
   let numErrors = 0;
-  // Mark the receipt threads processed and report errors
+  const errors: string[] = [];
+  const validThreads: GoogleAppsScript.Gmail.GmailThread[] = [];
+  const erroredThreads: GoogleAppsScript.Gmail.GmailThread[] = [];
+  // Sort the receipt threads by outcome and report errors
   threadList.threadInfos.forEach((threadInfo) => {
-    // Report thread error - do not mark processed
+    // Report thread error
     if (threadInfo.errors.length > 0) {
       numErrors += threadInfo.errors.length;
+      errors.push(...threadInfo.errors);
       Logger.log(threadInfo.errors);
+      erroredThreads.push(threadInfo.thread);
       return;
     }
 
-    // Mark receipt thread processed if no error
-    if (shouldMarkProcessed) markThreadProcessed(threadInfo.thread);
-    else Logger.log(`Would mark thread ${threadInfo.thread.getId()} processed`);
+    validThreads.push(threadInfo.thread);
+    if (!shouldMarkProcessed)
+      Logger.log(`Would mark thread ${threadInfo.thread.getId()} processed`);
   });
+
+  if (shouldMarkProcessed)
+    markThreadsProcessed(
+      validThreads,
+      erroredThreads,
+      threadList.ignoredThreads,
+    );
+
+  return { receiptInfosAdded, numErrors, errors };
+}
+
+/**
+ * Record receipt info in the spreadsheet in the active sheet
+ *
+ * @param threadList threads and receipt info for emails to record
+ * @param shouldMarkProcessed set to true to mark the threads as processed by these scripts. Defaults to false
+ * @returns information about how many receipts were recorded into which sheet
+ */
+function recordReceipts(
+  threadList: ThreadList,
+  shouldMarkProcessed: boolean = false,
+) {
+  const { receiptInfosAdded, numErrors } = recordReceiptsCore(
+    threadList,
+    shouldMarkProcessed,
+  );
 
   if (numErrors > 0) {
     try {
@@ -812,6 +883,7 @@ export const Budgeting = {
   addTransactionSheet,
   addTransactionSheets,
   getAndRecordReceipts,
+  recordReceiptsCore,
   getTransactionSplitCheckboxesRange,
   splitTransaction,
 };
