@@ -43,6 +43,10 @@ importers:
         version: 5.0.1(@types/node@24.19.2)(@vitest/coverage-v8@5.0.1)(vite@8.3.0(@types/node@24.19.2)(esbuild@0.28.2))
 
   packages/budget-scripts-gas:
+    dependencies:
+      '@budget/shared':
+        specifier: workspace:*
+        version: link:../budget-shared
     devDependencies:
       '@google/clasp':
         specifier: ^3.4.1

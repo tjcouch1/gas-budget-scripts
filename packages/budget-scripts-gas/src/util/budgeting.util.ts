@@ -1,3 +1,4 @@
+import { buildSplitChildName } from "@budget/shared";
 import { ReceiptInfoBase } from "../models/receipt-info.model";
 import { ThreadList } from "../models/thread-list.model";
 import { Util } from "./util";
@@ -602,10 +603,12 @@ function getTransactionRowInfo(
  * Determine if two transaction rows seem to be equal based on their info.
  *
  * Checks dates first and then also checks names (Can use | to match just the stuff before the bar)
+ *
+ * Exported so the web API groups split rows (`splitGroupId`) exactly like the native split.
  */
-function doTransactionRowInfosSeemEqual(
-  transactionInfo1: TransactionRowInfo,
-  transactionInfo2: TransactionRowInfo,
+export function doTransactionRowInfosSeemEqual(
+  transactionInfo1: Pick<TransactionRowInfo, "date" | "name">,
+  transactionInfo2: Pick<TransactionRowInfo, "date" | "name">,
 ): boolean {
   // Check dates equal
   if (!Util.areDatesEqual(transactionInfo1.date, transactionInfo2.date))
@@ -658,19 +661,65 @@ function getNullRangeValues(range: GoogleAppsScript.Spreadsheet.Range) {
   );
 }
 
+/** Specification of one new child row created by `splitTransaction` */
+export type SplitChildSpec = {
+  /** Text after `" | "` in the child's name */
+  itemNote: string;
+  /** Value to write in the child's cost cell (number or formula). Must come from the shared formula builder */
+  cost: string | number;
+  /** Envelope (category). `undefined` leaves the cell blank like the native split */
+  category: string | undefined;
+  /** Paid with (type). `undefined` copies the parent's value like the native split */
+  type: string | undefined;
+};
+
+/**
+ * The single child the checkbox (native) split creates: blank item note, `=${TaxMultiplier}*(0)`,
+ * blank envelope, and the parent's Paid with
+ */
+function getDefaultSplitChildSpecs(): SplitChildSpec[] {
+  return [
+    {
+      itemNote: "",
+      cost: `=${Variables.getVariables().TaxMultiplier}*(0)`,
+      category: undefined,
+      type: undefined,
+    },
+  ];
+}
+
+/** Whether the transaction row info has any content in date, name, cost, category, or type */
+function doesTransactionRowInfoHaveContent(
+  info: Pick<
+    TransactionRowInfo,
+    "date" | "name" | "cost" | "category" | "type"
+  >,
+) {
+  return !!(info.date || info.name || info.cost || info.category || info.type);
+}
+
 /**
  * Splits a transaction into two rows in the provided transaction sheet.
  *
  * If the checked transaction is already split, it splits it again
  *
+ * Generalized for the web API (web-plan.md section 4.4): `childSpecs` creates N child rows at
+ * once. Without `childSpecs` it creates the single native child, and its output is unchanged.
+ *
  * @param sheet sheet on which to split transaction
  * @param transactionIndex index of transaction to split relative to first transaction (0)
+ * @param childSpecs new child rows to add after the group. Defaults to the native single child
  * @returns range containing new transaction rows
  */
 export function splitTransaction(
   sheet: GoogleAppsScript.Spreadsheet.Sheet,
   transactionIndex: number,
+  childSpecs: SplitChildSpec[] = getDefaultSplitChildSpecs(),
 ) {
+  if (childSpecs.length < 1)
+    throw new Error("Must add at least one row when splitting a transaction");
+  const numNewRows = childSpecs.length;
+
   // Get range at transaction index
   /** Top left cell of the transactions */
   const topLeftRange = sheet.getRange(
@@ -727,7 +776,10 @@ export function splitTransaction(
     throw new Error(
       `Somehow there are no transactions to split on sheet ${sheet.getName()} transactionIndex ${transactionIndex}`,
     );
-  if (transactionIndex + transactionsInGroup.length >= transactionsMax)
+  if (
+    transactionIndex + transactionsInGroup.length + numNewRows - 1 >=
+    transactionsMax
+  )
     throw new Error(
       `No room on sheet ${sheet.getName()} to split group of ${
         transactionsInGroup.length
@@ -757,21 +809,38 @@ export function splitTransaction(
       );
   }
 
-  // Check to see if the next transaction row after the transaction group is empty
-  const nextTransactionRangeAfterGroup = topLeftRange.offset(
+  // Check to see if the transaction rows after the transaction group (one per new row) are empty
+  /** Rows (date, name, cost) directly after the transaction group where the new rows will go */
+  const newRowsRange = topLeftRange.offset(
     transactionIndex + transactionsInGroup.length,
     0,
-    1,
+    numNewRows,
     3,
   );
-  const nextTransactionRangeAfterGroupInfo = getTransactionRowInfo(
-    nextTransactionRangeAfterGroup,
-  );
+  /** Category and type for the rows where the new rows will go */
+  const newRowsMetadataRange = getTransactionMetadataRange(newRowsRange);
+  const newRowsValues = newRowsRange.getValues();
+  const newRowsFormulas = newRowsRange.getFormulas();
+  const newRowsMetadataValues = newRowsMetadataRange.getValues();
+  const doNewRowsHaveContent = newRowsValues.some((rowValues, r) => {
+    // Get formula or value of each transaction cell like getTransactionRowInfo
+    const [date, name, cost] = newRowsFormulas[r].map(
+      (formula, i) => formula || rowValues[i],
+    );
+    const [category, type] = newRowsMetadataValues[r];
+    return doesTransactionRowInfoHaveContent({
+      date,
+      name,
+      cost,
+      category,
+      type,
+    });
+  });
 
   /** What the new group of transaction rows should look like */
   const transactionsInNewGroup = transactionsInGroup.map((transaction, i) => {
     // If this is the transaction to split row, prepare it to
-    // subtract the new split transaction cost
+    // subtract the new split transaction costs
     if (i === 0)
       return {
         ...transaction,
@@ -782,89 +851,92 @@ export function splitTransaction(
           Util.isString(transaction.cost) && transaction.cost.startsWith("=")
             ? ""
             : "="
-        }${transaction.cost}-R[${transactionsInGroup.length}]C[0]`,
+        }${transaction.cost}${childSpecs
+          .map((_, j) => `-R[${transactionsInGroup.length + j}]C[0]`)
+          .join("")}`,
       };
     // Otherwise just clone it and return it
     return { ...transaction };
   });
-  // Add a new split transaction row with cost 0 plus tax
-  transactionsInNewGroup.push({
+  /** New split transaction rows to add after the group */
+  const newTransactions = childSpecs.map((childSpec) => ({
     date: transactionsInNewGroup[0].date,
-    // Make it the same name as the first transaction but without the extra info after the split
-    name: `${transactionsInNewGroup[0].name?.split(" | ")[0]} | `,
-    cost: `=${Variables.getVariables().TaxMultiplier}*(0)`,
-    category: undefined,
-    type: transactionsInNewGroup[0].type,
-    range: nextTransactionRangeAfterGroupInfo.range,
-    metadataRange: nextTransactionRangeAfterGroupInfo.metadataRange,
-  });
+    // Make it the same name as the first transaction but with the item note instead of the extra info after the split
+    name: buildSplitChildName(
+      `${transactionsInNewGroup[0].name}`,
+      childSpec.itemNote,
+    ),
+    cost: childSpec.cost,
+    category: childSpec.category,
+    type: childSpec.type ?? transactionsInNewGroup[0].type,
+  }));
 
-  // If the next transaction row after the transaction group isn't empty, move all the following transactions down one
-  if (
-    nextTransactionRangeAfterGroupInfo.date ||
-    nextTransactionRangeAfterGroupInfo.name ||
-    nextTransactionRangeAfterGroupInfo.cost ||
-    nextTransactionRangeAfterGroupInfo.category ||
-    nextTransactionRangeAfterGroupInfo.type
-  ) {
-    const nextOpenTransactionRange = getNextOpenTransactionRange(sheet, 1);
+  // If the transaction rows after the transaction group aren't empty, move all the following transactions down
+  if (doNewRowsHaveContent) {
+    const nextOpenTransactionRange = getNextOpenTransactionRange(
+      sheet,
+      numNewRows,
+    );
 
     // Get the range from the one after the transaction group to the one before the next open transaction range
-    /** Transactions to move down one row */
-    const transactionsToMove = nextTransactionRangeAfterGroup.offset(
+    /** Transactions to move down `numNewRows` rows */
+    const transactionsToMove = newRowsRange.offset(
       0,
       0,
-      nextOpenTransactionRange.getRow() -
-        nextTransactionRangeAfterGroup.getRow(),
+      nextOpenTransactionRange.getRow() - newRowsRange.getRow(),
       3,
     );
-    /** Transaction metadata to move down one row */
+    /** Transaction metadata to move down `numNewRows` rows */
     const transactionsMetadataToMove =
       getTransactionMetadataRange(transactionsToMove);
 
-    // Copy the transactions down one
-    transactionsToMove.copyTo(transactionsToMove.offset(1, 0));
-    transactionsMetadataToMove.copyTo(transactionsMetadataToMove.offset(1, 0));
-
-    // Clear the values out of the current row
-    const nullArrayNextTransactionRangeAfterGroupSize = getNullRangeValues(
-      nextTransactionRangeAfterGroupInfo.range,
+    // Copy the transactions down
+    transactionsToMove.copyTo(transactionsToMove.offset(numNewRows, 0));
+    transactionsMetadataToMove.copyTo(
+      transactionsMetadataToMove.offset(numNewRows, 0),
     );
-    const nullArrayNextTransactionMetadataRangeAfterGroupSize =
-      getNullRangeValues(nextTransactionRangeAfterGroupInfo.metadataRange);
 
-    nextTransactionRangeAfterGroupInfo.range
+    // Clear the values out of the rows for the new transactions
+    const nullArrayNewRowsSize = getNullRangeValues(newRowsRange);
+    const nullArrayNewRowsMetadataSize =
+      getNullRangeValues(newRowsMetadataRange);
+
+    newRowsRange
       .clearContent()
-      .setNotes(nullArrayNextTransactionRangeAfterGroupSize)
-      .setBackgrounds(nullArrayNextTransactionRangeAfterGroupSize);
-    nextTransactionRangeAfterGroupInfo.metadataRange
+      .setNotes(nullArrayNewRowsSize)
+      .setBackgrounds(nullArrayNewRowsSize);
+    newRowsMetadataRange
       .clearContent()
-      .setNotes(nullArrayNextTransactionMetadataRangeAfterGroupSize)
-      .setBackgrounds(nullArrayNextTransactionMetadataRangeAfterGroupSize);
+      .setNotes(nullArrayNewRowsMetadataSize)
+      .setBackgrounds(nullArrayNewRowsMetadataSize);
   }
 
-  // Add a split transaction row directly after this transaction group
-  // Get the current transaction group plus the new row
-  /** Range for new group of transaction rows one longer than the current group */
+  // Add the split transaction rows directly after this transaction group
+  // Get the current transaction group plus the new rows
+  /** Range for new group of transaction rows `numNewRows` longer than the current group */
   const splitTransactionRange = topLeftRange.offset(
     transactionIndex,
     0,
-    transactionsInNewGroup.length,
+    transactionsInNewGroup.length + numNewRows,
     3,
   );
 
-  // Fill in the new split transaction row
-  /** New transaction info to write into the new split row */
-  const newTransactionInfo =
-    transactionsInNewGroup[transactionsInNewGroup.length - 1];
-  nextTransactionRangeAfterGroupInfo.range.setValues([
-    [newTransactionInfo.date, newTransactionInfo.name, newTransactionInfo.cost],
-  ]);
-  nextTransactionRangeAfterGroupInfo.metadataRange.setValues([
-    [newTransactionInfo.category, newTransactionInfo.type],
-  ]);
+  // Fill in the new split transaction rows
+  newRowsRange.setValues(
+    newTransactions.map((newTransaction) => [
+      newTransaction.date,
+      newTransaction.name,
+      newTransaction.cost,
+    ]),
+  );
+  newRowsMetadataRange.setValues(
+    newTransactions.map((newTransaction) => [
+      newTransaction.category,
+      newTransaction.type,
+    ]),
+  );
 
-  // Subtract the new split transaction row from the row to split
+  // Subtract the new split transaction rows from the row to split
   const newFirstTransactionInfo = transactionsInNewGroup[0];
   transactionsInGroup[0].range.setValues([
     [
