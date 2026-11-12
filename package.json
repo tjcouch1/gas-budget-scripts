@@ -2,20 +2,47 @@
   "name": "gas-budget-script-test",
   "version": "1.0.0",
   "description": "Google App Script test for budgeting",
+  "type": "module",
   "main": "src/index.ts",
   "scripts": {
     "login": "clasp login",
     "logout": "clasp logout",
-    "start": "clasp push --watch",
-    "push": "clasp push",
+    "build": "node scripts/build.ts",
+    "start": "node scripts/build.ts --watch --clasp",
+    "push": "pnpm run build && clasp push",
     "pull": "clasp pull",
     "open": "clasp open",
-    "connect": "clasp clone SCRIPT_PROJECT_ID"
+    "connect": "clasp clone SCRIPT_PROJECT_ID --rootDir ./dist",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepare": "husky",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "author": "TJ Couch",
   "license": "MIT",
   "devDependencies": {
-    "@google/clasp": "^2.5.0",
-    "@types/google-apps-script": "^1.0.98"
+    "@eslint/js": "^10.0.1",
+    "@google/clasp": "^3.4.1",
+    "@types/google-apps-script": "^2.0.13",
+    "@types/node": "^24.19.2",
+    "@typescript/native": "npm:typescript@7.0.2",
+    "@vitest/coverage-v8": "^5.0.1",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "prettier": "^3.10.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript-eslint": "^8.72.2",
+    "vitest": "^5.0.1"
+  },
+  "volta": {
+    "node": "24.16.0",
+    "pnpm": "10.34.5"
   }
 }

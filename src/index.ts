@@ -1,14 +1,26 @@
-/// <reference path="./models/receipt-info.model.ts" />
-/// <reference path="./models/thread-info.model.ts" />
-/// <reference path="./models/thread-list.model.ts" />
-/// <reference path="./util/budgeting.util.ts" />
-/// <reference path="./util/spreadsheet-util.util.ts" />
-/// <reference path="./util/util.ts" />
-/// <reference path="./util/variables.util.ts" />
+import { Budgeting } from "./util/budgeting.util";
+import { Variables } from "./util/variables.util";
+
+/**
+ * Functions that can be run from the in-sheet checkbox menu. Looked up by name because the bundle has no
+ * `this`-based global lookup and esbuild may rename the underlying functions.
+ */
+const menuActions = {
+  getAndRecordSomeReceiptsNoMark,
+  getAndRecordReceiptsNoMark,
+  getAndRecordSomeReceiptsAndMark,
+  getAndRecordReceiptsAndMark,
+  addTransactionSheet,
+  addTransactionSheets,
+} satisfies Record<string, () => unknown>;
+
+type MenuActionName = keyof typeof menuActions;
 
 /** Menu to add to the spreadsheet and to show in the menu bar on desktop */
 const menu: {
-  [menuName: string]: ({ name: string; functionName: string } | undefined)[];
+  [menuName: string]: (
+    { name: string; functionName: MenuActionName } | undefined
+  )[];
 } = {
   Budgeting: [
     {
@@ -41,7 +53,7 @@ const menu: {
 };
 
 // WARNING: This doesn't seem to run on mobile
-function onOpen() {
+export function onOpen() {
   // Set up menu bar items (desktop only)
   try {
     const ui = SpreadsheetApp.getUi();
@@ -55,13 +67,13 @@ function onOpen() {
     });
   } catch (e) {
     Logger.log(
-      `Error on setting up menu bar items! User may be on mobile. ${e}`
+      `Error on setting up menu bar items! User may be on mobile. ${e}`,
     );
   }
 
   // Set up in-sheet menu (desktop and mobile)
   const menuRange = SpreadsheetApp.getActiveSheet().getRange(
-    Variables.getVariables().Menu
+    Variables.getVariables().Menu,
   );
   if (!menuRange.getValue()) {
     // Assume menu is not filled in and fill it in
@@ -80,7 +92,7 @@ function onOpen() {
         nextRow,
         menuColumnBase,
         menuEntries.length,
-        1
+        1,
       );
       menuCheckboxesRange.insertCheckboxes();
       // Set up menu entry names
@@ -88,10 +100,12 @@ function onOpen() {
         nextRow,
         menuColumnBase + 1,
         menuEntries.length,
-        1
+        1,
       );
       menuNamesRange.setValues(
-        menuEntries.map((menuEntry) => [menuEntry ? menuEntry.name : "-------"])
+        menuEntries.map((menuEntry) => [
+          menuEntry ? menuEntry.name : "-------",
+        ]),
       );
       nextRow += menuEntries.length;
     });
@@ -99,14 +113,13 @@ function onOpen() {
 }
 
 /** onEdit trigger to be installed to run with user's permissions */
-function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
+export function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
   // The whole script is loaded and run every edit, so cache busting is useless
-  // Variables.onEdit(e);
 
   if (e.range.isChecked()) {
     // #region Handle menu checkboxes
     const menuTopLeftRange = SpreadsheetApp.getActiveSheet().getRange(
-      Variables.getVariables().Menu
+      Variables.getVariables().Menu,
     );
     const editSheet = e.range.getSheet();
     if (editSheet.getName() === menuTopLeftRange.getSheet().getName()) {
@@ -117,7 +130,7 @@ function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
         const numMenuRowsTotal = menuObjectEntries.reduce(
           (currentRowsCount, [, menuEntries]) =>
             currentRowsCount + menuEntries.length,
-          menuObjectEntries.length
+          menuObjectEntries.length,
         );
         const editRow = e.range.getRow();
         if (
@@ -130,7 +143,7 @@ function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
           /** The current row to check against the checked row relative to the start of the menu */
           let currentMenuEntryIndex = 0;
           /** The name of the function to run */
-          let checkedFunctionName: string | undefined;
+          let checkedFunctionName: MenuActionName | "" | undefined;
           menuObjectEntries.some(([, menuEntries]) => {
             currentMenuEntryIndex += 1;
             menuEntries.some((menuEntry) => {
@@ -146,13 +159,13 @@ function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
 
           if (checkedFunctionName) {
             // Run the function
-            const result = this[checkedFunctionName]();
+            const result: unknown = menuActions[checkedFunctionName]();
 
             // Write the return from the function next to the menu item
             e.range
               .offset(0, 2, 1, 1)
               .setValue(
-                typeof result === "object" ? JSON.stringify(result) : result
+                typeof result === "object" ? JSON.stringify(result) : result,
               );
 
             // Uncheck the checkbox. Note: this will not happen if an error occurs
@@ -181,7 +194,7 @@ function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
 
           const result = Budgeting.splitTransaction(
             editSheet,
-            checkedTransactionIndex
+            checkedTransactionIndex,
           );
 
           // Set selected cell to the cost of the new bottom transaction
@@ -190,8 +203,8 @@ function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
               result.getNumRows() - 1,
               result.getNumColumns() - 1,
               1,
-              1
-            )
+              1,
+            ),
           );
 
           // Uncheck the checkbox. Note: this will not happen if an error occurs
@@ -203,52 +216,52 @@ function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
   }
 }
 
-function getAndRecordSomeReceiptsNoMark() {
+export function getAndRecordSomeReceiptsNoMark() {
   return Budgeting.getAndRecordReceipts(0, 50, false);
 }
 
-function getAndRecordReceiptsNoMark() {
+export function getAndRecordReceiptsNoMark() {
   return Budgeting.getAndRecordReceipts(null, null, false);
 }
 
-function getAndRecordSomeReceiptsAndMark() {
+export function getAndRecordSomeReceiptsAndMark() {
   return Budgeting.getAndRecordReceipts(0, 25, true);
 }
 
-function getAndRecordReceiptsAndMark() {
+export function getAndRecordReceiptsAndMark() {
   return Budgeting.getAndRecordReceipts(null, null, true);
 }
 
-function addTransactionSheet() {
+export function addTransactionSheet() {
   const start = Date.now();
   const didAdd = Budgeting.addTransactionSheet();
   const end = Date.now();
   Logger.log(
-    `Adding ${didAdd ? "one" : "no"} transaction sheet took ${end - start} ms`
+    `Adding ${didAdd ? "one" : "no"} transaction sheet took ${end - start} ms`,
   );
 
   return didAdd;
 }
 
-function addTransactionSheets() {
+export function addTransactionSheets() {
   const start = Date.now();
   const numSheetsAdded = Budgeting.addTransactionSheets();
   const end = Date.now();
   Logger.log(
-    `Adding ${numSheetsAdded} transaction sheets took ${end - start} ms`
+    `Adding ${numSheetsAdded} transaction sheets took ${end - start} ms`,
   );
 
   return numSheetsAdded;
 }
 
 // Test scripts
-function logTheadById(id: string) {
+export function logTheadById(id: string) {
   Logger.log(GmailApp.getThreadById(id));
 }
-function logReceipts(
+export function logReceipts(
   start: number | null = 0,
   max: number | null = 10,
-  shouldMarkProcessed = false
+  _shouldMarkProcessed = false,
 ) {
   const threadList = Budgeting.getChaseReceipts(start, max);
   Logger.log(`ThreadList: ${JSON.stringify(threadList)}`);
@@ -257,21 +270,21 @@ function logReceipts(
     `AllReceiptInfos: ${JSON.stringify(threadList.getAllReceiptInfos())}`
   ); */
 }
-function logVariables() {
+export function logVariables() {
   const start = Date.now();
   Logger.log(Variables.getVariables());
   Logger.log(
     Variables.getSheetVariables(
-      SpreadsheetApp.getActiveSpreadsheet().getSheets()[0]
-    )
+      SpreadsheetApp.getActiveSpreadsheet().getSheets()[0],
+    ),
   );
   const end = Date.now();
   Logger.log(end - start);
 }
-function testLogTransactionSheetInfos() {
+export function testLogTransactionSheetInfos() {
   Logger.log(JSON.stringify(Budgeting.getTransactionSheetInfos()));
 }
-function testRangeCachePerformance() {
+export function testRangeCachePerformance() {
   // 150-200ms
   const range = SpreadsheetApp.getActiveSheet().getRange(1, 1, 100, 100);
   // 75-100ms
@@ -290,11 +303,11 @@ function testRangeCachePerformance() {
   range2.getValues();
   Logger.log(end - start);
 }
-function testSplit() {
+export function testSplit() {
   Logger.log(
     JSON.stringify(
-      Budgeting.splitTransaction(SpreadsheetApp.getActiveSheet(), 10)
-    )
+      Budgeting.splitTransaction(SpreadsheetApp.getActiveSheet(), 10),
+    ),
   );
 }
 
@@ -321,7 +334,7 @@ const MONTHS = [
  * for this function's return
  * @returns name of sheet offset from this sheet by `off`
  */
-function sheetNameOffset(off: number, _seed: number) {
+export function sheetNameOffset(off: number, _seed: number) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheets = ss.getSheets();
   const offInd = ss.getActiveSheet().getIndex() + off;
@@ -341,7 +354,7 @@ function sheetNameOffset(off: number, _seed: number) {
  * for this function's return
  * @returns name of month offset from `month` by `off`
  */
-function getMonthOffset(month: string, off: number, _seed: number) {
+export function getMonthOffset(month: string, off: number, _seed: number) {
   const monthInd = MONTHS.indexOf(month);
   if (monthInd >= 0) {
     return MONTHS[(monthInd + off) % MONTHS.length];
