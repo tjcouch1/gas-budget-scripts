@@ -90,4 +90,19 @@ describe("CredentialVault", () => {
       false,
     );
   });
+
+  it("accepts the local demo backend URL in dev builds only", () => {
+    // Vitest runs with import.meta.env.DEV = true, like `vite`; `vite build` has it false
+    expect(import.meta.env.DEV).toBe(true);
+    expect(validateGasUrl("http://localhost:8787/macros/s/demo/exec")).toBe(
+      true,
+    );
+    expect(validateGasUrl("http://127.0.0.1:8787/macros/s/demo/exec")).toBe(
+      true,
+    );
+    expect(validateGasUrl("http://evil.example.com/macros/s/demo/exec")).toBe(
+      false,
+    );
+    expect(validateGasUrl("http://localhost:8787/other/exec")).toBe(false);
+  });
 });

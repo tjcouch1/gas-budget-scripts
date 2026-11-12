@@ -32,7 +32,15 @@ export const GAS_URL_PATTERN =
   /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
 
 export function validateGasUrl(url: string): boolean {
-  return GAS_URL_PATTERN.test(url.trim());
+  const trimmed = url.trim();
+  if (GAS_URL_PATTERN.test(trimmed)) return true;
+  // Local demo backend (packages/budget-scripts-gas/dev). `import.meta.env.DEV` is a build-time
+  // constant: production builds drop this branch, so they accept only script.google.com URLs.
+  if (import.meta.env.DEV)
+    return /^http:\/\/(?:localhost|127\.0\.0\.1):\d+\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(
+      trimmed,
+    );
+  return false;
 }
 
 export function validateCredentials(credentials: Credentials): void {

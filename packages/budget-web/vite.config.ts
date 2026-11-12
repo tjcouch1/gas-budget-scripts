@@ -4,11 +4,12 @@ import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 // GitHub Pages serves the site under /<repo-name>/. The deploy workflow passes
-// PAGES_BASE; the default matches the repository name (web-plan.md section 4.5).
-const base = process.env.PAGES_BASE ?? "/gas-budget-scripts/";
-
-export default defineConfig({
-  base,
+// PAGES_BASE; the default matches the repository name (web-plan.md section 4.5). The dev server
+// (used by the local demo and the e2e tests) serves from the root.
+export default defineConfig(({ command }) => ({
+  base:
+    process.env.PAGES_BASE ??
+    (command === "serve" ? "/" : "/gas-budget-scripts/"),
   plugins: [
     react(),
     tailwindcss(),
@@ -45,4 +46,4 @@ export default defineConfig({
       },
     }),
   ],
-});
+}));
