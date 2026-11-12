@@ -13,7 +13,7 @@ export class ThreadInfo {
     public thread: GoogleAppsScript.Gmail.GmailThread,
     public receiptInfos: ReceiptInfo[] = [],
     public notes: string[] = [],
-    public errors: string[] = []
+    public errors: string[] = [],
   ) {}
 
   /**

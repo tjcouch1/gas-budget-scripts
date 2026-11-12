@@ -74,8 +74,7 @@ function getExportedFunctionNames(filePath: string): string[] {
   //   ([a-zA-Z0-9_$]+)- Capture group 1: valid JavaScript identifier characters
   //   \s*\(           - Optional whitespace followed by opening parenthesis of argument list
   //   /gm             - Global matching across all lines
-  const fnRegex =
-    /^export\s+(?:async\s+)?function\s+([a-zA-Z0-9_$]+)\s*\(/gm;
+  const fnRegex = /^export\s+(?:async\s+)?function\s+([a-zA-Z0-9_$]+)\s*\(/gm;
   let match: RegExpExecArray | null;
   while ((match = fnRegex.exec(content)) !== null) {
     functions.push(match[1]);
@@ -126,9 +125,7 @@ function createFooter(exposedFunctions: string[]): string {
 // Explicit top-level function declarations for Google Apps Script AST parser:
 // allows triggers (onOpen), custom formulas (=sheetNameOffset), and the editor dropdown to find them.
 ${exposedFunctions
-  .map(
-    (fn) => `function ${fn}(...args) {\n  return _entry.${fn}(...args);\n}`
-  )
+  .map((fn) => `function ${fn}(...args) {\n  return _entry.${fn}(...args);\n}`)
   .join("\n\n")}
 `;
 }
@@ -172,11 +169,11 @@ async function run(): Promise<void> {
             const exposedFunctions = getExportedFunctionNames(entryFile);
             console.log(
               `Discovered ${exposedFunctions.length} exported functions from src/index.ts:\n` +
-                exposedFunctions.map((f) => `  - ${f}`).join("\n")
+                exposedFunctions.map((f) => `  - ${f}`).join("\n"),
             );
 
             const bundle = result.outputFiles?.find(
-              (file) => path.resolve(file.path) === outfile
+              (file) => path.resolve(file.path) === outfile,
             );
             if (!bundle) throw new Error(`esbuild did not produce ${outfile}`);
 
@@ -190,7 +187,7 @@ async function run(): Promise<void> {
             // Ensure manifest stays copied if dist was cleaned or touched
             copyManifest();
             console.log(
-              `[${new Date().toLocaleTimeString()}] Successfully built dist/index.js and dist/appsscript.json.`
+              `[${new Date().toLocaleTimeString()}] Successfully built dist/index.js and dist/appsscript.json.`,
             );
           });
         },
@@ -207,23 +204,23 @@ async function run(): Promise<void> {
     if (isClasp) {
       console.log("Starting clasp push --watch on dist/...");
       // Spawn clasp watch to push changes from dist/ to script.google.com
-      const claspProcess = spawn(
-        "pnpm",
-        ["exec", "clasp", "push", "--watch"],
-        {
-          stdio: "inherit",
-          shell: true,
-        }
-      );
+      const claspProcess = spawn("pnpm", ["exec", "clasp", "push", "--watch"], {
+        stdio: "inherit",
+        shell: true,
+      });
 
       // Gracefully terminate child clasp process when the user stops the script (Ctrl+C)
       const cleanup = async () => {
         await ctx.dispose();
         if (process.platform === "win32" && claspProcess.pid !== undefined) {
           // With `shell: true`, kill() only stops the cmd.exe wrapper on Windows; kill the whole tree
-          spawnSync("taskkill", ["/pid", String(claspProcess.pid), "/T", "/F"], {
-            stdio: "ignore",
-          });
+          spawnSync(
+            "taskkill",
+            ["/pid", String(claspProcess.pid), "/T", "/F"],
+            {
+              stdio: "ignore",
+            },
+          );
         } else {
           claspProcess.kill();
         }

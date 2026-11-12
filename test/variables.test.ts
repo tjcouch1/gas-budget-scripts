@@ -35,7 +35,7 @@ describe("getVariables", () => {
     addVariablesSheet(env, [["Menu", "A1"]]);
     const { getVariables } = await load();
     expect(() => getVariables()).toThrow(
-      "Some variables were not found in the Variables sheet in the range Variables!A1:B10!"
+      "Some variables were not found in the Variables sheet in the range Variables!A1:B10!",
     );
   });
 
@@ -84,7 +84,7 @@ describe("getSheetVariables", () => {
     const vs = addVariablesSheet(env);
     const { getSheetVariables } = await load();
     expect(() => getSheetVariables(vs)).toThrow(
-      "Cannot get sheet variables for Variables sheet."
+      "Cannot get sheet variables for Variables sheet.",
     );
   });
 
@@ -95,7 +95,7 @@ describe("getSheetVariables", () => {
     sheet.seed("H1", [["TransactionsStart", "A5"]]);
     const { getSheetVariables } = await load();
     expect(() => getSheetVariables(sheet)).toThrow(
-      "Some sheet variables were not found in the Bad sheet in the range H1:I3!"
+      "Some sheet variables were not found in the Bad sheet in the range H1:I3!",
     );
   });
 

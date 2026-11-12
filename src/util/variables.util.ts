@@ -65,17 +65,17 @@ export function getVariables(): Variables {
   const variables = Object.fromEntries(
     getVariablesRange()
       .getValues()
-      .filter(([key]) => key)
+      .filter(([key]) => key),
   ) as Variables;
   const variablesPresent = Object.keys(variables);
 
   if (
     VARIABLE_NAMES.some(
-      (variableName) => !variablesPresent.includes(variableName)
+      (variableName) => !variablesPresent.includes(variableName),
     )
   )
     throw new Error(
-      `Some variables were not found in the ${VARIABLES_SHEET_NAME} sheet in the range ${VARIABLES_RANGE}!`
+      `Some variables were not found in the ${VARIABLES_SHEET_NAME} sheet in the range ${VARIABLES_RANGE}!`,
     );
 
   variablesCache = variables;
@@ -97,7 +97,7 @@ function getSheetVariablesRange(sheet: GoogleAppsScript.Spreadsheet.Sheet) {
   const sheetName = sheet.getName();
   if (sheetName === VARIABLES_SHEET_NAME)
     throw new Error(
-      `Cannot get sheet variables range for ${VARIABLES_SHEET_NAME} sheet.`
+      `Cannot get sheet variables range for ${VARIABLES_SHEET_NAME} sheet.`,
     );
 
   const cachedSheetVariablesRange = sheetVariablesRangeCache.get(sheetName);
@@ -105,7 +105,7 @@ function getSheetVariablesRange(sheet: GoogleAppsScript.Spreadsheet.Sheet) {
 
   sheetVariablesRangeCache.set(
     sheetName,
-    sheet.getRange(getVariables().SheetVariables)
+    sheet.getRange(getVariables().SheetVariables),
   );
 
   return sheetVariablesRangeCache.get(sheetName)!;
@@ -118,7 +118,7 @@ export function getSheetVariables(sheet: GoogleAppsScript.Spreadsheet.Sheet) {
   const sheetName = sheet.getName();
   if (sheetName === VARIABLES_SHEET_NAME)
     throw new Error(
-      `Cannot get sheet variables for ${VARIABLES_SHEET_NAME} sheet.`
+      `Cannot get sheet variables for ${VARIABLES_SHEET_NAME} sheet.`,
     );
 
   const cachedSheetVariables = sheetVariablesCache.get(sheetName);
@@ -127,20 +127,19 @@ export function getSheetVariables(sheet: GoogleAppsScript.Spreadsheet.Sheet) {
   const sheetVariables = Object.fromEntries(
     getSheetVariablesRange(sheet)
       .getValues()
-      .filter(([key]) => key)
+      .filter(([key]) => key),
   ) as SheetVariables;
   const sheetVariablesPresent = Object.keys(sheetVariables);
 
   if (
     SHEET_VARIABLE_NAMES.some(
-      (sheetVariableName) =>
-        !sheetVariablesPresent.includes(sheetVariableName)
+      (sheetVariableName) => !sheetVariablesPresent.includes(sheetVariableName),
     )
   )
     throw new Error(
       `Some sheet variables were not found in the ${sheet.getName()} sheet in the range ${
         getVariables().SheetVariables
-      }!`
+      }!`,
     );
 
   sheetVariablesCache.set(sheetName, sheetVariables);
@@ -149,7 +148,7 @@ export function getSheetVariables(sheet: GoogleAppsScript.Spreadsheet.Sheet) {
 }
 
 function bustSheetVariablesCache(
-  sheet: GoogleAppsScript.Spreadsheet.Sheet | undefined
+  sheet: GoogleAppsScript.Spreadsheet.Sheet | undefined,
 ) {
   if (sheet) {
     const sheetName = sheet.getName();
@@ -161,6 +160,7 @@ function bustSheetVariablesCache(
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for when cache busting is needed again
 function bustVariablesCache() {
   variablesRangeCache = undefined;
   variablesCache = undefined;

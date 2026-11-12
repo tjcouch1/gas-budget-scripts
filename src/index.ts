@@ -19,8 +19,7 @@ type MenuActionName = keyof typeof menuActions;
 /** Menu to add to the spreadsheet and to show in the menu bar on desktop */
 const menu: {
   [menuName: string]: (
-    | { name: string; functionName: MenuActionName }
-    | undefined
+    { name: string; functionName: MenuActionName } | undefined
   )[];
 } = {
   Budgeting: [
@@ -68,13 +67,13 @@ export function onOpen() {
     });
   } catch (e) {
     Logger.log(
-      `Error on setting up menu bar items! User may be on mobile. ${e}`
+      `Error on setting up menu bar items! User may be on mobile. ${e}`,
     );
   }
 
   // Set up in-sheet menu (desktop and mobile)
   const menuRange = SpreadsheetApp.getActiveSheet().getRange(
-    Variables.getVariables().Menu
+    Variables.getVariables().Menu,
   );
   if (!menuRange.getValue()) {
     // Assume menu is not filled in and fill it in
@@ -93,7 +92,7 @@ export function onOpen() {
         nextRow,
         menuColumnBase,
         menuEntries.length,
-        1
+        1,
       );
       menuCheckboxesRange.insertCheckboxes();
       // Set up menu entry names
@@ -101,10 +100,12 @@ export function onOpen() {
         nextRow,
         menuColumnBase + 1,
         menuEntries.length,
-        1
+        1,
       );
       menuNamesRange.setValues(
-        menuEntries.map((menuEntry) => [menuEntry ? menuEntry.name : "-------"])
+        menuEntries.map((menuEntry) => [
+          menuEntry ? menuEntry.name : "-------",
+        ]),
       );
       nextRow += menuEntries.length;
     });
@@ -118,7 +119,7 @@ export function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
   if (e.range.isChecked()) {
     // #region Handle menu checkboxes
     const menuTopLeftRange = SpreadsheetApp.getActiveSheet().getRange(
-      Variables.getVariables().Menu
+      Variables.getVariables().Menu,
     );
     const editSheet = e.range.getSheet();
     if (editSheet.getName() === menuTopLeftRange.getSheet().getName()) {
@@ -129,7 +130,7 @@ export function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
         const numMenuRowsTotal = menuObjectEntries.reduce(
           (currentRowsCount, [, menuEntries]) =>
             currentRowsCount + menuEntries.length,
-          menuObjectEntries.length
+          menuObjectEntries.length,
         );
         const editRow = e.range.getRow();
         if (
@@ -164,7 +165,7 @@ export function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
             e.range
               .offset(0, 2, 1, 1)
               .setValue(
-                typeof result === "object" ? JSON.stringify(result) : result
+                typeof result === "object" ? JSON.stringify(result) : result,
               );
 
             // Uncheck the checkbox. Note: this will not happen if an error occurs
@@ -193,7 +194,7 @@ export function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
 
           const result = Budgeting.splitTransaction(
             editSheet,
-            checkedTransactionIndex
+            checkedTransactionIndex,
           );
 
           // Set selected cell to the cost of the new bottom transaction
@@ -202,8 +203,8 @@ export function onEditInstalled(e: GoogleAppsScript.Events.SheetsOnEdit) {
               result.getNumRows() - 1,
               result.getNumColumns() - 1,
               1,
-              1
-            )
+              1,
+            ),
           );
 
           // Uncheck the checkbox. Note: this will not happen if an error occurs
@@ -236,7 +237,7 @@ export function addTransactionSheet() {
   const didAdd = Budgeting.addTransactionSheet();
   const end = Date.now();
   Logger.log(
-    `Adding ${didAdd ? "one" : "no"} transaction sheet took ${end - start} ms`
+    `Adding ${didAdd ? "one" : "no"} transaction sheet took ${end - start} ms`,
   );
 
   return didAdd;
@@ -247,7 +248,7 @@ export function addTransactionSheets() {
   const numSheetsAdded = Budgeting.addTransactionSheets();
   const end = Date.now();
   Logger.log(
-    `Adding ${numSheetsAdded} transaction sheets took ${end - start} ms`
+    `Adding ${numSheetsAdded} transaction sheets took ${end - start} ms`,
   );
 
   return numSheetsAdded;
@@ -260,7 +261,7 @@ export function logTheadById(id: string) {
 export function logReceipts(
   start: number | null = 0,
   max: number | null = 10,
-  shouldMarkProcessed = false
+  _shouldMarkProcessed = false,
 ) {
   const threadList = Budgeting.getChaseReceipts(start, max);
   Logger.log(`ThreadList: ${JSON.stringify(threadList)}`);
@@ -274,8 +275,8 @@ export function logVariables() {
   Logger.log(Variables.getVariables());
   Logger.log(
     Variables.getSheetVariables(
-      SpreadsheetApp.getActiveSpreadsheet().getSheets()[0]
-    )
+      SpreadsheetApp.getActiveSpreadsheet().getSheets()[0],
+    ),
   );
   const end = Date.now();
   Logger.log(end - start);
@@ -305,8 +306,8 @@ export function testRangeCachePerformance() {
 export function testSplit() {
   Logger.log(
     JSON.stringify(
-      Budgeting.splitTransaction(SpreadsheetApp.getActiveSheet(), 10)
-    )
+      Budgeting.splitTransaction(SpreadsheetApp.getActiveSheet(), 10),
+    ),
   );
 }
 

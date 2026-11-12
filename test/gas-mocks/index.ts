@@ -29,7 +29,7 @@ let currentEnv: GasEnv | undefined;
 
 /** The environment installed for the current test */
 export function getEnv(): GasEnv {
-  if (!currentEnv) throw new Error('GAS globals are not installed');
+  if (!currentEnv) throw new Error("GAS globals are not installed");
   return currentEnv;
 }
 
@@ -56,7 +56,10 @@ export function installGasGlobals(): GasEnv {
 }
 
 /** Add a Variables sheet whose A1:B? holds [name, value] rows */
-export function addVariablesSheet(env: GasEnv, vars: unknown[][] = DEFAULT_VARIABLES): AnySheet {
+export function addVariablesSheet(
+  env: GasEnv,
+  vars: unknown[][] = DEFAULT_VARIABLES,
+): AnySheet {
   const sheet = env.spreadsheet.addSheet("Variables");
   sheet.seed("A1", vars);
   return sheet;
@@ -66,7 +69,7 @@ export function addVariablesSheet(env: GasEnv, vars: unknown[][] = DEFAULT_VARIA
 export function addTransactionSheet(
   env: GasEnv,
   name: string,
-  opts: { start?: string; max?: number; checkboxes?: string } = {}
+  opts: { start?: string; max?: number; checkboxes?: string } = {},
 ) {
   const sheet = env.spreadsheet.addSheet(name);
   sheet.seed("H1", [

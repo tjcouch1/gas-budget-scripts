@@ -17,18 +17,28 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "husky",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "author": "TJ Couch",
   "license": "MIT",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@google/clasp": "^3.4.1",
     "@types/google-apps-script": "^2.0.13",
     "@types/node": "^24.19.2",
-    "@vitest/coverage-v8": "^5.1.0",
+    "@typescript/native": "npm:typescript@7.0.2",
+    "@vitest/coverage-v8": "^5.0.1",
     "esbuild": "^0.28.2",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
-    "typescript": "^7.0.2",
+    "prettier": "^3.10.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript-eslint": "^8.72.2",
     "vitest": "^5.0.1"
   },
   "volta": {

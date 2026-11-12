@@ -46,7 +46,7 @@ export class MockRange {
     private readonly row: number,
     private readonly col: number,
     private readonly numRows: number,
-    private readonly numCols: number
+    private readonly numCols: number,
   ) {}
 
   getSheet(): any {
@@ -76,14 +76,14 @@ export class MockRange {
     rowOffset: number,
     colOffset: number,
     numRows?: number,
-    numCols?: number
+    numCols?: number,
   ): any {
     return new MockRange(
       this.sheet,
       this.row + rowOffset,
       this.col + colOffset,
       numRows ?? this.numRows,
-      numCols ?? this.numCols
+      numCols ?? this.numCols,
     );
   }
 
@@ -95,8 +95,8 @@ export class MockRange {
   private map<T>(fn: (cell: Cell, r: number, c: number) => T): T[][] {
     return Array.from({ length: this.numRows }, (_, r) =>
       Array.from({ length: this.numCols }, (_, c) =>
-        fn(this.sheet.cell(this.row + r, this.col + c), r, c)
-      )
+        fn(this.sheet.cell(this.row + r, this.col + c), r, c),
+      ),
     );
   }
 
@@ -125,7 +125,7 @@ export class MockRange {
       values.some((r) => r.length !== this.numCols)
     )
       throw new Error(
-        `Dimension mismatch: range is ${this.numRows}x${this.numCols} but data is ${values.length}x${values[0]?.length}`
+        `Dimension mismatch: range is ${this.numRows}x${this.numCols} but data is ${values.length}x${values[0]?.length}`,
       );
     this.map((cell, r, c) => {
       const v = values[r][c];
@@ -142,8 +142,8 @@ export class MockRange {
   setValue(value: unknown) {
     return this.setValues(
       Array.from({ length: this.numRows }, () =>
-        Array(this.numCols).fill(value)
-      )
+        Array(this.numCols).fill(value),
+      ),
     );
   }
   setNote(note: string) {
@@ -203,7 +203,7 @@ export class MockSheet {
 
   constructor(
     private name: string,
-    readonly spreadsheet: MockSpreadsheet
+    readonly spreadsheet: MockSpreadsheet,
   ) {}
 
   /** Get (creating if needed) the cell at a 1-based position */
@@ -233,12 +233,7 @@ export class MockSheet {
     return this;
   }
 
-  getRange(
-    a: string | number,
-    col?: number,
-    numRows = 1,
-    numCols = 1
-  ): any {
+  getRange(a: string | number, col?: number, numRows = 1, numCols = 1): any {
     if (typeof a === "string") {
       const p = parseA1(a);
       return new MockRange(this, p.row, p.col, p.numRows, p.numCols);
@@ -288,7 +283,7 @@ export class MockSpreadsheet {
   insertSheet(
     name: string,
     index: number,
-    options?: { template?: MockSheet }
+    options?: { template?: MockSheet },
   ): any {
     const sheet = new MockSheet(name, this);
     if (options?.template) sheet.copyFrom(options.template);

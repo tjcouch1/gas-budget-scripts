@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { addVariablesSheet, getEnv, makeThread, MessageInit } from "./gas-mocks";
+import {
+  addVariablesSheet,
+  getEnv,
+  makeThread,
+  MessageInit,
+} from "./gas-mocks";
 
 const CHASE = "Chase <no.reply.alerts@chase.com>";
 const PAYPAL = "PayPal <service@paypal.com>";
@@ -237,14 +242,18 @@ describe("ThreadList error handling and aggregation", () => {
     });
     expect(list.threadInfos).toHaveLength(1);
     expect(list.threadInfos[0].errors[0]).toContain(
-      "No function to handle receipt message from spam@example.org"
+      "No function to handle receipt message from spam@example.org",
     );
-    expect(list.threadInfos[0].errors[0]).toContain("Skipping marking as processed");
+    expect(list.threadInfos[0].errors[0]).toContain(
+      "Skipping marking as processed",
+    );
   });
 
   it("records an error when the sender cannot be parsed", async () => {
     const list = await parse({ from: "nobody", subject: "s", body: "b" });
-    expect(list.threadInfos[0].errors[0]).toContain("Could not get email address from nobody");
+    expect(list.threadInfos[0].errors[0]).toContain(
+      "Could not get email address from nobody",
+    );
   });
 
   it("records a thread-level error if getMessages throws", async () => {
@@ -253,7 +262,7 @@ describe("ThreadList error handling and aggregation", () => {
     thread.messagesError = new Error("boom");
     const list = new ThreadList([thread]);
     expect(list.threadInfos[0].errors[0]).toContain(
-      `Error while processing thread with ID ${thread.getId()}`
+      `Error while processing thread with ID ${thread.getId()}`,
     );
   });
 
@@ -264,7 +273,7 @@ describe("ThreadList error handling and aggregation", () => {
       body: "no forward header here",
     });
     expect(list.threadInfos[0].errors[0]).toContain(
-      "Could not get 'from' email address from forwarded email with subject 'Fwd: hi'"
+      "Could not get 'from' email address from forwarded email with subject 'Fwd: hi'",
     );
   });
 
@@ -289,18 +298,36 @@ describe("ThreadList error handling and aggregation", () => {
     });
     // thread with a receipt, a non-receipt message (note) and an error message
     const t2 = makeThread(
-      { from: CHASE, subject: "You made a $1.00 transaction with Early Shop", body: "", date: early },
+      {
+        from: CHASE,
+        subject: "You made a $1.00 transaction with Early Shop",
+        body: "",
+        date: early,
+      },
       { from: CHASE, subject: "Marketing", body: "buy things", date: early },
-      { from: "x@example.org", subject: "weird", body: "", date: early }
+      { from: "x@example.org", subject: "weird", body: "", date: early },
     );
     // thread with only an error -> EmptyReceipt dated at its last message
-    const t3 = makeThread({ from: "y@example.org", subject: "bad", body: "", date: new Date("2024-03-03T00:00:00Z") });
+    const t3 = makeThread({
+      from: "y@example.org",
+      subject: "bad",
+      body: "",
+      date: new Date("2024-03-03T00:00:00Z"),
+    });
     const list = new ThreadList([t1, t2, t3]);
     const all = list.getAllReceiptInfos();
 
-    expect(all.map((r) => r.name ?? "(empty)")).toEqual(["Early Shop", "(empty)", "Late Shop"]);
-    expect(all[0].errorMessage).toContain("No function to handle receipt message from x@example.org");
-    expect(all[0].note).toContain("Message is not a receipt:\nFrom: no.reply.alerts@chase.com\nSubject: Marketing");
+    expect(all.map((r) => r.name ?? "(empty)")).toEqual([
+      "Early Shop",
+      "(empty)",
+      "Late Shop",
+    ]);
+    expect(all[0].errorMessage).toContain(
+      "No function to handle receipt message from x@example.org",
+    );
+    expect(all[0].note).toContain(
+      "Message is not a receipt:\nFrom: no.reply.alerts@chase.com\nSubject: Marketing",
+    );
     expect(all[1].errorMessage).toContain("y@example.org");
     expect(all[1].cost).toBeUndefined();
     // cached
@@ -311,11 +338,11 @@ describe("ThreadList error handling and aggregation", () => {
     const { ThreadList } = await import("../src/models/thread-list.model");
     const t = makeThread(
       { from: "a@example.org", subject: "1", body: "" },
-      { from: "b@example.org", subject: "2", body: "" }
+      { from: "b@example.org", subject: "2", body: "" },
     );
     const [first] = new ThreadList([t]).getAllReceiptInfos();
     expect(first.errorMessage).toContain(
-      "\n\n~~~~~~~~~~~~~~~~~ NEXT ERROR ~~~~~~~~~~~~~~~~~\n\n"
+      "\n\n~~~~~~~~~~~~~~~~~ NEXT ERROR ~~~~~~~~~~~~~~~~~\n\n",
     );
   });
 

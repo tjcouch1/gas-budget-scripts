@@ -21,7 +21,7 @@ export function isDate(o: unknown): o is Date {
  */
 export function areDatesEqual(
   date1: GoogleAppsScript.Base.Date | string | undefined,
-  date2: GoogleAppsScript.Base.Date | string | undefined
+  date2: GoogleAppsScript.Base.Date | string | undefined,
 ) {
   return isDate(date1) && isDate(date2)
     ? date1.getTime() === date2.getTime()

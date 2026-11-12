@@ -26,14 +26,32 @@ describe("onOpen", () => {
     expect(menu.name).toBe("Budgeting");
     expect(menu.added).toBe(true);
     expect(menu.items).toEqual([
-      { name: "Import 50 receipts (no mark)", functionName: "getAndRecordSomeReceiptsNoMark" },
-      { name: "Import all receipts (no mark)", functionName: "getAndRecordReceiptsNoMark" },
+      {
+        name: "Import 50 receipts (no mark)",
+        functionName: "getAndRecordSomeReceiptsNoMark",
+      },
+      {
+        name: "Import all receipts (no mark)",
+        functionName: "getAndRecordReceiptsNoMark",
+      },
       "separator",
-      { name: "Import 25 receipts and mark", functionName: "getAndRecordSomeReceiptsAndMark" },
-      { name: "Import all receipts and mark", functionName: "getAndRecordReceiptsAndMark" },
+      {
+        name: "Import 25 receipts and mark",
+        functionName: "getAndRecordSomeReceiptsAndMark",
+      },
+      {
+        name: "Import all receipts and mark",
+        functionName: "getAndRecordReceiptsAndMark",
+      },
       "separator",
-      { name: "Add one transaction sheet if needed", functionName: "addTransactionSheet" },
-      { name: "Add transaction sheets until up-to-date", functionName: "addTransactionSheets" },
+      {
+        name: "Add one transaction sheet if needed",
+        functionName: "addTransactionSheet",
+      },
+      {
+        name: "Add transaction sheets until up-to-date",
+        functionName: "addTransactionSheets",
+      },
     ]);
   });
 
@@ -44,7 +62,12 @@ describe("onOpen", () => {
     expect(main.textStyles).toHaveLength(1);
     expect(main.textStyles[0].style).toEqual({ bold: true });
     expect(main.getRange("A2:A9").getValues()).toEqual(Array(8).fill([false]));
-    expect(main.getRange("B2:B9").getValues().map(([v]) => v)).toEqual([
+    expect(
+      main
+        .getRange("B2:B9")
+        .getValues()
+        .map(([v]) => v),
+    ).toEqual([
       "Import 50 receipts (no mark)",
       "Import all receipts (no mark)",
       "-------",
@@ -70,7 +93,9 @@ describe("onOpen", () => {
     const { onOpen } = await load();
     onOpen();
     expect(main.getRange("A1").getValue()).toBe("Budgeting");
-    expect(env.logs.some((l) => String(l).includes("User may be on mobile"))).toBe(true);
+    expect(
+      env.logs.some((l) => String(l).includes("User may be on mobile")),
+    ).toBe(true);
   });
 });
 
@@ -100,15 +125,18 @@ describe("onEditInstalled - menu checkboxes", () => {
     ["A3", undefined, undefined],
     ["A5", 0, 25],
     ["A6", undefined, undefined],
-  ])("row %s dispatches to the right receipt import", async (cell, start, max) => {
-    const env = getEnv();
-    const { onOpen, onEditInstalled } = await load();
-    onOpen();
-    onEditInstalled(edit(main, cell));
-    expect(env.GmailApp.searches).toHaveLength(1);
-    expect(env.GmailApp.searches[0].start).toBe(start);
-    expect(env.GmailApp.searches[0].max).toBe(max);
-  });
+  ])(
+    "row %s dispatches to the right receipt import",
+    async (cell, start, max) => {
+      const env = getEnv();
+      const { onOpen, onEditInstalled } = await load();
+      onOpen();
+      onEditInstalled(edit(main, cell));
+      expect(env.GmailApp.searches).toHaveLength(1);
+      expect(env.GmailApp.searches[0].start).toBe(start);
+      expect(env.GmailApp.searches[0].max).toBe(max);
+    },
+  );
 
   it("does nothing for the separator rows", async () => {
     const env = getEnv();
@@ -155,7 +183,7 @@ describe("onEditInstalled - menu checkboxes", () => {
     onOpen();
     // No transaction sheets -> addTransactionSheet throws
     expect(() => onEditInstalled(edit(main, "A8"))).toThrow(
-      "No transaction sheets found in order to add more"
+      "No transaction sheets found in order to add more",
     );
     expect(main.getRange("A8").getValue()).toBe(true);
   });
@@ -173,7 +201,9 @@ describe("onEditInstalled - split checkboxes", () => {
     ]);
     sheet.getRange("G5").setValue(true);
     const { onEditInstalled } = await load();
-    onEditInstalled({ range: sheet.getRange("G5") } as unknown as GoogleAppsScript.Events.SheetsOnEdit);
+    onEditInstalled({
+      range: sheet.getRange("G5"),
+    } as unknown as GoogleAppsScript.Events.SheetsOnEdit);
 
     expect(sheet.getRange("B5:C6").getValues()).toEqual([
       ["Store | ", "=5-R[1]C[0]"],
@@ -192,7 +222,9 @@ describe("onEditInstalled - split checkboxes", () => {
     sheet.getRange("G20").setValue(true);
     const { onEditInstalled } = await load();
     for (const a1 of ["H5", "G20"])
-      onEditInstalled({ range: sheet.getRange(a1) } as unknown as GoogleAppsScript.Events.SheetsOnEdit);
+      onEditInstalled({
+        range: sheet.getRange(a1),
+      } as unknown as GoogleAppsScript.Events.SheetsOnEdit);
     expect(sheet.getRange("C5").getValue()).toBe(5);
     expect(env.SpreadsheetApp.activeRange).toBeUndefined();
   });
@@ -206,11 +238,20 @@ describe("addTransactionSheet / addTransactionSheets exports", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-03-01T12:00:00Z"));
     try {
-      const { addTransactionSheet: add, addTransactionSheets: addAll } = await load();
+      const { addTransactionSheet: add, addTransactionSheets: addAll } =
+        await load();
       expect(add()).toBe(false);
       expect(addAll()).toBe(0);
-      expect(env.logs.some((l) => /^Adding no transaction sheet took \d+ ms$/.test(String(l)))).toBe(true);
-      expect(env.logs.some((l) => /^Adding 0 transaction sheets took \d+ ms$/.test(String(l)))).toBe(true);
+      expect(
+        env.logs.some((l) =>
+          /^Adding no transaction sheet took \d+ ms$/.test(String(l)),
+        ),
+      ).toBe(true);
+      expect(
+        env.logs.some((l) =>
+          /^Adding 0 transaction sheets took \d+ ms$/.test(String(l)),
+        ),
+      ).toBe(true);
     } finally {
       vi.useRealTimers();
     }

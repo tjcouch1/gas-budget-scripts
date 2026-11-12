@@ -50,7 +50,9 @@ describe("addTransactionSheet(s)", () => {
     let start = Date.UTC(2024, 1, 18, 12);
     const names: string[] = [];
     for (let i = 0; i < count; i++) {
-      names.push(`${fmt(new Date(start))} - ${fmt(new Date(start + 13 * 86400000))}`);
+      names.push(
+        `${fmt(new Date(start))} - ${fmt(new Date(start + 13 * 86400000))}`,
+      );
       start -= 14 * 86400000;
     }
     names.forEach((n) => addTransactionSheet(env, n));
@@ -60,7 +62,9 @@ describe("addTransactionSheet(s)", () => {
   it("throws if there are no transaction sheets", async () => {
     getEnv().spreadsheet.addSheet("Template");
     const { addTransactionSheet: add } = await load();
-    expect(() => add()).toThrow("No transaction sheets found in order to add more");
+    expect(() => add()).toThrow(
+      "No transaction sheets found in order to add more",
+    );
   });
 
   it("returns false and adds nothing when the latest sheet has not ended", async () => {
@@ -92,11 +96,15 @@ describe("addTransactionSheet(s)", () => {
 
   it("throws if the template sheet is missing", async () => {
     const { env } = setupSheets();
-    env.spreadsheet.sheets = env.spreadsheet.sheets.filter((s) => s.getName() !== "Template");
+    env.spreadsheet.sheets = env.spreadsheet.sheets.filter(
+      (s) => s.getName() !== "Template",
+    );
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-03-10T12:00:00Z"));
     const { addTransactionSheet: add } = await load();
-    expect(() => add()).toThrow("Template sheet not found! Cannot duplicate to create sheet 3/3/24 - 3/16/24.");
+    expect(() => add()).toThrow(
+      "Template sheet not found! Cannot duplicate to create sheet 3/3/24 - 3/16/24.",
+    );
   });
 
   it("addTransactionSheets keeps adding until caught up and returns the count", async () => {
@@ -149,7 +157,7 @@ describe("recording receipts", () => {
     expect(env.GmailApp.searches[0].start).toBe(5);
     expect(env.GmailApp.searches[0].max).toBe(20);
     expect(env.GmailApp.searches[0].query).toBe(
-      "from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR fwd@example.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted "
+      "from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR fwd@example.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ",
     );
     expect(env.GmailApp.searches[1].start).toBeUndefined();
   });
@@ -197,11 +205,17 @@ describe("recording receipts", () => {
     getAndRecordReceipts(null, null, true);
 
     for (const t of [t1, t2]) {
-      expect(t.labels.map((l) => l.getName())).toEqual(["Receipts/Scripted", "Receipts"]);
+      expect(t.labels.map((l) => l.getName())).toEqual([
+        "Receipts/Scripted",
+        "Receipts",
+      ]);
       expect(t.archived).toBe(true);
     }
     // Labels are created once and memoized
-    expect(env.GmailApp.createdLabels).toEqual(["Receipts/Scripted", "Receipts"]);
+    expect(env.GmailApp.createdLabels).toEqual([
+      "Receipts/Scripted",
+      "Receipts",
+    ]);
   });
 
   it("reuses existing Gmail labels instead of creating them", async () => {
@@ -209,7 +223,9 @@ describe("recording receipts", () => {
     env.GmailApp.createLabel("Receipts/Scripted");
     env.GmailApp.createLabel("Receipts");
     env.GmailApp.createdLabels.length = 0;
-    env.GmailApp.threads = [makeThread(chase("1.00", "Shop", "2024-02-20T12:00:00Z"))];
+    env.GmailApp.threads = [
+      makeThread(chase("1.00", "Shop", "2024-02-20T12:00:00Z")),
+    ];
     const { getAndRecordReceipts } = await load();
     getAndRecordReceipts(null, null, true);
     expect(env.GmailApp.createdLabels).toEqual([]);
@@ -227,7 +243,10 @@ describe("recording receipts", () => {
     ];
     const { getAndRecordReceipts } = await load();
     getAndRecordReceipts(null, null, false);
-    expect(sheet.getRange("A5:C5").getValues()[0].slice(1)).toEqual(["Shell   (Gas)", ""]);
+    expect(sheet.getRange("A5:C5").getValues()[0].slice(1)).toEqual([
+      "Shell   (Gas)",
+      "",
+    ]);
     expect(sheet.getRange("E5:F5").getValues()).toEqual([["Gas", "Credit"]]);
     expect(sheet.getRange("C5").getBackgrounds()).toEqual([["#E8A9CA"]]);
     expect(sheet.getRange("B5").getBackgrounds()).toEqual([[null]]);
@@ -248,7 +267,9 @@ describe("recording receipts", () => {
 
     expect(sheet.getRange("B5").getBackgrounds()).toEqual([["#FF0000"]]);
     expect(sheet.getRange("B5").getValue()).toBe("");
-    expect(sheet.getRange("B5").getNotes()[0][0]).toContain("weird@example.org");
+    expect(sheet.getRange("B5").getNotes()[0][0]).toContain(
+      "weird@example.org",
+    );
     expect(sheet.getRange("C5").getBackgrounds()).toEqual([["#E8A9CA"]]);
     expect(bad.archived).toBe(false);
     expect(good.archived).toBe(true);
@@ -262,14 +283,26 @@ describe("recording receipts", () => {
     env.GmailApp.threads = [
       makeThread(
         chase("1.00", "Shop", "2024-02-20T12:00:00Z"),
-        { from: "Chase <no.reply.alerts@chase.com>", subject: "Promo", body: "hi", date: new Date("2024-02-20T12:00:00Z") },
-        { from: "z@example.org", subject: "z", body: "", date: new Date("2024-02-20T12:00:00Z") }
+        {
+          from: "Chase <no.reply.alerts@chase.com>",
+          subject: "Promo",
+          body: "hi",
+          date: new Date("2024-02-20T12:00:00Z"),
+        },
+        {
+          from: "z@example.org",
+          subject: "z",
+          body: "",
+          date: new Date("2024-02-20T12:00:00Z"),
+        },
       ),
     ];
     const { getAndRecordReceipts } = await load();
     getAndRecordReceipts(null, null, false);
     const note = sheet.getRange("B5").getNotes()[0][0];
-    expect(note).toContain("No function to handle receipt message from z@example.org");
+    expect(note).toContain(
+      "No function to handle receipt message from z@example.org",
+    );
     expect(note).toContain("\n\n>>>>>>>>>> NOTES <<<<<<<<<<\n\n");
     expect(note).toContain("Message is not a receipt:");
   });
@@ -277,18 +310,27 @@ describe("recording receipts", () => {
   it("throws (after alerting is skipped) with the original UI error when alerting fails in a trigger", async () => {
     const env = getEnv();
     env.SpreadsheetApp.uiAvailable = false;
-    env.GmailApp.threads = [makeThread({ from: "a@example.org", subject: "s", body: "", date: new Date("2024-02-20T12:00:00Z") })];
+    env.GmailApp.threads = [
+      makeThread({
+        from: "a@example.org",
+        subject: "s",
+        body: "",
+        date: new Date("2024-02-20T12:00:00Z"),
+      }),
+    ];
     const { getAndRecordReceipts } = await load();
     expect(() => getAndRecordReceipts(null, null, false)).toThrow(
-      /Error while trying to notify user via UI of 1 errors while processing!/
+      /Error while trying to notify user via UI of 1 errors while processing!/,
     );
   });
 
   it("throws when a receipt date fits no transaction sheet", async () => {
-    getEnv().GmailApp.threads = [makeThread(chase("1.00", "Shop", "2025-01-01T12:00:00Z"))];
+    getEnv().GmailApp.threads = [
+      makeThread(chase("1.00", "Shop", "2025-01-01T12:00:00Z")),
+    ];
     const { getAndRecordReceipts } = await load();
     expect(() => getAndRecordReceipts(null, null, false)).toThrow(
-      /Could not find transaction sheet for receipt/
+      /Could not find transaction sheet for receipt/,
     );
   });
 
@@ -306,7 +348,7 @@ describe("recording receipts", () => {
     ];
     const { getAndRecordReceipts } = await load();
     expect(() => getAndRecordReceipts(null, null, false)).toThrow(
-      /There are not enough empty transaction rows in sheet 2\/18\/24 - 3\/2\/24 to get 2 transaction rows! First empty transaction row: 9\. TransactionsMax: 5\. Last transaction row: 9/
+      /There are not enough empty transaction rows in sheet 2\/18\/24 - 3\/2\/24 to get 2 transaction rows! First empty transaction row: 9\. TransactionsMax: 5\. Last transaction row: 9/,
     );
   });
 
@@ -356,7 +398,12 @@ describe("splitTransaction", () => {
       ["", "Credit"],
     ]);
     // Returned range spans the whole new group (date..cost)
-    expect([range.getRow(), range.getColumn(), range.getNumRows(), range.getNumColumns()]).toEqual([5, 1, 2, 3]);
+    expect([
+      range.getRow(),
+      range.getColumn(),
+      range.getNumRows(),
+      range.getNumColumns(),
+    ]).toEqual([5, 1, 2, 3]);
   });
 
   it("keeps an existing formula cost and does not double the ' | ' in the name", async () => {
@@ -430,7 +477,7 @@ describe("splitTransaction", () => {
   it("rejects splitting an empty row", async () => {
     const { splitTransaction } = await load();
     expect(() => splitTransaction(sheet, 0)).toThrow(
-      "Checked row 5 on sheet 2/18/24 - 3/2/24, but the transaction row has no content!"
+      "Checked row 5 on sheet 2/18/24 - 3/2/24, but the transaction row has no content!",
     );
   });
 
@@ -441,15 +488,18 @@ describe("splitTransaction", () => {
     ]);
     const { splitTransaction } = await load();
     expect(() => splitTransaction(sheet, 1)).toThrow(
-      "Transaction in sheet 2/18/24 - 3/2/24 at row 6 seems to be in a transaction group already!"
+      "Transaction in sheet 2/18/24 - 3/2/24 at row 6 seems to be in a transaction group already!",
     );
   });
 
   it("rejects when there is no room left on the sheet", async () => {
-    sheet.seed("A5", Array.from({ length: 6 }, () => [D, "Same", 1]));
+    sheet.seed(
+      "A5",
+      Array.from({ length: 6 }, () => [D, "Same", 1]),
+    );
     const { splitTransaction } = await load();
     expect(() => splitTransaction(sheet, 0)).toThrow(
-      "No room on sheet 2/18/24 - 3/2/24 to split group of 6 starting at row 5!"
+      "No room on sheet 2/18/24 - 3/2/24 to split group of 6 starting at row 5!",
     );
   });
 
@@ -469,6 +519,11 @@ describe("splitTransaction", () => {
   it("getTransactionSplitCheckboxesRange spans TransactionsMax rows in the checkbox column", async () => {
     const { getTransactionSplitCheckboxesRange } = await load();
     const r = getTransactionSplitCheckboxesRange(sheet);
-    expect([r.getRow(), r.getColumn(), r.getNumRows(), r.getNumColumns()]).toEqual([5, 7, 6, 1]);
+    expect([
+      r.getRow(),
+      r.getColumn(),
+      r.getNumRows(),
+      r.getNumColumns(),
+    ]).toEqual([5, 7, 6, 1]);
   });
 });

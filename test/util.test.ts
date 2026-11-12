@@ -18,10 +18,16 @@ describe("util", () => {
 
   it("areDatesEqual compares times for dates and strings otherwise", () => {
     expect(
-      areDatesEqual(new Date("2024-01-01T00:00:00Z"), new Date("2024-01-01T00:00:00Z"))
+      areDatesEqual(
+        new Date("2024-01-01T00:00:00Z"),
+        new Date("2024-01-01T00:00:00Z"),
+      ),
     ).toBe(true);
     expect(
-      areDatesEqual(new Date("2024-01-01T00:00:00Z"), new Date("2024-01-02T00:00:00Z"))
+      areDatesEqual(
+        new Date("2024-01-01T00:00:00Z"),
+        new Date("2024-01-02T00:00:00Z"),
+      ),
     ).toBe(false);
     expect(areDatesEqual("", "")).toBe(true);
     expect(areDatesEqual(undefined, undefined)).toBe(true);

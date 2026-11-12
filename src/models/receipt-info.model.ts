@@ -32,7 +32,7 @@ export class EmptyReceipt extends ReceiptInfoBase {
    */
   constructor(
     date: GoogleAppsScript.Base.Date,
-    thread: GoogleAppsScript.Gmail.GmailThread
+    thread: GoogleAppsScript.Gmail.GmailThread,
   ) {
     super();
     this.date = date;
@@ -69,7 +69,7 @@ export class ReceiptInfo extends ReceiptInfoBase {
     cost: number | undefined,
     name: string | undefined,
     category: string | undefined,
-    type: string | undefined
+    type: string | undefined,
   ) {
     super();
     this.cost = cost;

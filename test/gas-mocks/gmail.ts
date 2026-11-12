@@ -57,7 +57,7 @@ export class MockThread {
   private readonly id: string;
   constructor(
     readonly messages: MockMessage[],
-    id?: string
+    id?: string,
   ) {
     this.id = id ?? `thread-${++idCounter}`;
     messages.forEach((m) => (m.thread = this));
@@ -96,7 +96,6 @@ export class MockGmailApp {
   searches: { query: string; start?: number; max?: number }[] = [];
   createdLabels: string[] = [];
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   search(query: string, start?: number, max?: number) {
     this.searches.push({ query, start, max });
     return start === undefined

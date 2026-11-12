@@ -98,15 +98,24 @@ pnpm run open
 
 Opens the connected project in your browser at `script.google.com`.
 
-### Type Checking & Testing
+### Type Checking, Linting, Formatting & Testing
 
 ```bash
-pnpm run typecheck    # Runs tsc --noEmit
-pnpm test             # Runs vitest unit tests
-pnpm run test:watch   # Runs vitest in watch mode
+pnpm run typecheck      # tsc (TypeScript 7) on src/, then on src/ + test/ + configs
+pnpm run lint           # ESLint (typescript-eslint); `pnpm run lint:fix` to auto-fix
+pnpm run format         # Prettier --write; `pnpm run format:check` to verify only
+pnpm test               # Vitest unit tests (test/**/*.test.ts)
+pnpm run test:watch     # Vitest in watch mode
+pnpm run test:coverage  # Vitest with v8 coverage (HTML report in coverage/)
 ```
 
-> **Git Hook**: Husky runs `pnpm run typecheck` and `pnpm run test` automatically as a pre-commit hook before every commit.
+Tests run against in-memory mocks of the Apps Script globals (`SpreadsheetApp`, `GmailApp`, `Logger`) in `test/gas-mocks/`. They are characterization tests: they pin the current spreadsheet behavior (cell values, formulas, labels) so refactors can be verified. Mocks do not evaluate formulas or adjust relative references on `copyTo`.
+
+> **TypeScript versions**: `typescript` is aliased to `@typescript/typescript6` because typescript-eslint needs the TS 6 API, while `@typescript/native` (TypeScript 7) provides the `tsc` used by `typecheck`. Revisit once typescript-eslint supports TS 7.
+
+> **Git Hook**: Husky runs `format:check`, `lint`, `typecheck` and `test` as a pre-commit hook.
+
+> **CI**: `.github/workflows/ci.yml` runs format check, lint, typecheck, tests with coverage and build on pushes to `main` and on pull requests.
 
 ---
 
