@@ -11,6 +11,7 @@ import {
   MockRange,
   MockTextOutput,
 } from "./gas-mocks";
+import { chasePurchaseEmail } from "./fixtures/receipts";
 
 const load = () => import("../src/index");
 
@@ -1146,12 +1147,7 @@ describe("splitTransaction", () => {
 });
 
 describe("syncReceipts", () => {
-  const chase = (cost: string, merchant: string, date: string) => ({
-    from: "Chase <no.reply.alerts@chase.com>",
-    subject: `You made a $${cost} transaction with ${merchant}`,
-    body: "",
-    date: new Date(date),
-  });
+  const chase = chasePurchaseEmail;
 
   it("imports up to 25 threads, labels them, and returns errors without using the UI", async () => {
     env.SpreadsheetApp.uiAvailable = false;

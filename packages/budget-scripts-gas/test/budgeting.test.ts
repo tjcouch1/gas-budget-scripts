@@ -6,6 +6,7 @@ import {
   makeThread,
   AnySheet,
 } from "./gas-mocks";
+import { chasePurchaseEmail } from "./fixtures/receipts";
 
 const load = () => import("../src/util/budgeting.util");
 
@@ -142,12 +143,7 @@ describe("recording receipts", () => {
     sheet = addTransactionSheet(getEnv(), SHEET, { max: 5 });
   });
 
-  const chase = (cost: string, merchant: string, date: string) => ({
-    from: "Chase <no.reply.alerts@chase.com>",
-    subject: `You made a $${cost} transaction with ${merchant}`,
-    body: "",
-    date: new Date(date),
-  });
+  const chase = chasePurchaseEmail;
 
   it("queries Gmail with the receipt search and the start/max arguments", async () => {
     const env = getEnv();
