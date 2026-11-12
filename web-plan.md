@@ -52,6 +52,7 @@ Point the deployed web app (and the PWA's Settings dialog) at your **test** budg
 1. **Pages is not enabled yet on `tjcouch1/gas-budget-scripts`.** Go to **Settings → Pages → Build and deployment → Source: "GitHub Actions"** (not "Deploy from a branch"; there is no `gh-pages` branch). `.github/workflows/deploy-web.yml` (Step 4) then publishes `packages/budget-web/dist` from `main` (and on manual `workflow_dispatch`).
 2. The published site is public. That is acceptable because the bundle contains no secrets. Default URL `https://tjcouch1.github.io/gas-budget-scripts/`, no custom domain.
 3. Open-source license page: the web package generates `licenses.html` at install/build time (Step 3 item 8). Nothing to configure manually.
+4. After the first successful deploy, open the Pages URL on a phone and use "Add to Home Screen" (installed PWAs keep IndexedDB storage longer on iOS), then enter the web app URL and API key in Settings.
 
 ---
 
@@ -382,6 +383,14 @@ Each step ends with all quality gates green (`AGENTS.md` §5.4) and a separate c
 
 ### Step 3: Frontend PWA (`packages/budget-web`)
 
+**Status: implemented (prototype).** Deviations and frontend assumptions about the API (the GAS backend must match):
+
+- Package name is `@budget/web` (`pnpm --filter @budget/web ...`). Tabs use a tiny hash-based switch (`#/expenses`, `#/envelopes`) instead of `react-router`'s `HashRouter` (two views only). shadcn/ui was not used; Tailwind v4 classes only.
+- `updateTransaction` is assumed to return the updated `TransactionRowDto` as `data` (a full `PayPeriodStateDto` is also accepted). `splitTransaction` is assumed to return the refreshed `PayPeriodStateDto` for the sheet. `conflict` responses carry `conflict.current`.
+- `syncReceipts` returns `SyncReceiptsResultDto` (`state` included). A `bad_request` whose message contains "transaction sheet" is shown as "No sheet for this pay period"; the API has no add-sheet action, so the UI tells the owner to add the sheet in the spreadsheet (no button).
+- Queued edits to the same row are merged; a later edit or split on a row with an earlier queued change rides on that change's `baseFingerprint` and is re-based to the server's returned fingerprint. After a split, later queued edits are re-based by fingerprint (else they become conflicts). "Overwrite with Mine" resends with `baseFingerprint = current.fingerprint`, never `force`.
+- `EnvelopeRowDto.display`/`values` index 3 is treated as `Remain` (the plan's cols 1-10 after the name).
+
 1. Scaffold Vite + React 19 + TypeScript + Tailwind CSS v4 + `vite-plugin-pwa`. Optional: shadcn/ui components copied into the repo (no runtime CDN). Pin exact versions in `package.json`. Add `dev`, `build` (`tsc --noEmit && vite build`), `preview`, `typecheck`, and `test` scripts. App icons go in `public/` (generated, generic budget icon). Run `vite build` with `PAGES_BASE` (§4.5).
 2. `crypto/credential-vault.ts` + **Connection Settings dialog**: URL + key inputs, a "Test connection" button that calls `getState`, and "Forget credentials".
 3. `api/client.ts`: a single `callApi(request)` that decrypts credentials, sends the POST (§4.4), parses the envelope, maps errors to typed exceptions, and times out after 60 s. It handles a non-JSON response (e.g. the HTML login page that appears when the deployment isn't `Anyone`) with a clear message.
@@ -401,6 +410,8 @@ Each step ends with all quality gates green (`AGENTS.md` §5.4) and a separate c
    - Verify it still works with this repo's pnpm (`onlyBuiltDependencies`, lockfile frozen in CI) and that `postinstall` does not fail on a fresh clone before `public/` exists (`mkdir -p`, as the script does).
 
 ### Step 4: GitHub Pages Deploy & CI
+
+**Status: implemented.** `.github/workflows/deploy-web.yml` (push to `main` with the path filter, plus `workflow_dispatch`; `PAGES_BASE=/<repo-name>/`), `.github/actions/get-volta-node-version/`. `ci.yml` is unchanged: the root scripts already cover `@budget/web` (`format:check`, `lint`, `typecheck`, `test:coverage`, `build`). The owner still has to enable Pages with source "GitHub Actions" (§0.D).
 
 1. `.github/workflows/deploy-web.yml`: `on: push` to `main` with `paths: ["packages/budget-web/**", "packages/budget-shared/**", "pnpm-lock.yaml", ".github/workflows/deploy-web.yml"]` plus `workflow_dispatch`. Deploys from **`main`**; there is no `gh-pages` branch. Modeled on the owner's `game-boy-camera-picture-extractor/.github/workflows/deploy.yml` (which deploys from a `production` branch; here `main`), using the Pages-from-Actions source.
    - `permissions: { contents: read, pages: write, id-token: write }`, `concurrency: { group: pages, cancel-in-progress: false }`.

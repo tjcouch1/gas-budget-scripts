@@ -8,7 +8,7 @@ Google Apps Scripts for budgeting.
 
 This repository contains a Google Apps Script TypeScript project for managing and recording transaction receipts into Google Sheets with a [container-bound Apps Script project](https://developers.google.com/apps-script/guides/bound).
 
-This is a `pnpm` workspace. The GAS project lives in `packages/budget-scripts-gas` (`@budget/scripts-gas`) and shared pure TypeScript utilities (DTOs, math parser, cost-formula builder, row fingerprint) live in `packages/budget-shared` (`@budget/shared`). A PWA frontend (`packages/budget-web`) is planned in [`web-plan.md`](web-plan.md).
+This is a `pnpm` workspace. The GAS project lives in `packages/budget-scripts-gas` (`@budget/scripts-gas`) and shared pure TypeScript utilities (DTOs, math parser, cost-formula builder, row fingerprint) live in `packages/budget-shared` (`@budget/shared`). The PWA frontend lives in `packages/budget-web` (`@budget/web`, React + Vite) and is deployed to GitHub Pages by `.github/workflows/deploy-web.yml`; see [`web-plan.md`](web-plan.md).
 
 GAS code is written using standard modern TypeScript (`import` / `export`) in `packages/budget-scripts-gas/src/`, bundled using `esbuild` into human-readable, unminified JavaScript in `dist/`, and synchronized to Google Apps Script via `@google/clasp`.
 
@@ -91,6 +91,16 @@ pnpm run push
 ```
 
 Builds the latest bundles and runs `clasp push`.
+
+### Web app (PWA)
+
+```bash
+pnpm --filter @budget/web run dev       # dev server (served under /gas-budget-scripts/)
+pnpm --filter @budget/web run build     # tsc + vite build -> packages/budget-web/dist (set PAGES_BASE to change the base path)
+pnpm --filter @budget/web run preview   # serve the production build
+```
+
+The web app asks for the Apps Script web app URL and API key in its Settings dialog and stores them encrypted on the device; nothing secret is in the bundle. `pnpm install` (and `build`) generate `packages/budget-web/public/licenses.html` (open source licenses, gitignored). To publish: enable **Settings -> Pages -> Source: GitHub Actions** once, then pushes to `main` that touch the web or shared packages (or a manual run of "Deploy web app to GitHub Pages") deploy the site.
 
 ### Open Apps Script Project
 

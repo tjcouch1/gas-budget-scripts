@@ -34,11 +34,22 @@ packages/budget-shared/       # @budget/shared: source-only pure TS (no build st
   src/fingerprint.ts          #   computeRowFingerprint (FNV-1a), shared by client and server
   src/names.ts                #   split-name helpers, isUnsafeFreeText
   test/*.test.ts
+
+packages/budget-web/          # @budget/web: React 19 + Vite + Tailwind v4 PWA (GitHub Pages, base path /gas-budget-scripts/)
+  src/crypto/                 #   credential-vault.ts (non-extractable AES-GCM CryptoKey in IndexedDB), kv-store.ts
+  src/api/client.ts           #   callApi: POST text/plain, redirect follow, key in body, typed errors
+  src/sync/                   #   engine.ts (cache, FIFO queue, conflicts, receipts), optimistic.ts
+  src/lib/, src/components/   #   pure row/split helpers; React UI
+  src/**/*.test.ts(x)         #   Vitest (jsdom, @testing-library/react, fake-indexeddb)
+  scripts/generate-licenses.ts, license-checker.config.json, additional-licenses/   # postinstall/build: public/licenses.html (gitignored)
+  scripts/generate-icons.ts   #   one-off helper that wrote public/icon-*.png
+.github/workflows/deploy-web.yml   # Pages deploy from main (Pages source "GitHub Actions"; no gh-pages branch)
+.github/actions/get-volta-node-version/   # reads volta.node for the deploy workflow
 ```
 
 Paths such as `src/`, `test/`, `scripts/` in the rules below are relative to `packages/budget-scripts-gas/` unless stated otherwise.
 
-**Planned (not yet present):** `packages/budget-web` (`@budget/web`, React/Vite PWA), per `web-plan.md` Steps 3-4. The GAS API (Step 2) is implemented. Package-scoped commands: `pnpm --filter @budget/scripts-gas run <script>`. Root `push`/`start`/`login`/`open`/`pull`/`connect` delegate to the GAS package. Update this section as packages land.
+**Status:** the GAS API (`web-plan.md` Step 2) and `packages/budget-web` (`@budget/web`, Steps 3-4) are implemented. Run the web app with `pnpm --filter @budget/web run dev`; `vite preview` serves the production build under `/gas-budget-scripts/`. Package-scoped commands: `pnpm --filter @budget/scripts-gas run <script>`. Root `push`/`start`/`login`/`open`/`pull`/`connect` delegate to the GAS package. Update this section as packages land.
 
 ---
 
