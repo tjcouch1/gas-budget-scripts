@@ -33,7 +33,7 @@ export function matchesFilter(row: ViewRow, filter: FilterId): boolean {
     case "uncategorized":
       return row.envelope.trim() === "";
     case "issues":
-      return row.isError || row.isNote;
+      return row.isError || row.isNote || row.note.trim() !== "";
   }
 }
 

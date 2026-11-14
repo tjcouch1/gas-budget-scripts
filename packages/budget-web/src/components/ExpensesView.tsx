@@ -66,7 +66,10 @@ function RowButton({
     ? "border-l-4 border-l-red-500"
     : row.isNote
       ? "border-l-4 border-l-pink-400"
-      : "";
+      : row.note
+        ? // A Name-cell note without a special background: a bar in the text color
+          "border-l-4 border-l-slate-700 dark:border-l-slate-200"
+        : "";
   const content = (
     <>
       <span className="flex min-w-0 flex-1 flex-col text-left">

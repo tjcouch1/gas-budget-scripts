@@ -31,6 +31,20 @@ describe("groupRows", () => {
       "Broken",
     ]);
   });
+  it("issues also include any row with a note (not just receipt-note backgrounds)", () => {
+    const noted = stateRows(
+      makeState([
+        makeRow(0, { name: "Plain" }),
+        makeRow(1, { name: "Noted", note: "for Pat" }),
+        makeRow(2, { name: "Blank note", note: "  " }),
+        makeRow(3, { name: "Receipt", isNote: true }),
+      ]),
+    );
+    expect(groupRows(noted, "issues", "").map((g) => g.rows[0].name)).toEqual([
+      "Noted",
+      "Receipt",
+    ]);
+  });
   it("searches name, envelope, paid with and date", () => {
     expect(groupRows(rows, "all", "aldi")).toHaveLength(1);
     expect(groupRows(rows, "all", "gas")).toHaveLength(3);

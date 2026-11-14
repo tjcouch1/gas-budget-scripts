@@ -271,8 +271,8 @@ describe("TransactionSheet", () => {
 
     const item1 = within(card("Split item 1"));
     expect(item1.getByLabelText(/Add tax/)).toBeChecked();
-    expect(item1.getByText(/can be set after saving/)).toBeInTheDocument();
-    expect(item1.queryByText("Edit details")).toBeNull();
+    expect(screen.queryByText(/can be set after saving/)).toBeNull();
+    expect(item1.getByText("Edit details")).toBeInTheDocument();
     await user.type(item1.getByLabelText("Amount"), "4.23*2+12.09");
     // 1.0825 * 20.55 = 22.245...
     expect(original.getByTestId("remaining")).toHaveTextContent("$27.75");
@@ -304,13 +304,80 @@ describe("TransactionSheet", () => {
         envelope: "Groceries",
         paidWith: "Pat Venmo",
       },
-      { itemNote: "", expression: "10", preTax: true, envelope: "" },
+      {
+        itemNote: "",
+        expression: "10",
+        preTax: true,
+        envelope: "",
+        paidWith: "Credit",
+      },
     ]);
     expect(onSplit.mock.calls[0][2]).toEqual({ itemNote: "Mine" });
     expect(onUpdate.mock.invocationCallOrder[0]).toBeLessThan(
       onSplit.mock.invocationCallOrder[0],
     );
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("new split items inherit the staged Paid with and Tax deductible and save details with the split", async () => {
+    const { user, onSplit, onUpdate } = setup({ cost: 20 });
+    const original = within(card("Transaction"));
+    await user.click(original.getByText("Edit details"));
+    await user.click(original.getByRole("button", { name: "Pat Venmo" }));
+    await user.click(original.getByLabelText("Tax deductible"));
+    await user.click(addItem());
+    await user.click(addItem());
+    const item1 = within(card("Split item 1"));
+    const item2 = within(card("Split item 2"));
+    expect(item1.getByRole("button", { name: "Pat Venmo" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(item1.getByLabelText("Tax deductible")).toBeChecked();
+    await user.type(item1.getByLabelText("Amount"), "5");
+    await user.click(item1.getByText("Edit details"));
+    await user.click(item1.getByRole("button", { name: "Credit" }));
+    await user.click(item1.getByRole("button", { name: "Add note" }));
+    await user.type(item1.getByLabelText("Note"), "for Pat");
+    await user.type(item2.getByLabelText("Amount"), "1");
+    await user.click(item2.getByLabelText("Tax deductible"));
+    await user.click(saveClose());
+    expect(onUpdate.mock.calls[0][1]).toEqual({
+      paidWith: "Pat Venmo",
+      taxDeductible: "Yes",
+    });
+    expect(onSplit.mock.calls[0][1]).toEqual([
+      {
+        itemNote: "",
+        expression: "5",
+        preTax: true,
+        envelope: "",
+        paidWith: "Credit",
+        taxDeductible: "Yes",
+        note: "for Pat",
+      },
+      {
+        itemNote: "",
+        expression: "1",
+        preTax: true,
+        envelope: "",
+        paidWith: "Pat Venmo",
+      },
+    ]);
+  });
+
+  it("disables Save & close until there is an edit", async () => {
+    const { user, onUpdate, onClose } = setup();
+    expect(saveClose()).toBeDisabled();
+    await user.type(screen.getByLabelText("Name"), "x");
+    expect(saveClose()).toBeEnabled();
+    await user.type(screen.getByLabelText("Name"), "{Backspace}");
+    expect(saveClose()).toBeDisabled();
+    await user.click(addItem());
+    await user.type(within(card("Split item 1")).getByLabelText("Amount"), "1");
+    expect(saveClose()).toBeEnabled();
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("sends no parent item note when it was left blank, and removes items", async () => {
@@ -417,7 +484,13 @@ describe("TransactionSheet", () => {
     expect(onUpdate).not.toHaveBeenCalled();
     expect(onSplit.mock.calls[0][0]).toMatchObject({ rowIndex: 4 });
     expect(onSplit.mock.calls[0][1]).toEqual([
-      { itemNote: "", expression: "2", preTax: true, envelope: "" },
+      {
+        itemNote: "",
+        expression: "2",
+        preTax: true,
+        envelope: "",
+        paidWith: "Credit",
+      },
     ]);
     expect(onSplit.mock.calls[0][2]).toEqual({});
   });
@@ -497,6 +570,7 @@ describe("TransactionSheet", () => {
       });
       expect(confirm).toHaveTextContent("Aldi · $12.50");
       expect(confirm).toHaveTextContent("This deletes the row from the sheet.");
+      expect(confirm).not.toHaveTextContent(/move|rows below/i);
       // Cancel has focus, so Enter or a stray tap does not delete
       expect(
         within(confirm).getByRole("button", { name: "Cancel" }),
@@ -534,6 +608,7 @@ describe("TransactionSheet", () => {
       });
       expect(confirm).toHaveTextContent("Aldi · $30.00");
       expect(confirm).toHaveTextContent("all 3 rows of this split");
+      expect(confirm).not.toHaveTextContent(/move|rows below/i);
       await user.click(within(confirm).getByRole("button", { name: "Delete" }));
       expect(onDelete.mock.calls[0][0].map((r: ViewRow) => r.rowIndex)).toEqual(
         [4, 5, 6],
@@ -713,6 +788,34 @@ describe("ExpensesView", () => {
     return { engine, user: userEvent.setup() };
   }
 
+  it("marks rows with a note in the text color; error and receipt-note bars take precedence", () => {
+    setup(
+      makeState([
+        makeRow(0, { name: "Plain" }),
+        makeRow(1, { name: "Noted", note: "for Pat" }),
+        makeRow(2, { name: "Errored", note: "x", isError: true }),
+        makeRow(3, { name: "Receipt", note: "x", isNote: true }),
+      ]),
+    );
+    const rowOf = (name: string) =>
+      screen.getByText(name).closest<HTMLElement>(".min-h-14")!;
+    expect(rowOf("Plain").className).not.toMatch(/border-l-4/);
+    expect(rowOf("Noted")).toHaveClass(
+      "border-l-4",
+      "border-l-slate-700",
+      "dark:border-l-slate-200",
+    );
+    expect(rowOf("Errored")).toHaveClass("border-l-red-500");
+    expect(rowOf("Errored")).not.toHaveClass("border-l-slate-700");
+    expect(rowOf("Receipt")).toHaveClass("border-l-pink-400");
+    expect(rowOf("Receipt")).not.toHaveClass("border-l-slate-700");
+    // The Errors/Notes count includes the plain noted row
+    const issuesTab = screen
+      .getAllByRole("tab")
+      .find((t) => /Error/.test(t.textContent ?? ""))!;
+    expect(issuesTab).toHaveTextContent("3");
+  });
+
   it("keeps search and filters while the pay period loads", () => {
     setup(undefined);
     expect(screen.getByLabelText("Search")).toBeInTheDocument();
@@ -754,7 +857,15 @@ describe("ExpensesView", () => {
     expect(engine.enqueueSplit).toHaveBeenCalledWith(
       state.sheetName,
       state.transactions[0],
-      [{ itemNote: "", expression: "1", preTax: true, envelope: "" }],
+      [
+        {
+          itemNote: "",
+          expression: "1",
+          preTax: true,
+          envelope: "",
+          paidWith: "Credit",
+        },
+      ],
       {},
     );
   });

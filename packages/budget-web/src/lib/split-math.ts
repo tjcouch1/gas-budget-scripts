@@ -13,18 +13,28 @@ export interface SplitDraftItem {
   envelope: string;
   /** "" copies the original row's Paid with. */
   paidWith: string;
+  taxDeductible: boolean;
+  /** The new row's Name cell note; blank: none. */
+  note: string;
 }
 
 let keyCounter = 0;
 
-/** A blank new split item; "Add tax" starts checked (most receipts list pre-tax prices). */
-export const newSplitItem = (): SplitDraftItem => ({
+/**
+ * A blank new split item; "Add tax" starts checked (most receipts list pre-tax prices). Paid with
+ * and Tax deductible start from `inherit` (the original's staged values).
+ */
+export const newSplitItem = (
+  inherit: { paidWith?: string; taxDeductible?: boolean } = {},
+): SplitDraftItem => ({
   key: `item-${keyCounter++}`,
   itemNote: "",
   expression: "",
   preTax: true,
   envelope: "",
-  paidWith: "",
+  paidWith: inherit.paidWith ?? "",
+  taxDeductible: inherit.taxDeductible ?? false,
+  note: "",
 });
 
 export interface EvaluatedSplitItem {
@@ -86,5 +96,7 @@ export function toSplitInputs(items: SplitDraftItem[]): SplitItemInput[] {
     preTax: i.preTax,
     envelope: i.envelope,
     ...(i.paidWith ? { paidWith: i.paidWith } : {}),
+    ...(i.taxDeductible ? { taxDeductible: "Yes" as const } : {}),
+    ...(i.note.trim() ? { note: i.note } : {}),
   }));
 }

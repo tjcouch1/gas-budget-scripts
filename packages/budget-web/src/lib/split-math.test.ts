@@ -13,6 +13,8 @@ const item = (over: Partial<SplitDraftItem>): SplitDraftItem => ({
   preTax: false,
   envelope: "",
   paidWith: "",
+  taxDeductible: false,
+  note: "",
   ...over,
 });
 
@@ -105,7 +107,34 @@ describe("summarizeSplit", () => {
   });
 });
 
+describe("toSplitInputs details", () => {
+  it("sends tax deductible only when checked and the note only when not blank", () => {
+    expect(
+      toSplitInputs([
+        item({ expression: "1", taxDeductible: true, note: "for Pat" }),
+        item({ expression: "2", note: "  " }),
+      ]),
+    ).toEqual([
+      {
+        itemNote: "",
+        expression: "1",
+        preTax: false,
+        envelope: "",
+        taxDeductible: "Yes",
+        note: "for Pat",
+      },
+      { itemNote: "", expression: "2", preTax: false, envelope: "" },
+    ]);
+  });
+});
+
 describe("newSplitItem", () => {
+  it("inherits the given Paid with and Tax deductible", () => {
+    expect(
+      newSplitItem({ paidWith: "Credit", taxDeductible: true }),
+    ).toMatchObject({ paidWith: "Credit", taxDeductible: true, note: "" });
+  });
+
   it("starts blank with Add tax checked and a unique key", () => {
     const a = newSplitItem();
     const b = newSplitItem();
@@ -115,6 +144,8 @@ describe("newSplitItem", () => {
       preTax: true,
       envelope: "",
       paidWith: "",
+      taxDeductible: false,
+      note: "",
     });
     expect(a.key).not.toBe(b.key);
   });

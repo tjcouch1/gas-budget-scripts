@@ -29,6 +29,10 @@ export interface SplitItemInput {
   preTax: boolean;
   envelope: string;
   paidWith?: string;
+  /** Written to the new child's col 6 after the split. Omitted: blank. */
+  taxDeductible?: TaxDeductibleValue;
+  /** The new child's Name cell note (plain text, max 5000 chars). Omitted: none. */
+  note?: string;
 }
 
 interface BaseRequest {
@@ -71,7 +75,7 @@ export interface SplitTransactionRequest extends BaseRequest {
 }
 
 /**
- * Deletes one row, or a whole split group together (rows below move up). Response data: the
+ * Deletes one row, or a whole split group together (cleared in place; no row moves). Response data: the
  * refreshed `PayPeriodStateDto`, like `splitTransaction`.
  */
 export interface DeleteTransactionRequest extends BaseRequest {

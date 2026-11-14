@@ -209,6 +209,92 @@ function EnvelopeChooser({
   );
 }
 
+/** The fields under "Edit details" (Paid with, Tax deductible, Add note) and the note box. */
+interface DetailsValues {
+  paidWith: string;
+  taxDeductible: boolean;
+  note: string;
+}
+
+/**
+ * The Name cell's note box and the collapsed "Edit details". `follow`: start in, and write
+ * toggles to, the saved details/Paid with settings.
+ */
+function RowDetails({
+  values,
+  hasNote,
+  onChange,
+  paidWithOptions,
+  follow,
+}: {
+  values: DetailsValues;
+  /** True when the row had a note when the drawer opened. */
+  hasNote: boolean;
+  onChange: (patch: Partial<DetailsValues>) => void;
+  paidWithOptions: string[] | null;
+  follow: boolean;
+}) {
+  const [noteShown, setNoteShown] = useState(hasNote);
+  const [detailsOpen, setDetailsOpenState] = useState(
+    () => follow && getDetailsOpen(),
+  );
+  return (
+    <>
+      {noteShown && (
+        <textarea
+          aria-label="Note"
+          // Mounted by "Add note": start typing straight away.
+          autoFocus={!hasNote}
+          rows={2}
+          placeholder="Note"
+          className="w-full rounded-lg border border-pink-200 bg-pink-50 px-3 py-2 text-sm text-pink-950 outline-none focus:border-pink-400 focus:ring-2 focus:ring-pink-400/30 dark:border-pink-900 dark:bg-pink-950/30 dark:text-pink-100"
+          value={values.note}
+          onChange={(e) => onChange({ note: e.target.value })}
+        />
+      )}
+      <details
+        open={detailsOpen}
+        onToggle={(e) => {
+          const open = e.currentTarget.open;
+          if (open === detailsOpen) return;
+          setDetailsOpenState(open);
+          if (follow) setDetailsOpen(open);
+        }}
+        className="rounded-lg open:border open:border-slate-200 open:px-3 open:pb-2 dark:open:border-slate-700"
+      >
+        <summary className="cursor-pointer py-1.5 text-sm font-medium text-slate-600 dark:text-slate-300">
+          Edit details
+        </summary>
+        {paidWithOptions && (
+          <ChipChooser
+            label="Paid with"
+            options={paidWithOptions}
+            value={values.paidWith}
+            onSelect={(paidWith) => onChange({ paidWith })}
+            defaultExpanded={follow && getPaidWithExpanded()}
+            onExpandedChange={follow ? setPaidWithExpanded : undefined}
+          />
+        )}
+        <div className="flex flex-wrap items-center gap-x-4">
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={values.taxDeductible}
+              onChange={(e) => onChange({ taxDeductible: e.target.checked })}
+            />
+            Tax deductible
+          </label>
+          {!noteShown && (
+            <Button variant="ghost" onClick={() => setNoteShown(true)}>
+              Add note
+            </Button>
+          )}
+        </div>
+      </details>
+    </>
+  );
+}
+
 /**
  * One existing row: its name field, cost (or the split remainder), envelope,
  * paid with, the Name cell's note, and the collapsed "Edit details".
@@ -241,10 +327,6 @@ function RowCard({
   envelopeChooser: ReactNode;
   paidWithOptions: string[] | null;
 }) {
-  const [noteShown, setNoteShown] = useState(hasNote);
-  const [detailsOpen, setDetailsOpenState] = useState(
-    () => follow && getDetailsOpen(),
-  );
   return (
     <fieldset
       aria-label={label}
@@ -255,57 +337,13 @@ function RowCard({
       {nameField}
       {costField}
       {envelopeChooser}
-      {noteShown && (
-        <textarea
-          aria-label="Note"
-          // Mounted by "Add note": start typing straight away.
-          autoFocus={!hasNote}
-          rows={2}
-          placeholder="Note"
-          className="w-full rounded-lg border border-pink-200 bg-pink-50 px-3 py-2 text-sm text-pink-950 outline-none focus:border-pink-400 focus:ring-2 focus:ring-pink-400/30 dark:border-pink-900 dark:bg-pink-950/30 dark:text-pink-100"
-          value={draft.note}
-          onChange={(e) => setDraft({ note: e.target.value })}
-        />
-      )}
-      <details
-        open={detailsOpen}
-        onToggle={(e) => {
-          const open = e.currentTarget.open;
-          if (open === detailsOpen) return;
-          setDetailsOpenState(open);
-          if (follow) setDetailsOpen(open);
-        }}
-        className="rounded-lg open:border open:border-slate-200 open:px-3 open:pb-2 dark:open:border-slate-700"
-      >
-        <summary className="cursor-pointer py-1.5 text-sm font-medium text-slate-600 dark:text-slate-300">
-          Edit details
-        </summary>
-        {paidWithOptions && (
-          <ChipChooser
-            label="Paid with"
-            options={paidWithOptions}
-            value={draft.paidWith}
-            onSelect={(paidWith) => setDraft({ paidWith })}
-            defaultExpanded={follow && getPaidWithExpanded()}
-            onExpandedChange={follow ? setPaidWithExpanded : undefined}
-          />
-        )}
-        <div className="flex flex-wrap items-center gap-x-4">
-          <label className="flex min-h-11 items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={draft.taxDeductible}
-              onChange={(e) => setDraft({ taxDeductible: e.target.checked })}
-            />
-            Tax deductible
-          </label>
-          {!noteShown && (
-            <Button variant="ghost" onClick={() => setNoteShown(true)}>
-              Add note
-            </Button>
-          )}
-        </div>
-      </details>
+      <RowDetails
+        values={draft}
+        hasNote={hasNote}
+        onChange={setDraft}
+        paidWithOptions={paidWithOptions}
+        follow={follow}
+      />
     </fieldset>
   );
 }
@@ -345,6 +383,11 @@ export function TransactionSheet(props: TransactionSheetProps) {
   const [parentNewNote, setParentNewNote] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  /**
+   * Key of the new split item that is the focused card (the last one added), or null while the
+   * focused card is an existing row. Only the focused card follows the saved settings.
+   */
+  const [focusedItemKey, setFocusedItemKey] = useState<string | null>(null);
   const body = useRef<HTMLDivElement>(null);
 
   const splitMode = existingGroup || splitPending || items.length > 0;
@@ -417,16 +460,9 @@ export function TransactionSheet(props: TransactionSheetProps) {
     onClose();
   }
 
-  // Opening a child row of a group scrolls its card near the top.
-  useLayoutEffect(() => {
-    if (
-      props.focusRowIndex === undefined ||
-      props.focusRowIndex === parent.rowIndex
-    )
-      return;
-    const card = body.current?.querySelector<HTMLElement>(
-      `[data-row-index="${props.focusRowIndex}"]`,
-    );
+  /** Scrolls the drawer so the card matching `selector` sits near its top. */
+  const scrollToCard = (selector: string) => {
+    const card = body.current?.querySelector<HTMLElement>(selector);
     const dialog = card?.closest<HTMLElement>('[role="dialog"]');
     if (!card || !dialog || typeof card.getBoundingClientRect !== "function")
       return;
@@ -434,8 +470,24 @@ export function TransactionSheet(props: TransactionSheetProps) {
       card.getBoundingClientRect().top - dialog.getBoundingClientRect().top;
     // jsdom has no layout: every rect is zero.
     if (delta > 0) dialog.scrollTop += delta - 72;
+  };
+
+  // Opening a child row of a group scrolls its card near the top.
+  useLayoutEffect(() => {
+    if (
+      props.focusRowIndex === undefined ||
+      props.focusRowIndex === parent.rowIndex
+    )
+      return;
+    scrollToCard(`[data-row-index="${props.focusRowIndex}"]`);
     // Only on mount.
   }, []);
+
+  // "Add split item" scrolls the new (focused) card near the top.
+  useLayoutEffect(() => {
+    if (focusedItemKey !== null)
+      scrollToCard(`[data-item-key="${focusedItemKey}"]`);
+  }, [focusedItemKey]);
 
   const parentName = drafts[0].name;
   const prefix = parentHasBar ? prefixParts.prefix : parentName;
@@ -535,9 +587,13 @@ export function TransactionSheet(props: TransactionSheetProps) {
     return null;
   };
 
-  /** An unsplit row follows the saved Envelope setting, as does only the clicked card of a group. */
+  /**
+   * Only the focused card follows (and writes) the saved settings: the unsplit row or the clicked
+   * card of a group, until "Add split item" moves the focus to the new item.
+   */
   const followsPreference = (i: number) =>
-    rows.length === 1 || rows[i].rowIndex === props.focusRowIndex;
+    focusedItemKey === null &&
+    (rows.length === 1 || rows[i].rowIndex === props.focusRowIndex);
 
   const remainder = (
     <div>
@@ -675,6 +731,7 @@ export function TransactionSheet(props: TransactionSheetProps) {
                   key={item.key}
                   aria-label={`Split item ${n}`}
                   data-testid="split-item"
+                  data-item-key={item.key}
                   className={`${cardClass} relative border-dashed pt-4`}
                 >
                   <CardLegend>Split item {n} · new</CardLegend>
@@ -707,23 +764,19 @@ export function TransactionSheet(props: TransactionSheetProps) {
                     onPreTax={(preTax) => updateItem(item.key, { preTax })}
                     taxMultiplier={taxMultiplier}
                   />
-                  {envelopeChooserFor(item.envelope, (envelope) =>
-                    updateItem(item.key, { envelope }),
+                  {envelopeChooserFor(
+                    item.envelope,
+                    (envelope) => updateItem(item.key, { envelope }),
+                    false,
+                    item.key === focusedItemKey,
                   )}
-                  {props.paidWithOptions && (
-                    <ChipChooser
-                      label="Paid with"
-                      options={props.paidWithOptions}
-                      value={item.paidWith}
-                      onSelect={(paidWith) =>
-                        updateItem(item.key, { paidWith })
-                      }
-                    />
-                  )}
-                  <p className="text-xs text-slate-500">
-                    Paid with defaults to the original&apos;s. Tax deductible
-                    and notes can be set after saving.
-                  </p>
+                  <RowDetails
+                    values={item}
+                    hasNote={false}
+                    onChange={(patch) => updateItem(item.key, patch)}
+                    paidWithOptions={props.paidWithOptions}
+                    follow={item.key === focusedItemKey}
+                  />
                 </fieldset>
               );
             })}
@@ -733,7 +786,16 @@ export function TransactionSheet(props: TransactionSheetProps) {
             {splitPending ? (
               <span className="text-sm text-slate-500">Split queued…</span>
             ) : (
-              <Button onClick={() => setItems((l) => [...l, newSplitItem()])}>
+              <Button
+                onClick={() => {
+                  const item = newSplitItem({
+                    paidWith: drafts[0].paidWith,
+                    taxDeductible: drafts[0].taxDeductible,
+                  });
+                  setItems((l) => [...l, item]);
+                  setFocusedItemKey(item.key);
+                }}
+              >
                 <span aria-hidden="true">+ </span>Add split item
               </Button>
             )}
@@ -758,7 +820,7 @@ export function TransactionSheet(props: TransactionSheetProps) {
               variant="primary"
               className="flex-1"
               onClick={() => save()}
-              disabled={invalid}
+              disabled={invalid || !dirty}
             >
               Save &amp; close
             </Button>
@@ -789,7 +851,7 @@ export function TransactionSheet(props: TransactionSheetProps) {
             {deletesGroup
               ? `This deletes all ${rows.length} rows of this split from the sheet.`
               : "This deletes the row from the sheet."}{" "}
-            Rows below it move up. Unsaved edits in this drawer are discarded.
+            Unsaved edits in this drawer are discarded.
           </p>
         </ConfirmDialog>
       )}

@@ -512,6 +512,23 @@ describe("SyncEngine splits", () => {
     expect(rows[1].synthetic).toBe(true);
   });
 
+  it("shows each placeholder child's tax deductible and note", async () => {
+    const { engine } = newEngine((req) =>
+      req.action === "getState" ? makeState(twoRows()) : new Promise(() => {}),
+    );
+    await engine.init();
+    engine.enqueueSplit(SHEET, twoRows()[0], [
+      { ...splits[0], taxDeductible: "Yes", note: "for Pat" },
+      splits[1],
+    ]);
+    const rows = rowsOf(engine);
+    expect(rows[1]).toMatchObject({
+      taxDeductible: "Yes",
+      note: "for Pat",
+    });
+    expect(rows[2]).toMatchObject({ taxDeductible: "", note: "" });
+  });
+
   it("re-bases later queued edits by fingerprint after the rows shift", async () => {
     const shifted = makeState(
       [

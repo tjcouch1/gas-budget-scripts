@@ -4,7 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { TransactionSheet } from "./TransactionSheet.tsx";
 import { makeRow, makeState } from "../test/fixtures.ts";
 import type { ViewRow } from "../lib/rows.ts";
-import { ENVELOPE_EXPANDED_KEY } from "../lib/preferences.ts";
+import {
+  DETAILS_OPEN_KEY,
+  ENVELOPE_EXPANDED_KEY,
+  PAID_WITH_EXPANDED_KEY,
+} from "../lib/preferences.ts";
 
 const row = (i: number, over: Partial<ViewRow> = {}): ViewRow => ({
   ...makeRow(i),
@@ -44,6 +48,70 @@ const toggleOf = (card: HTMLElement) =>
 
 describe("TransactionSheet layout and preferences", () => {
   beforeEach(() => localStorage.clear());
+
+  it("a new split item becomes the focused card: it follows and writes the saved settings; the old card stops", async () => {
+    localStorage.setItem(DETAILS_OPEN_KEY, "1");
+    localStorage.setItem(PAID_WITH_EXPANDED_KEY, "1");
+    const user = setup();
+    const original = screen.getByRole("group", { name: "Transaction" });
+    const detailsOf = (card: HTMLElement) =>
+      within(card).getByText("Edit details").closest("details")!;
+    const paidWithToggle = (card: HTMLElement) =>
+      within(within(card).getByRole("group", { name: "Paid with" })).getByRole(
+        "button",
+        { name: "Paid with" },
+      );
+    expect(detailsOf(original)).toHaveAttribute("open");
+    await user.click(screen.getByRole("button", { name: "Add split item" }));
+    const item = screen.getByRole("group", { name: "Split item 1" });
+    // The new item starts in the saved states
+    expect(detailsOf(item)).toHaveAttribute("open");
+    expect(paidWithToggle(item)).toHaveAttribute("aria-expanded", "true");
+    expect(toggleOf(item)).toHaveAttribute("aria-expanded", "false");
+    // The original keeps its state but no longer writes the settings
+    expect(detailsOf(original)).toHaveAttribute("open");
+    await user.click(within(original).getByText("Edit details"));
+    expect(detailsOf(original)).not.toHaveAttribute("open");
+    expect(localStorage.getItem(DETAILS_OPEN_KEY)).toBe("1");
+    await user.click(toggleOf(original));
+    expect(localStorage.getItem(ENVELOPE_EXPANDED_KEY)).not.toBe("1");
+    // The new item writes them
+    await user.click(toggleOf(item));
+    expect(localStorage.getItem(ENVELOPE_EXPANDED_KEY)).toBe("1");
+    await user.click(paidWithToggle(item));
+    expect(localStorage.getItem(PAID_WITH_EXPANDED_KEY)).toBe("0");
+    await user.click(within(item).getByText("Edit details"));
+    expect(localStorage.getItem(DETAILS_OPEN_KEY)).toBe("0");
+
+    // A second new item takes the focus from the first
+    await user.click(screen.getByRole("button", { name: "Add split item" }));
+    const item2 = screen.getByRole("group", { name: "Split item 2" });
+    expect(detailsOf(item2)).not.toHaveAttribute("open");
+    expect(toggleOf(item2)).toHaveAttribute("aria-expanded", "true");
+    await user.click(within(item).getByText("Edit details"));
+    expect(localStorage.getItem(DETAILS_OPEN_KEY)).toBe("0");
+    await user.click(within(item2).getByText("Edit details"));
+    expect(localStorage.getItem(DETAILS_OPEN_KEY)).toBe("1");
+  });
+
+  it("scrolls a newly added split item near the top of the drawer", async () => {
+    const user = setup();
+    const dialog = screen.getByRole("dialog");
+    dialog.scrollTop = 0;
+    const rect = (top: number) =>
+      ({ top, bottom: top, left: 0, right: 0, width: 0, height: 0 }) as DOMRect;
+    vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue(rect(0));
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        return this.getAttribute("aria-label") === "Split item 1"
+          ? rect(500)
+          : original.call(this);
+      },
+    );
+    await user.click(screen.getByRole("button", { name: "Add split item" }));
+    expect(dialog.scrollTop).toBe(500 - 72);
+  });
 
   it("hides the chip scrollbars", () => {
     setup();
@@ -171,7 +239,7 @@ describe("Edit details and Paid with preferences", () => {
     expect(paidOf("Transaction")).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("in a group only the clicked card follows; new items never do", async () => {
+  it("in a group only the clicked card follows, until a new item takes the focus", async () => {
     localStorage.setItem("budget.detailsOpen", "1");
     localStorage.setItem("budget.paidWithExpanded", "1");
     const user = setup(group(), { focusRowIndex: 5 });
@@ -180,11 +248,14 @@ describe("Edit details and Paid with preferences", () => {
     expect(detailsOf("Original")).not.toHaveAttribute("open");
     expect(paidOf("Original")).toHaveAttribute("aria-expanded", "false");
     await user.click(screen.getByRole("button", { name: "Add split item" }));
-    expect(paidOf("Split item 3")).toHaveAttribute("aria-expanded", "false");
-    await user.click(paidOf("Split item 3"));
+    // The new item is the focused card: it starts in the saved state
+    expect(paidOf("Split item 3")).toHaveAttribute("aria-expanded", "true");
+    // The clicked card keeps its state but no longer writes the setting
+    expect(paidOf("Split item 1")).toHaveAttribute("aria-expanded", "true");
+    await user.click(paidOf("Split item 1"));
     await user.click(paidOf("Original"));
     expect(localStorage.getItem("budget.paidWithExpanded")).toBe("1");
-    await user.click(paidOf("Split item 1"));
+    await user.click(paidOf("Split item 3"));
     expect(localStorage.getItem("budget.paidWithExpanded")).toBe("0");
   });
 });

@@ -214,6 +214,11 @@ test.describe("splitting", () => {
     await expect(item1.getByLabel(/Add tax/)).toBeChecked();
     await item1.getByLabel(/Add tax/).uncheck();
     await item1.getByRole("button", { name: /^Dining Out/ }).click();
+    // Details of a new item are saved in one step with the split
+    await item1.getByText("Edit details").click();
+    await item1.getByLabel("Tax deductible").check();
+    await item1.getByRole("button", { name: "Add note" }).click();
+    await item1.getByLabel("Note", { exact: true }).fill("Team lunch");
     await dialog.getByRole("button", { name: "Add split item" }).click();
     const item2 = dialog.getByRole("group", { name: "Split item 2" });
     await item2.getByLabel("Item note").fill("Soda");
@@ -235,7 +240,11 @@ test.describe("splitting", () => {
     expect(pizza.formulas[COL.cost]).toBe("=1+3.23*2");
     expect(pizza.values[COL.envelope]).toBe("Dining Out");
     expect(pizza.values[COL.paidWith]).toBe("TJ Venmo");
+    expect(pizza.values[COL.taxDeductible]).toBe("Yes");
+    expect(pizza.notes[COL.name]).toBe("Team lunch");
     const soda = rows[12];
+    expect(soda.values[COL.taxDeductible]).toBe("");
+    expect(soda.notes[COL.name]).toBe("");
     // A single numeric literal is stored as a plain number
     expect(soda.values[COL.cost]).toBe(2);
     expect(soda.formulas[COL.cost]).toBe("");

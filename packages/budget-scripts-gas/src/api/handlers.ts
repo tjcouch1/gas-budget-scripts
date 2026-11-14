@@ -383,18 +383,49 @@ export function handleUpdateTransaction(
   return { data };
 }
 
-/** Validates the split items and converts them into child specs for `Budgeting.splitTransaction` */
+/** Per-item fields written after the native split: Tax Deductible (col 6) and the Name note */
+interface SplitChildExtras {
+  taxDeductible?: TaxDeductibleValue;
+  note?: string;
+}
+
+/** Validates a split item's optional `taxDeductible` and `note` like `updateTransaction` */
+function validateSplitExtras(
+  split: Record<string, unknown>,
+  field: string,
+): SplitChildExtras {
+  const extras: SplitChildExtras = {};
+  if (split.taxDeductible !== undefined) {
+    if (split.taxDeductible !== "Yes" && split.taxDeductible !== "")
+      badRequest(`${field}.taxDeductible must be "Yes" or ""`);
+    extras.taxDeductible = split.taxDeductible;
+  }
+  if (split.note !== undefined) {
+    const note = requireString(split.note, `${field}.note`);
+    if (note.length > MAX_NOTE_LENGTH)
+      badRequest(`${field}.note must be at most ${MAX_NOTE_LENGTH} characters`);
+    extras.note = note;
+  }
+  return extras;
+}
+
+/**
+ * Validates the split items and converts them into child specs for `Budgeting.splitTransaction`,
+ * plus each item's extras (written after the native split)
+ */
 function validateSplits(
   splits: unknown,
   getOptions: () => SheetOptions,
-): SplitChildSpec[] {
+): { specs: SplitChildSpec[]; extras: SplitChildExtras[] } {
   if (!Array.isArray(splits) || splits.length < 1 || splits.length > MAX_SPLITS)
     badRequest(`splits must be an array of 1 to ${MAX_SPLITS} items`);
-  return splits.map((split, i): SplitChildSpec => {
+  const extras: SplitChildExtras[] = [];
+  const specs = splits.map((split, i): SplitChildSpec => {
     const field = `splits[${i}]`;
     if (!isObject(split)) badRequest(`${field} must be an object`);
     const preTax = optionalBoolean(split.preTax, `${field}.preTax`);
     if (preTax === undefined) badRequest(`${field}.preTax must be a boolean`);
+    extras.push(validateSplitExtras(split, field));
     return {
       itemNote: requireSafeText(split.itemNote, `${field}.itemNote`),
       cost: buildCost(
@@ -419,6 +450,29 @@ function validateSplits(
             ) || undefined,
     };
   });
+  return { specs, extras };
+}
+
+/**
+ * Writes the new children's Tax Deductible (col 6) and Name notes after the native split: one
+ * batch call each over the contiguous new-child rows, and only when some item supplies them
+ */
+function writeSplitChildExtras(
+  sheet: GoogleAppsScript.Spreadsheet.Sheet,
+  firstChildIndex: number,
+  extras: SplitChildExtras[],
+) {
+  const topLeft = sheet.getRange(
+    Variables.getSheetVariables(sheet).TransactionsStart,
+  );
+  if (extras.some((e) => e.taxDeductible !== undefined))
+    topLeft
+      .offset(firstChildIndex, COL.taxDeductible, extras.length, 1)
+      .setValues(extras.map((e) => [e.taxDeductible ?? ""]));
+  if (extras.some((e) => e.note !== undefined))
+    topLeft
+      .offset(firstChildIndex, COL.name, extras.length, 1)
+      .setNotes(extras.map((e) => [e.note ?? ""]));
 }
 
 /**
@@ -431,7 +485,10 @@ export function handleSplitTransaction(
   const { sheetName, sheet, rowIndex, baseFingerprint, force } =
     getTarget(request);
   const getOptions = sheetOptionsGetter(sheet);
-  const childSpecs = validateSplits(request.splits, getOptions);
+  const { specs: childSpecs, extras } = validateSplits(
+    request.splits,
+    getOptions,
+  );
   const parentSpec: SplitParentSpec = {};
   if (request.parentItemNote !== undefined)
     parentSpec.itemNote = requireSafeText(
@@ -448,7 +505,18 @@ export function handleSplitTransaction(
 
   mutateUnderLock(sheet, rowIndex, baseFingerprint, force, () => {
     try {
-      Budgeting.splitTransaction(sheet, rowIndex, childSpecs, parentSpec);
+      const groupRange = Budgeting.splitTransaction(
+        sheet,
+        rowIndex,
+        childSpecs,
+        parentSpec,
+      );
+      // The new children are the last rows of the returned group range
+      writeSplitChildExtras(
+        sheet,
+        rowIndex + groupRange.getNumRows() - childSpecs.length,
+        extras,
+      );
     } catch (e) {
       if (SPLIT_USER_ERROR_REGEX.test(getErrorMessage(e)))
         badRequest(getErrorMessage(e));

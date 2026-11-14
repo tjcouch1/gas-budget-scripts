@@ -1110,6 +1110,94 @@ describe("splitTransaction", () => {
     ]);
   });
 
+  it("writes new children's Tax Deductible and Name notes in one batch each; rows below are untouched", async () => {
+    sheet.seed("A5", [
+      [D, "Store | ", "=5.5-R[1]C[0]", "=BALANCE(0)", "", "Credit", "Yes"],
+      [D, "Store | bread", "=1.0825*(2)", "=BALANCE(1)", "Food", "Credit", ""],
+      [D2, "Next", 7, "=BALANCE(2)", "Gas", "Cash", "Yes"],
+      [D2, "After", 3, "=BALANCE(3)", "", "Credit", ""],
+    ]);
+    sheet.getRange("B7").setNote("next note");
+    sheet.getRange("B6").setNote("bread note");
+    const noteWrites: number[][] = [];
+    const originalSetNotes = MockRange.prototype.setNotes;
+    vi.spyOn(MockRange.prototype, "setNotes").mockImplementation(function (
+      this: MockRange,
+      notes: (string | null)[][],
+    ) {
+      noteWrites.push([
+        this.getRow(),
+        this.getColumn(),
+        this.getNumRows(),
+        this.getNumColumns(),
+      ]);
+      return originalSetNotes.call(this, notes);
+    });
+    const res = await split(0, [
+      item({ itemNote: "eggs", expression: "1", taxDeductible: "Yes" }),
+      item({ itemNote: "jam", expression: "2" }),
+      item({ itemNote: "tea", expression: "3", note: "for Pat" }),
+    ]);
+    expect(res.ok).toBe(true);
+    expect(rows(7).map((r) => [r[1], r[6]])).toEqual([
+      ["Store | ", "Yes"],
+      ["Store | bread", ""],
+      ["Store | eggs", "Yes"],
+      ["Store | jam", ""],
+      ["Store | tea", ""],
+      ["Next", "Yes"],
+      ["After", ""],
+    ]);
+    expect(
+      sheet
+        .getRange(5, 2, 7, 1)
+        .getNotes()
+        .map((r: string[]) => r[0]),
+    ).toEqual(["", "bread note", "", "", "for Pat", "next note", ""]);
+    // One setNotes over exactly the new children's Name cells (rows 7-9, col B)
+    expect(noteWrites.filter((w) => w[1] === 2 && w[2] === 3)).toEqual([
+      [7, 2, 3, 1],
+    ]);
+    const t = res.data.transactions;
+    expect(t[2]).toMatchObject({ taxDeductible: "Yes", note: "" });
+    expect(t[4]).toMatchObject({ taxDeductible: "", note: "for Pat" });
+  });
+
+  it("writes Tax Deductible with one setValues over the new children's col G", async () => {
+    sheet.seed("A5", [[D, "Costco", 40, "=BALANCE(0)", "", "Credit", ""]]);
+    const writes = spySetValues();
+    const res = await split(0, [
+      item({ expression: "1", taxDeductible: "" }),
+      item({ expression: "2", taxDeductible: "Yes" }),
+    ]);
+    expect(res.ok).toBe(true);
+    expect(writes.filter((w) => w[1] === 7)).toEqual([[6, 7, 2, 1]]);
+    expect(rows(3).map((r) => r[6])).toEqual(["", "", "Yes"]);
+  });
+
+  it("does not touch col G or notes when no item supplies them", async () => {
+    sheet.seed("A5", [[D, "Costco", 40, "=BALANCE(0)", "", "Credit", ""]]);
+    const writes = spySetValues();
+    const notesSpy = vi.spyOn(MockRange.prototype, "setNotes");
+    expect((await split(0, [item({ expression: "1" })])).ok).toBe(true);
+    expect(writes.filter((w) => w[1] === 7)).toEqual([]);
+    expect(notesSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an invalid taxDeductible", { taxDeductible: "No" }, /taxDeductible/],
+    ["a non-string note", { note: 5 }, /note/],
+    ["a too-long note", { note: "x".repeat(5001) }, /at most 5000/],
+  ])("rejects %s and leaves the sheet unchanged", async (_, fields, msg) => {
+    sheet.seed("A5", [[D, "Costco", 40, "=BALANCE(0)", "", "Credit", ""]]);
+    const before = snapshot(sheet);
+    const res = await split(0, [item({ expression: "1", ...fields })]);
+    expect(res.ok).toBe(false);
+    expect(res.error.code).toBe("bad_request");
+    expect(res.error.message).toMatch(msg);
+    expect(snapshot(sheet)).toEqual(before);
+  });
+
   it("writes the parent's item note and envelope atomically with the split", async () => {
     sheet.seed("A5", [
       [D, "Costco", 40, "=BALANCE(0)", "", "Credit", "Yes"],
