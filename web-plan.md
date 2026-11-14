@@ -15,7 +15,7 @@ The agent cannot do these. Phases are referenced by the step numbers in §5.
 ### A. Google Sheet Setup (before testing Step 2's API)
 
 1. **Add 4 new rows to the per-sheet `SheetVariables` block.**
-   - The `SheetVariables` value in `Variables!A1:B10` is an A1 range (e.g. `H1:I3`). That same range holds `[key, value]` pairs on **every** non-`Variables` tab.
+   - The `SheetVariables` value in `Variables!A1:B30` is an A1 range (e.g. `H1:I3`). That same range holds `[key, value]` pairs on **every** non-`Variables` tab.
    - Expand the `SheetVariables` value by 4 rows (e.g. `H1:I3` → `H1:I7`). Then, on the **Template tab** (`TemplateName`) and on **every pay-period tab you want to view in the app** (at least the current one), add:
      - **`EnvelopesStart`**: first envelope-name data cell of the Envelope table (e.g. `J4`).
      - **`EnvelopesMax`**: max number of envelope rows (e.g. `30`).
@@ -57,6 +57,8 @@ Point the deployed web app (and the PWA's Settings dialog) at your **test** budg
 4. After the first successful deploy, open the Pages URL on a phone and use "Add to Home Screen" (installed PWAs keep IndexedDB storage longer on iOS), then enter the web app URL and API key in Settings.
 
 ---
+
+> **Receipt rules (implemented, see `receipt-rules-plan.md`):** receipt parsing is driven by the `ReceiptRules` variable and edited in the web app (Settings -> Customize variables). Owner steps: push, run `setupAddOptionalGlobalVariables` and `setupAddOptionalSheetVariables` in the editor, then redeploy a new Web App version.
 
 ## 1. Project Overview & Core Objective
 
@@ -111,9 +113,9 @@ An automated Google Sheets budget backed by a TypeScript, container-bound GAS pr
 - **TypeScript:** `typescript` → `@typescript/typescript6` (for typescript-eslint). `@typescript/native` (TS 7) provides `tsc` (`typecheck` = `tsc --noEmit && tsc --noEmit -p tsconfig.test.json`).
 - **Tests:** Vitest `^5`, `test/**/*.test.ts`, `TZ=America/Chicago`, setup resets modules and installs mocks before each test. Mocks: `MockSpreadsheetApp`/`MockSpreadsheet`/`MockSheet`/`MockRange` (values, formulas, notes, backgrounds, `copyTo`, checkboxes, `getUi` toggle via `uiAvailable`), `MockGmailApp`/`MockThread`/`MockLabel` (per-thread `addLabel`/`moveToArchive` only), and `Logger`. No `PropertiesService`, `LockService`, `ContentService`, `Utilities`, `getFormulasR1C1`, `GmailLabel.addToThreads`, or `GmailApp.moveThreadsToArchive` yet. (Step 2 added all of these; see Step 2 item 6.)
 
-### 3.2 Global Variables (`Variables` sheet, `Variables!A1:B10`) **[VERIFIED]**
+### 3.2 Global Variables (`Variables` sheet, `Variables!A1:B30`) **[VERIFIED]**
 
-`src/util/variables.util.ts` reads `[key, value]` rows from `Variables!A1:B10` via `SpreadsheetApp.getActiveSpreadsheet().getRange(...)`. That already works in web-app executions. The earlier "fix `getActiveSheet()`" note is obsolete. All 7 keys are required (it throws otherwise). 3 rows remain free.
+`src/util/variables.util.ts` reads `[key, value]` rows from `Variables!A1:B30` via `SpreadsheetApp.getActiveSpreadsheet().getRange(...)`. That already works in web-app executions. The earlier "fix `getActiveSheet()`" note is obsolete. All 7 keys are required (it throws otherwise). Rows 8-30 are free for optional keys (e.g. `ReceiptRules`, added by `setupAddOptionalGlobalVariables`).
 
 | Key                   | Type      | Description                                                                 |
 | :-------------------- | :-------- | :-------------------------------------------------------------------------- |

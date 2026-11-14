@@ -45,7 +45,8 @@ export function Dialog({
   heading?: ReactNode;
   onClose?: () => void;
   children: ReactNode;
-  wide?: boolean;
+  /** true: sm:max-w-3xl; "xl": also lg:max-w-6xl (two-column editors). */
+  wide?: boolean | "xl";
 }) {
   const [dragY, setDragY] = useState(0);
   const dragStart = useRef<number | null>(null);
@@ -70,7 +71,7 @@ export function Dialog({
         aria-modal="true"
         aria-label={title}
         style={dragY > 0 ? { transform: `translateY(${dragY}px)` } : undefined}
-        className={`pb-safe max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-4 pt-2 shadow-xl sm:rounded-2xl sm:pt-4 dark:bg-slate-900 ${wide ? "sm:max-w-3xl" : "sm:max-w-lg"}`}
+        className={`pb-safe max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-4 pt-2 shadow-xl sm:rounded-2xl sm:pt-4 dark:bg-slate-900 ${wide === "xl" ? "sm:max-w-3xl lg:max-w-6xl" : wide ? "sm:max-w-3xl" : "sm:max-w-lg"}`}
       >
         {dismissable && (
           <div

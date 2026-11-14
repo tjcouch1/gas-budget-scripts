@@ -70,7 +70,7 @@ export interface Notice {
   kind: "info" | "error";
   message: string;
   /** Set for failures that need the owner to fix the sheet or Settings. */
-  hint?: "settings" | "no-sheet";
+  hint?: "settings" | "no-sheet" | "variables";
 }
 
 export interface EngineSnapshot {

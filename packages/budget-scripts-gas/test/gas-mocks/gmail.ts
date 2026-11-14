@@ -31,6 +31,8 @@ export interface MessageInit {
   to?: string;
   subject: string;
   body: string;
+  /** HTML body returned by getBody() */
+  html?: string;
   date?: Date;
 }
 
@@ -58,6 +60,9 @@ export class MockMessage {
   }
   getPlainBody() {
     return this.init.body;
+  }
+  getBody() {
+    return this.init.html ?? "";
   }
   getDate() {
     return this.init.date ?? new Date("2024-03-01T12:00:00Z");
@@ -89,6 +94,9 @@ export class MockThread {
   }
   getLastMessageDate() {
     return this.messages[this.messages.length - 1].getDate();
+  }
+  getLabels() {
+    return this.labels;
   }
   addLabel(label: MockLabel) {
     this.labels.push(label);

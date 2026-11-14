@@ -1,6 +1,7 @@
 import { buildSplitChildName } from "@budget/shared";
 import { ReceiptInfoBase } from "../models/receipt-info.model";
 import { ThreadList } from "../models/thread-list.model";
+import { getReceiptSearchQuery } from "./receipt-rules.util";
 import { Util } from "./util";
 import { Variables } from "./variables.util";
 /** Sheet that has transactions on it and info about it */
@@ -16,11 +17,12 @@ type TransactionSheetInfo = {
   receiptInfosToAdd: ReceiptInfoBase[];
 };
 
-/** TJ Gmail search query for receipt email threads */
+/**
+ * TJ Gmail search query for receipt email threads, from the ReceiptRules senders (or the built-in
+ * defaults). Throws when the ReceiptRules variable is invalid
+ */
 function getTJGmailSearchQuery() {
-  return `from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR ${
-    Variables.getVariables().ForwardEmailAddress
-  }) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted `;
+  return getReceiptSearchQuery();
 }
 
 /** RegExp pattern matching to transaction sheet name

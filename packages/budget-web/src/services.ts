@@ -1,5 +1,5 @@
 import type { PayPeriodStateDto } from "@budget/shared";
-import { createApiClient } from "./api/client.ts";
+import { type CallApi, createApiClient } from "./api/client.ts";
 import {
   CredentialVault,
   type Credentials,
@@ -10,6 +10,8 @@ import { SyncEngine } from "./sync/engine.ts";
 
 export interface Services {
   engine: SyncEngine;
+  /** Authenticated API client (used by the Customize variables dialog). */
+  api: CallApi;
   vault: CredentialVault;
   /** Calls getState with credentials that have not been saved yet. */
   testConnection(candidate: Credentials): Promise<PayPeriodStateDto>;
@@ -34,6 +36,7 @@ export function createServices(options?: {
   const engine = new SyncEngine({ callApi, store: cacheStore });
   return {
     engine,
+    api: callApi,
     vault,
     async testConnection(candidate) {
       validateCredentials(candidate);

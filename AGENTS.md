@@ -17,8 +17,11 @@ packages/budget-scripts-gas/  # @budget/scripts-gas: container-bound GAS project
   src/index.ts                #   GAS entry point: triggers, menu actions, custom sheet formulas, doGet/doPost (all exported)
   src/api/                    #   Web App JSON API: router (doGet/doPost), auth (API_KEY), handlers, serialize (DTOs)
   src/util/budgeting.util.ts  #   Receipt import (recordReceiptsCore), transaction sheet creation, splitTransaction (N children)
+  src/util/receipt-rules.util.ts, global-variables-setup.util.ts  # load/validate ReceiptRules; setupAddOptionalGlobalVariables
+  src/api/receipt-rules-handlers.ts  #   fetchReceiptEmails (read-only), getReceiptRules, saveReceiptRules
   src/util/lock.util.ts       #   Script-lock helpers shared by the API and existing entry points
-  src/util/variables.util.ts  #   Variables!A1:B10 + per-sheet SheetVariables readers (memoized)
+  src/util/variables.util.ts  #   Variables!A1:B30 + per-sheet SheetVariables readers (memoized)
+  src/util/a1.util.ts         #   A1 notation helpers shared by the Variables setup utilities
   src/util/util.ts, spreadsheet-util.util.ts
   src/models/                 #   receipt-info, thread-info, thread-list (Gmail parsing)
   scripts/build.ts            #   esbuild bundler -> dist/index.js (+ top-level GAS function footer)
@@ -31,6 +34,8 @@ packages/budget-scripts-gas/  # @budget/scripts-gas: container-bound GAS project
   tsconfig.json, tsconfig.test.json, vitest.config.ts
 
 packages/budget-shared/       # @budget/shared: source-only pure TS (no build step, no DOM/GAS globals)
+  src/receipt-rules*.ts       #   receipt rule types, validation, engine (applyReceiptRules), DEFAULT_RECEIPT_RULES
+  src/receipt-query.ts        #   Gmail search query builder
   src/types.ts                #   API DTOs and request/response types
   src/math.ts                 #   evaluateMathExpression (parser), formatSplitCostFormula
   src/fingerprint.ts          #   computeRowFingerprint (FNV-1a), shared by client and server
@@ -41,6 +46,7 @@ packages/budget-web/          # @budget/web: React 19 + Vite + Tailwind v4 PWA (
   src/crypto/                 #   credential-vault.ts (non-extractable AES-GCM CryptoKey in IndexedDB), kv-store.ts
   src/api/client.ts           #   callApi: POST text/plain, redirect follow, key in body, typed errors
   src/sync/                   #   engine.ts (cache, FIFO queue, conflicts, receipts), optimistic.ts
+  src/components/variables/   #   Customize variables dialog (rules editor, email fetcher, live preview)
   src/lib/, src/components/   #   pure row/split helpers; React UI
   src/**/*.test.ts(x)         #   Vitest (jsdom, @testing-library/react, fake-indexeddb)
   e2e/, playwright.config.ts  #   Playwright (Chromium) end-to-end tests against the demo backend + Vite dev server
@@ -98,7 +104,7 @@ Branches: `main` is development and is used with a **test** budget sheet. `deplo
    - **Child cost cell (Pre-Tax OFF):** `=${expression}` with no outer parentheses (e.g. `=1+3.23*2`), or a raw number when the input is a single numeric literal.
    - **Split names:** the parent name gets `" | "` appended only if it does not already contain `"|"`. A child name is `"<parent name before ' | '> | <item note>"`. `doTransactionRowInfosSeemEqual` groups rows by equal date AND (equal prefix before `"|"` OR equal first third of the name). Keep this so native split/grouping keeps working.
    - **Native split columns:** a new child row copies `Paid with` (type) and leaves `Envelope` (category) blank. A new child's `Tax Deductible` (col 6) is blank too. Shifting rows down moves Date/Name/Cost (cols 0–2) and Envelope/Paid with/Tax Deductible (cols 4–6), so each value stays with its transaction; col 3 (Current Balance formula) is never moved. The web split uses the same code, so it matches native.
-4. **Gmail processing (current behavior, `web-plan.md` §4.2):** `recordReceiptsCore` (in `budgeting.util.ts`) records receipts and, when marking, labels threads with the Gmail batch APIs in chunks of ≤100: `Receipts/Scripted` on every thread; valid threads also get `Receipts` and are archived; errored threads (written to the sheet with a red name cell) get `Receipts/Error`; non-receipt-only threads (`ThreadList.ignoredThreads`) get `Receipts/Ignored`. Errored and ignored threads stay in the inbox. `recordReceipts` wraps the core and keeps the `getUi().alert`/throw on errors for menu and trigger callers; the web API calls the core directly. Labels are created only when a non-empty batch needs them.
+4. **Gmail processing (current behavior, `web-plan.md` §4.2):** Receipt parsing is driven by the `ReceiptRules` global variable (Variables!A1:B30), whose defaults live in `@budget/shared` (`receipt-rules*.ts`); the senders in the Gmail query come from the rules too. `recordReceiptsCore` (in `budgeting.util.ts`) records receipts and, when marking, labels threads with the Gmail batch APIs in chunks of ≤100: `Receipts/Scripted` on every thread; valid threads also get `Receipts` and are archived; errored threads (written to the sheet with a red name cell) get `Receipts/Error`; non-receipt-only threads (`ThreadList.ignoredThreads`) get `Receipts/Ignored`. Errored and ignored threads stay in the inbox. `recordReceipts` wraps the core and keeps the `getUi().alert`/throw on errors for menu and trigger callers; the web API calls the core directly. Labels are created only when a non-empty batch needs them.
 
 ---
 
@@ -128,5 +134,5 @@ Branches: `main` is development and is used with a **test** budget sheet. `deplo
 2. Mocks implement only what `src/` calls today. They do not evaluate formulas or adjust relative references on `copyTo`. When new code uses another GAS API (e.g. `PropertiesService`, `LockService`, `ContentService`, `Utilities`, `GmailLabel.addToThreads`, `GmailApp.moveThreadsToArchive`, `Range.getFormulasR1C1`), extend the mocks minimally and add tests.
 3. Every behavior change or new feature needs tests. Backend API handlers are tested by calling the exported `doPost`/`doGet` with mock event objects.
 4. **Fixtures:** sample receipt emails and their expected parse results live only in `test/fixtures/receipts.ts`; sample sheet data lives in `test/fixtures/sheets.ts`. Unit tests, the demo backend, and e2e import them. Do not inline email text in tests (single-use error cases excepted) and do not copy fixture data elsewhere. Keep them pure data (no mocks/globals) so e2e can import them.
-5. **Demo backend and e2e:** `pnpm run demo` starts the demo backend (`packages/budget-scripts-gas/dev`: the real `doPost`/`doGet` on the mocks, `MockSpreadsheet.evaluateFormulas = true`) and Vite. It is test/dev tooling only: never point it at real data, and the mocks must not leak into `src/`. The dev-only `http://localhost` URL allowance in `validateGasUrl` is gated by `import.meta.env.DEV`; the production bundle must contain no dev URL or key (check `dist`). The server's `/__debug/*` endpoints (`GET health|sheets|sheet?name=|threads`, `POST reset|mutate|receipts|lock`) exist for tests only and do not exist on real GAS. E2E tests (`pnpm run test:e2e`, `packages/budget-web/e2e/`) run with one worker against one shared in-memory backend and call `/__debug/reset` before every test. Add an e2e test for a new user-visible flow, and keep `pnpm test` unit-only.
+5. **Demo backend and e2e:** `pnpm run demo` starts the demo backend (`packages/budget-scripts-gas/dev`: the real `doPost`/`doGet` on the mocks, `MockSpreadsheet.evaluateFormulas = true`) and Vite. It is test/dev tooling only: never point it at real data, and the mocks must not leak into `src/`. The dev-only `http://localhost` URL allowance in `validateGasUrl` is gated by `import.meta.env.DEV`; the production bundle must contain no dev URL or key (check `dist`). The server's `/__debug/*` endpoints (`GET health|sheets|sheet?name=|threads`, `POST reset|mutate|receipts|variable|lock`, `GET variables`) exist for tests only and do not exist on real GAS. E2E tests (`pnpm run test:e2e`, `packages/budget-web/e2e/`) run with one worker against one shared in-memory backend and call `/__debug/reset` before every test. Add an e2e test for a new user-visible flow, and keep `pnpm test` unit-only.
 6. **Before completing any task, run and pass all of:** `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm test`, `pnpm run build`, and `pnpm run test:e2e` (CI runs e2e as a separate job). This is the same set as Husky pre-commit plus CI. The root scripts cover every package.

@@ -8,6 +8,7 @@ import {
 import {
   CHASE,
   FWD,
+  receiptEdgeFixtures,
   receiptFixtures,
   type ReceiptFixture,
 } from "./fixtures/receipts";
@@ -39,8 +40,12 @@ describe.each([
   ["Chase receipts", /^chase/],
   ["PayPal receipts", /^paypal/],
   ["Venmo receipts", /^venmo/],
+  ["Edge cases", /^edge/],
 ])("%s", (_title, namePattern) => {
-  const fixtures = Object.entries(receiptFixtures)
+  const fixtures = Object.entries({
+    ...receiptFixtures,
+    ...receiptEdgeFixtures,
+  })
     .filter(([name]) => namePattern.test(name))
     .map(([, fixture]) => fixture as ReceiptFixture);
 
@@ -54,7 +59,8 @@ describe.each([
     }
     const r = await parseOne(email);
     for (const [key, value] of Object.entries(expected)) {
-      if (key === "date") expect(r.date).toBe(email.date);
+      if (key === "costIsNaN") expect(Number.isNaN(r.cost)).toBe(true);
+      else if (key === "date") expect(r.date).toBe(email.date);
       else expect(r[key as keyof typeof r], key).toBe(value);
     }
   });
@@ -160,6 +166,24 @@ describe("ThreadList error handling and aggregation", () => {
     expect(all[1].cost).toBeUndefined();
     // cached
     expect(list.getAllReceiptInfos()).toBe(all);
+  });
+
+  it("keeps the original case of the sender address in the note", async () => {
+    const { ThreadList } = await import("../src/models/thread-list.model");
+    const t = makeThread(
+      {
+        from: CHASE,
+        subject: "You made a $1.00 transaction with Early Shop",
+        body: "",
+      },
+      {
+        from: "Chase <No.Reply.Alerts@Chase.com>",
+        subject: "Marketing",
+        body: "buy things",
+      },
+    );
+    const [info] = new ThreadList([t]).getAllReceiptInfos();
+    expect(info.note).toContain("From: No.Reply.Alerts@Chase.com");
   });
 
   it("joins multiple errors with a separator", async () => {

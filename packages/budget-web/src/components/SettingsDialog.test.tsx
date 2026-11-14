@@ -8,7 +8,11 @@ import { SettingsDialog } from "./SettingsDialog.tsx";
 
 const URL = "https://script.google.com/macros/s/TEST/exec";
 
-async function setup(fetchImpl?: typeof fetch, saved = false) {
+async function setup(
+  fetchImpl?: typeof fetch,
+  saved = false,
+  onOpenVariables: () => void = () => {},
+) {
   const vaultStore = new MemoryKeyValueStore();
   const services = createServices({
     vaultStore,
@@ -29,6 +33,7 @@ async function setup(fetchImpl?: typeof fetch, saved = false) {
       services={services}
       onClose={() => {}}
       onChanged={onChanged}
+      onOpenVariables={onOpenVariables}
     />,
   );
   return { services, vaultStore, onChanged, user: userEvent.setup() };
@@ -85,6 +90,22 @@ describe("SettingsDialog", () => {
     expect(vaultStore.data.size).toBe(0);
   });
 
+  it("disables Customize variables until credentials are saved", async () => {
+    await setup();
+    const button = screen.getByRole("button", { name: "Customize variables" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title");
+  });
+
+  it("opens Customize variables when credentials are saved", async () => {
+    const open = vi.fn();
+    const { user } = await setup(undefined, true, open);
+    const button = screen.getByRole("button", { name: "Customize variables" });
+    await vi.waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
   it("links to the licenses page with a relative URL", async () => {
     await setup();
     expect(screen.getByRole("link", { name: /licenses/i })).toHaveAttribute(
@@ -121,6 +142,7 @@ describe("SettingsDialog switching sheets", () => {
         services={services}
         onClose={() => {}}
         onChanged={vi.fn()}
+        onOpenVariables={() => {}}
       />,
     );
     return { services, clear, user: userEvent.setup() };
@@ -214,6 +236,7 @@ describe("SettingsDialog auto close", () => {
         onClose={onClose}
         onChanged={onChanged}
         autoCloseOnConnect={auto}
+        onOpenVariables={() => {}}
       />,
     );
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });

@@ -95,6 +95,13 @@ async function handle(
           ((await body()).threads as Record<string, unknown>[]) ?? [],
         );
         return json({ ok: true });
+      case "GET variables":
+        return json(backend.dumpVariables());
+      case "POST variable": {
+        const { key, value } = await body();
+        backend.setVariable(String(key), String(value));
+        return json({ ok: true });
+      }
       case "GET threads":
         return json(backend.dumpThreads());
       case "POST lock":

@@ -4,7 +4,7 @@ import { addTransactionSheet, addVariablesSheet, getEnv } from "./gas-mocks";
 const load = () => import("../src/util/variables.util");
 
 describe("getVariables", () => {
-  it("reads key/value pairs from Variables!A1:B10, skipping blank keys", async () => {
+  it("reads key/value pairs from Variables!A1:B30, skipping blank keys", async () => {
     const env = getEnv();
     addVariablesSheet(env);
     const { getVariables, areCached } = await load();
@@ -35,11 +35,11 @@ describe("getVariables", () => {
     addVariablesSheet(env, [["Menu", "A1"]]);
     const { getVariables } = await load();
     expect(() => getVariables()).toThrow(
-      "Some variables were not found in the Variables sheet in the range Variables!A1:B10!",
+      "Some variables were not found in the Variables sheet in the range Variables!A1:B30!",
     );
   });
 
-  it("ignores variables beyond row 10", async () => {
+  it("ignores variables beyond row 30", async () => {
     const env = getEnv();
     const vars = [
       ...[
@@ -50,15 +50,42 @@ describe("getVariables", () => {
         ["TaxMultiplier", 1.0825],
         ["ForwardEmailAddress", "fwd@example.com"],
       ],
-      ["a", 1],
-      ["b", 2],
-      ["c", 3],
-      ["d", 4],
-      ["ForwardName", "Sam"], // row 11: outside the range
+      ...Array.from({ length: 24 }, (_, i) => [`x${i}`, i]),
+      ["ForwardName", "Sam"], // row 31: outside the range
     ];
     addVariablesSheet(env, vars);
     const { getVariables } = await load();
     expect(() => getVariables()).toThrow(/Some variables were not found/);
+  });
+});
+
+describe("optional ReceiptRules variable", () => {
+  it("is read when present (row 11 is inside the range)", async () => {
+    const env = getEnv();
+    const sheet = addVariablesSheet(env);
+    sheet.seed("A11", [["ReceiptRules", '{"version":1}']]);
+    const { getVariables } = await load();
+    expect(getVariables().ReceiptRules).toBe('{"version":1}');
+  });
+
+  it("is absent when missing", async () => {
+    addVariablesSheet(getEnv());
+    const { getVariables } = await load();
+    expect(getVariables()).not.toHaveProperty("ReceiptRules");
+  });
+
+  it("exports the range constants and the note for the key cell", async () => {
+    const {
+      VARIABLES_RANGE,
+      VARIABLES_SHEET_NAME,
+      OPTIONAL_VARIABLE_NAMES,
+      GLOBAL_VARIABLE_NOTES,
+    } = await load();
+    const { RECEIPT_RULES_NOTE } = await import("@budget/shared");
+    expect(VARIABLES_SHEET_NAME).toBe("Variables");
+    expect(VARIABLES_RANGE).toBe("Variables!A1:B30");
+    expect(OPTIONAL_VARIABLE_NAMES).toEqual(["ReceiptRules"]);
+    expect(GLOBAL_VARIABLE_NOTES.ReceiptRules).toBe(RECEIPT_RULES_NOTE);
   });
 });
 

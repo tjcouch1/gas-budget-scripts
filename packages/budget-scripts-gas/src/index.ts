@@ -6,6 +6,7 @@ import { Variables } from "./util/variables.util";
 export { doGet, doPost } from "./api/router";
 export { setupGenerateApiKey } from "./api/auth";
 export { setupAddOptionalSheetVariables } from "./util/sheet-variables-setup.util";
+export { setupAddOptionalGlobalVariables } from "./util/global-variables-setup.util";
 
 /**
  * Functions that can be run from the in-sheet checkbox menu. Looked up by name because the bundle has no

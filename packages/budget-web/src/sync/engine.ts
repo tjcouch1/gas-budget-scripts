@@ -927,10 +927,12 @@ export class SyncEngine {
                 : error.message,
               hint: noSheet
                 ? "no-sheet"
-                : error.code === "unauthorized" ||
-                    error.code === "not_configured"
-                  ? "settings"
-                  : undefined,
+                : error.code === "invalid_config"
+                  ? "variables"
+                  : error.code === "unauthorized" ||
+                      error.code === "not_configured"
+                    ? "settings"
+                    : undefined,
             },
             offline:
               error.code === "network" || error.code === "timeout"

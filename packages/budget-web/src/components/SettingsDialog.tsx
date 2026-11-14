@@ -14,11 +14,14 @@ type Message = { kind: "ok" | "error"; text: string } | null;
 export function SettingsDialog({
   services,
   onClose,
+  onOpenVariables,
   onChanged,
   autoCloseOnConnect = false,
 }: {
   services: Services;
   onClose: () => void;
+  /** Opens the Customize variables dialog (the caller closes Settings). */
+  onOpenVariables: () => void;
   /** May resolve to whether the saved connection works (true loads data). */
   onChanged: () => void | Promise<boolean>;
   /** Close the dialog ~2 seconds after a save that connects successfully. */
@@ -196,6 +199,19 @@ export function SettingsDialog({
         </span>
       </label>
       <hr className="my-4 border-slate-200 dark:border-slate-700" />
+      <div className="mb-3">
+        <Button
+          onClick={onOpenVariables}
+          disabled={!saved}
+          title={
+            saved
+              ? undefined
+              : "Save your connection first; the variables are loaded from the sheet."
+          }
+        >
+          Customize variables
+        </Button>
+      </div>
       <div className="flex flex-wrap gap-2">
         <Button
           variant="danger"

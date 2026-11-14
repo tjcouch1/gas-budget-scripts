@@ -691,6 +691,23 @@ describe("SyncEngine receipts and local data", () => {
     });
   });
 
+  it("points to Customize variables when the rules are invalid", async () => {
+    const { engine } = newEngine((req) => {
+      if (req.action === "syncReceipts")
+        throw new ApiError(
+          "invalid_config",
+          "ReceiptRules variable is invalid",
+        );
+      return makeState(twoRows());
+    });
+    await engine.init();
+    await engine.syncReceipts();
+    expect(engine.getSnapshot().notice).toMatchObject({
+      kind: "error",
+      hint: "variables",
+    });
+  });
+
   it("clears cached data, the queue, and conflicts", async () => {
     const store = new MemoryKeyValueStore();
     const { engine } = newEngine((req) => {

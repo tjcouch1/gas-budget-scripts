@@ -158,6 +158,41 @@ describe("recording receipts", () => {
     expect(env.GmailApp.searches[1].start).toBeUndefined();
   });
 
+  it("lists the senders of a custom ReceiptRules variable in the search query", async () => {
+    const env = getEnv();
+    const { DEFAULT_RECEIPT_RULES } = await import("@budget/shared");
+    const rules = {
+      ...DEFAULT_RECEIPT_RULES,
+      senders: [
+        ...DEFAULT_RECEIPT_RULES.senders,
+        {
+          ...DEFAULT_RECEIPT_RULES.senders[0],
+          address: "receipts@shop.example.com",
+        },
+      ],
+    };
+    env.spreadsheet
+      .getSheetByName("Variables")!
+      .seed("A8", [["ReceiptRules", JSON.stringify(rules)]]);
+    const { getAndRecordReceipts } = await load();
+    getAndRecordReceipts(null, null, false);
+    expect(env.GmailApp.searches[0].query).toBe(
+      "from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR receipts@shop.example.com OR fwd@example.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ",
+    );
+  });
+
+  it("throws before searching Gmail when the ReceiptRules variable is invalid", async () => {
+    const env = getEnv();
+    env.spreadsheet
+      .getSheetByName("Variables")!
+      .seed("A8", [["ReceiptRules", "{ nope"]]);
+    const { getChaseReceipts } = await load();
+    expect(() => getChaseReceipts(null, null)).toThrow(
+      /^ReceiptRules variable is invalid: /,
+    );
+    expect(env.GmailApp.searches).toEqual([]);
+  });
+
   it("writes receipts in date order into the first empty rows with metadata columns", async () => {
     const env = getEnv();
     sheet.seed("A5", [[new Date("2024-02-19T12:00:00Z"), "Existing", 1]]);

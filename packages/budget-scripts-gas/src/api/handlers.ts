@@ -19,7 +19,12 @@ import {
 } from "../util/budgeting.util";
 import { tryWithScriptLock } from "../util/lock.util";
 import { Variables } from "../util/variables.util";
-import { ApiError, getErrorMessage } from "./api-error";
+import {
+  ApiError,
+  getErrorMessage,
+  RECEIPT_IMPORT_BUSY_MESSAGE,
+} from "./api-error";
+import { mapInvalidConfig } from "./receipt-rules-handlers";
 import {
   buildAllTransactions,
   buildPayPeriodState,
@@ -558,11 +563,13 @@ export function handleSyncReceipts(
     () => {
       let result: ReturnType<typeof Budgeting.recordReceiptsCore>;
       try {
-        const threadList = Budgeting.getChaseReceipts(
-          0,
-          SYNC_RECEIPTS_MAX_THREADS,
+        // An invalid ReceiptRules variable becomes `invalid_config`
+        result = mapInvalidConfig(() =>
+          Budgeting.recordReceiptsCore(
+            Budgeting.getChaseReceipts(0, SYNC_RECEIPTS_MAX_THREADS),
+            mark,
+          ),
         );
-        result = Budgeting.recordReceiptsCore(threadList, mark);
       } catch (e) {
         if (SYNC_USER_ERROR_REGEX.test(getErrorMessage(e)))
           badRequest(getErrorMessage(e));
@@ -584,10 +591,7 @@ export function handleSyncReceipts(
       };
     },
     () => {
-      throw new ApiError(
-        "busy",
-        "Another change or receipt import is in progress. Please try again.",
-      );
+      throw new ApiError("busy", RECEIPT_IMPORT_BUSY_MESSAGE);
     },
   );
 }

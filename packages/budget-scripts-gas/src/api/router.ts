@@ -19,6 +19,11 @@ import {
   handleUpdateTransaction,
   type HandlerResult,
 } from "./handlers";
+import {
+  handleFetchReceiptEmails,
+  handleGetReceiptRules,
+  handleSaveReceiptRules,
+} from "./receipt-rules-handlers";
 
 function toJsonOutput(response: ApiResponse<unknown>) {
   return ContentService.createTextOutput(JSON.stringify(response)).setMimeType(
@@ -33,6 +38,7 @@ function toFailure(e: unknown): ApiFailure {
       error: { code: e.code, message: e.message },
     };
     if (e.conflict) failure.conflict = e.conflict;
+    if (e.issues) failure.issues = e.issues;
     return failure;
   }
   // Unexpected error: report only the message, never a stack trace
@@ -89,6 +95,15 @@ export function handleApiRequest(body: unknown): ApiResponse<unknown> {
         break;
       case "syncReceipts":
         result = handleSyncReceipts(req);
+        break;
+      case "fetchReceiptEmails":
+        result = handleFetchReceiptEmails(req);
+        break;
+      case "getReceiptRules":
+        result = handleGetReceiptRules();
+        break;
+      case "saveReceiptRules":
+        result = handleSaveReceiptRules(req);
         break;
       default:
         throw new ApiError("bad_request", "Unknown action");

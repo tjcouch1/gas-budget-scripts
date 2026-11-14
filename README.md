@@ -106,6 +106,10 @@ pnpm --filter @budget/web run preview   # serve the production build
 
 The web app asks for the Apps Script web app URL and API key in its Settings dialog and stores them encrypted on the device; nothing secret is in the bundle. `pnpm install` (and `build`) generate `packages/budget-web/public/licenses.html` (open source licenses, gitignored). To publish: enable **Settings -> Pages -> Source: GitHub Actions** once, also allow the production branch under **Settings -> Environments -> github-pages -> Deployment branches** (the default policy only allows `main`). The site deploys from `deploy-budget-sheet`, the production branch used with the real sheet: merge `main` into `deploy-budget-sheet` (a push that touches the web or shared packages), or run "Deploy web app to GitHub Pages" manually on that branch. Pushes to `main` do not deploy.
 
+### Receipt rules and "Customize variables"
+
+Receipt parsing is data-driven: the `ReceiptRules` global variable (Variables!A1:B30, pretty-printed JSON; defaults in `@budget/shared`) lists the Gmail senders and the regex rules that turn an email into a receipt. In the web app, **Settings -> Customize variables** edits the rules with a live preview against real (read-only) fetched emails and saves them to the Variables sheet. Owner steps after pulling this change: (1) `pnpm run push`; (2) in the Apps Script editor run `setupAddOptionalGlobalVariables` (adds `ReceiptRules` with the default JSON) and `setupAddOptionalSheetVariables`; (3) **Deploy -> Manage deployments -> edit -> New version** so the Web App serves the new API. An invalid `ReceiptRules` cell makes imports fail with a message and the app offers "Open Customize variables". Keep column A of the Variables sheet below the variables empty: the setup helper and the first save add `ReceiptRules` in the first free row below the last variable, so a stray entry in A30 can cause "No empty row left".
+
 ### Local demo (fake backend)
 
 ```bash

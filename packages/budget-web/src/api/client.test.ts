@@ -49,6 +49,26 @@ describe("createApiClient", () => {
     });
   });
 
+  it("keeps validation issues on the error", async () => {
+    const issues = [{ path: "senders[0]", message: "bad" }];
+    const call = createApiClient({
+      credentials,
+      fetchImpl: asFetch(
+        vi.fn(() =>
+          jsonResponse({
+            ok: false,
+            error: { code: "bad_request", message: "invalid" },
+            issues,
+          }),
+        ),
+      ),
+    });
+    const error = await call({ action: "getReceiptRules" }).catch(
+      (e: unknown) => e,
+    );
+    expect((error as ApiError).issues).toEqual(issues);
+  });
+
   it("maps error responses to typed errors, including the conflict row", async () => {
     const current = { rowIndex: 3 };
     const fetchImpl = vi.fn(() =>

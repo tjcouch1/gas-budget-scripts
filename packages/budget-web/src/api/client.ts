@@ -16,6 +16,8 @@ export class ApiError extends Error {
     message: string,
     /** The server's current row, present on `conflict`. */
     readonly conflictCurrent?: TransactionRowDto,
+    /** Validation issues, present on `bad_request`/`invalid_config` for receipt rules. */
+    readonly issues?: { path: string; message: string }[],
   ) {
     super(message);
     this.name = "ApiError";
@@ -115,6 +117,7 @@ export function createApiClient(options: ApiClientOptions): CallApi {
         parsed.error.code,
         parsed.error.message,
         parsed.conflict?.current,
+        parsed.issues,
       );
     }
     return { data: parsed.data, warnings: parsed.warnings ?? [] };

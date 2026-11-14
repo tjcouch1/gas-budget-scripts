@@ -33,6 +33,8 @@ export interface ExpectedReceipt {
   type?: string;
   category?: string;
   date?: Date;
+  /** Asserts `cost` is NaN (a `$abc` cost that parseFloat cannot read) */
+  costIsNaN?: true;
 }
 
 export interface ReceiptFixture {
@@ -249,6 +251,120 @@ export const receiptFixtures = {
         "You paid\nJane Doe\n$15.00\nPizza night\nmore\n",
     },
     expected: { cost: 15, name: "Jane Doe - Pizza night", type: "Sam Venmo" },
+  },
+} satisfies Record<string, ReceiptFixture>;
+
+/**
+ * Fallback-branch fixtures the main fixtures do not cover. Pinned on the original regex parser
+ * (the oracle); the rules engine must reproduce them. Names start with `edge`.
+ */
+export const receiptEdgeFixtures = {
+  edgeChaseRefundNoMerchant: {
+    description: "refund without a merchant line has no name",
+    email: {
+      from: CHASE,
+      subject: "You have a $45.00 credit pending on your credit card",
+      body: "no merchant line",
+    },
+    expected: { cost: -45, name: undefined, type: "Credit" },
+  },
+  edgeChaseGasNoMerchant: {
+    description: "gas station without a merchant line is not a receipt",
+    email: {
+      from: CHASE,
+      subject: "You used your card at a gas station",
+      body: "nothing",
+    },
+    expected: null,
+  },
+  edgePaypalSentNoBody: {
+    description: "payment sent with an unparsable body keeps cost but no name",
+    email: {
+      from: PAYPAL,
+      to: "someone@example.com",
+      subject: "You sent a $25.50 USD payment",
+      body: "nothing",
+    },
+    expected: { cost: 25.5, name: undefined, type: "TJ Paypal" },
+  },
+  edgePaypalReceivedNoBody: {
+    description: "money received with an unparsable body is not a receipt",
+    email: {
+      from: PAYPAL,
+      subject: "Money is waiting for you",
+      body: "nothing",
+    },
+    expected: null,
+  },
+  edgeVenmoPaidNoBody: {
+    description: "venmo payment with an empty body has no note",
+    email: {
+      from: VENMO,
+      subject: "You paid Jane Doe $15.00",
+      body: "",
+    },
+    expected: { cost: 15, name: "Jane Doe" },
+  },
+  edgeVenmoToForwarder: {
+    description: "venmo sent to the forward address uses ForwardName",
+    email: {
+      from: VENMO,
+      to: "Sam <fwd@example.com>",
+      subject: "You paid Jane Doe $15.00",
+      body: "You paid\nJane Doe\n$15.00\nPizza night\nmore\n",
+    },
+    expected: { type: "Sam Venmo" },
+  },
+  edgeVenmoToUnparsable: {
+    description: "venmo with an unparsable 'to' falls back to TJ",
+    email: {
+      from: VENMO,
+      to: "undisclosed-recipients",
+      subject: "You paid Jane Doe $15.00",
+      body: "You paid\nJane Doe\n$15.00\nPizza night\nmore\n",
+    },
+    expected: { type: "TJ Venmo" },
+  },
+  edgeForwardedChase: {
+    description: "a forwarded Chase email is not forwardable",
+    email: {
+      from: FWD,
+      subject: "Fwd: You made a $1.00 transaction with X",
+      body:
+        "---------- Forwarded message ---------\nFrom: Chase <no.reply.alerts@chase.com>\n" +
+        "Date: Mon\nSubject: You made a $1.00 transaction with X\nTo: Sam <fwd@example.com>\n\nbody\n",
+    },
+    expected: null,
+  },
+  edgeForwardedTentativeFrom: {
+    description: "a forwarded header with a bare address still parses",
+    email: {
+      from: FWD,
+      subject: "Fwd: You sent a $25.50 USD payment",
+      body:
+        "---------- Forwarded message ---------\nFrom: service@paypal.com\n" +
+        "Date: Mon\nSubject: You sent a $25.50 USD payment\nTo: Sam <fwd@example.com>\n\n" +
+        PAYPAL_PAYMENT_BODY,
+    },
+    expected: { cost: 25.5, type: "Sam Paypal" },
+  },
+  edgeCostNotNumber: {
+    description: "a non-numeric cost parses as NaN",
+    email: {
+      from: CHASE,
+      subject: "You made a $abc transaction with Shop",
+      body: "irrelevant",
+    },
+    expected: { name: "Shop", costIsNaN: true },
+  },
+  edgeZeroCostNoName: {
+    description: "a zero refund with no merchant has no information",
+    email: {
+      from: CHASE,
+      subject: "You have a $0.00 credit pending on your credit card",
+      body: "no merchant line",
+    },
+    expected: null,
   },
 } satisfies Record<string, ReceiptFixture>;
 

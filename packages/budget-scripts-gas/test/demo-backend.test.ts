@@ -131,4 +131,72 @@ describe("demo backend", () => {
     expect(dump.rows[3].formulas[2]).toBe("=2+3");
     expect(dump.rows[3].values[2]).toBe(5);
   });
+
+  it("Gmail search filters by the query's from, subject and in:inbox", async () => {
+    const { call } = await create();
+    const fetch = (fields: Json = {}) =>
+      call({ action: "fetchReceiptEmails", ...fields });
+    const subjects = (res: Json) => res.data.emails.map((e: Json) => e.subject);
+
+    expect(fetch().data.emails).toHaveLength(5);
+    // from: compares extracted addresses case-insensitively
+    const venmo = fetch({ senders: ["VENMO@venmo.com"] });
+    expect(venmo.data.emails).toHaveLength(1);
+    expect(venmo.data.emails[0].from).toMatch(/venmo@venmo\.com/);
+    expect(fetch({ senders: ["nobody@example.com"] }).data.emails).toEqual([]);
+    // subject: any of the quoted terms, case-insensitive
+    expect(
+      subjects(fetch({ subjects: ["demo cafe", "Your statement"] })),
+    ).toEqual([
+      "You made a $18.42 transaction with Demo Cafe",
+      "Your statement is ready",
+    ]);
+
+    // in:inbox drops archived and Receipts/Scripted threads; includeProcessed searches all mail
+    call({ action: "syncReceipts" });
+    expect(fetch().data.emails).toEqual([]);
+    const all = fetch({ includeProcessed: true });
+    expect(all.data.emails).toHaveLength(5);
+    expect(all.data.emails[0].labels).toContain("Receipts/Scripted");
+  });
+
+  it("addThreads accepts html for fetchReceiptEmails with includeHtml", async () => {
+    const { call, backend } = await create();
+    backend.addThreads([
+      {
+        from: "Shop <receipts@shop.example.com>",
+        subject: "Your order",
+        body: "plain",
+        html: "<b>Total $5</b>",
+      },
+    ]);
+    const res = call({
+      action: "fetchReceiptEmails",
+      senders: ["receipts@shop.example.com"],
+      includeHtml: true,
+    });
+    expect(res.data.emails).toHaveLength(1);
+    expect(res.data.emails[0].htmlBody).toBe("<b>Total $5</b>");
+  });
+
+  it("dumpVariables lists the Variables sheet's key/value rows, including saved ReceiptRules", async () => {
+    const { call, backend } = await create();
+    const before = backend.dumpVariables();
+    expect(before).toContainEqual(["ForwardName", "Sam"]);
+    expect(before.map(([key]) => key)).not.toContain("ReceiptRules");
+
+    const { DEFAULT_RECEIPT_RULES } = await import("@budget/shared");
+    expect(
+      call({ action: "saveReceiptRules", rules: DEFAULT_RECEIPT_RULES }).ok,
+    ).toBe(true);
+    expect(backend.dumpVariables()).toContainEqual([
+      "ReceiptRules",
+      JSON.stringify(DEFAULT_RECEIPT_RULES, null, 2),
+    ]);
+
+    backend.reset();
+    expect(backend.dumpVariables().map(([key]) => key)).not.toContain(
+      "ReceiptRules",
+    );
+  });
 });

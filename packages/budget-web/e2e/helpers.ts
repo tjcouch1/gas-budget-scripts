@@ -58,6 +58,10 @@ export const backend = {
   /** Edits a row directly, like a person in the sheet */
   mutate: (sheetName: string, rowIndex: number, changes: object) =>
     debug("mutate", { sheetName, rowIndex, changes }),
+  variables: () => debug<[string, unknown][]>("variables"),
+  setVariable: (key: string, value: string) =>
+    debug("variable", { key, value }),
+  addThreads: (threads: object[]) => debug("receipts", { threads }),
   threads: () =>
     debug<{ subject: string; labels: string[]; archived: boolean }[]>(
       "threads",

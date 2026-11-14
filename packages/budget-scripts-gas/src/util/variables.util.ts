@@ -1,3 +1,5 @@
+import { RECEIPT_RULES_NOTE } from "@budget/shared";
+
 /** Names of all global variables that must be provided */
 const VARIABLE_NAMES = [
   "Menu",
@@ -25,7 +27,17 @@ export type Variables = {
   ForwardEmailAddress: string;
   /** Name of person who is forwarding emails to the main inbox */
   ForwardName: string;
+  /** Optional (see `GLOBAL_VARIABLE_NOTES.ReceiptRules` / `RECEIPT_RULES_NOTE`): receipt rules JSON. Empty or missing = built-in defaults */
+  ReceiptRules?: string;
 };
+
+/** Optional global variables. Deliberately NOT in VARIABLE_NAMES so sheets without them keep working */
+export const OPTIONAL_VARIABLE_NAMES = ["ReceiptRules"] as const;
+
+/** Cell-note text for each optional global key, put on the key cell by `setupAddOptionalGlobalVariables` */
+export const GLOBAL_VARIABLE_NOTES = {
+  ReceiptRules: RECEIPT_RULES_NOTE,
+} as const;
 
 /** Names of all sheet variables that must be provided */
 const SHEET_VARIABLE_NAMES = [
@@ -70,8 +82,8 @@ export type SheetVariables = {
   PaidWithMax?: number;
 };
 
-const VARIABLES_SHEET_NAME = "Variables";
-const VARIABLES_RANGE = `${VARIABLES_SHEET_NAME}!A1:B10`;
+export const VARIABLES_SHEET_NAME = "Variables";
+export const VARIABLES_RANGE = `${VARIABLES_SHEET_NAME}!A1:B30`;
 
 let variablesRangeCache: GoogleAppsScript.Spreadsheet.Range | undefined;
 function getVariablesRange() {

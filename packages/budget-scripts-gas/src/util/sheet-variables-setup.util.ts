@@ -1,11 +1,11 @@
+import { isEmptyCell, toA1 } from "./a1.util";
 import {
   bustVariablesCache,
   getVariables,
   OPTIONAL_SHEET_VARIABLE_NOTES,
+  VARIABLES_RANGE,
+  VARIABLES_SHEET_NAME,
 } from "./variables.util";
-
-const VARIABLES_SHEET_NAME = "Variables";
-const VARIABLES_RANGE = `${VARIABLES_SHEET_NAME}!A1:B10`;
 
 /** Optional per-sheet keys (web-plan.md §3.3) with a hint for what to put in each */
 const OPTIONAL_SHEET_VARIABLES = [
@@ -20,19 +20,6 @@ const OPTIONAL_SHEET_VARIABLES = [
   ],
   ["PaidWithMax", "max number of rows in the Paid With table, e.g. 15"],
 ] as const;
-
-function columnToLetters(column: number) {
-  let letters = "";
-  for (let n = column; n > 0; n = Math.floor((n - 1) / 26))
-    letters = String.fromCharCode(65 + ((n - 1) % 26)) + letters;
-  return letters;
-}
-
-const toA1 = (row: number, column: number) =>
-  `${columnToLetters(column)}${row}`;
-
-const isEmptyCell = (value: unknown) =>
-  value === "" || value === null || value === undefined;
 
 /**
  * Adds the missing optional per-sheet keys (`EnvelopesStart`, `EnvelopesMax`, `PaidWithStart`,

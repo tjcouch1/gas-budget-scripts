@@ -3,6 +3,8 @@
  * Pure types only: no DOM or GAS globals. See web-plan.md section 4.4.
  */
 
+import type { ReceiptRulesConfig } from "./receipt-rules.ts";
+
 export const API_VERSION = 1;
 
 export type TaxDeductibleValue = "Yes" | "";
@@ -94,7 +96,10 @@ export type ApiRequest =
   | UpdateTransactionRequest
   | SplitTransactionRequest
   | DeleteTransactionRequest
-  | SyncReceiptsRequest;
+  | SyncReceiptsRequest
+  | FetchReceiptEmailsRequest
+  | GetReceiptRulesRequest
+  | SaveReceiptRulesRequest;
 
 export type ApiErrorCode =
   | "unauthorized"
@@ -102,6 +107,7 @@ export type ApiErrorCode =
   | "not_found"
   | "conflict"
   | "busy"
+  | "invalid_config"
   | "server_error";
 
 export interface ApiSuccess<T> {
@@ -114,6 +120,7 @@ export interface ApiFailure {
   ok: false;
   error: { code: ApiErrorCode; message: string };
   conflict?: { current: TransactionRowDto };
+  issues?: { path: string; message: string }[];
 }
 
 export type ApiResponse<T> = ApiSuccess<T> | ApiFailure;
@@ -209,3 +216,72 @@ export interface FingerprintRow {
   paidWith: string | null | undefined;
   taxDeductible: string | null | undefined;
 }
+
+export interface FetchReceiptEmailsRequest extends BaseRequest {
+  action: "fetchReceiptEmails";
+  /** Sender addresses for the query. Omit to use the sheet's ReceiptRules (or the built-in defaults). 1-20, strict syntax. */
+  senders?: string[];
+  /** Extra subject filters, 0-5, see isSafeSubjectFilter. */
+  subjects?: string[];
+  /** Default false (inbox, unprocessed only). true searches all mail including labeled/archived receipts. */
+  includeProcessed?: boolean;
+  /** Default false. true adds each message's HTML body (as text). */
+  includeHtml?: boolean;
+  /** 1-50, default 10 threads (owner decision 11.3). */
+  maxThreads?: number;
+  /** 1-3650 days. */
+  newerThanDays?: number;
+}
+
+export interface ReceiptEmailDto {
+  threadId: string;
+  messageId: string;
+  from: string;
+  to: string;
+  subject: string;
+  /** ISO 8601 */
+  date: string;
+  plainBody: string;
+  plainBodyTruncated: boolean;
+  htmlBody?: string;
+  htmlBodyTruncated?: boolean;
+  /** Thread labels, e.g. ["Receipts", "Receipts/Scripted"] */
+  labels: string[];
+}
+
+export interface FetchReceiptEmailsResultDto {
+  query: string;
+  threadCount: number;
+  emails: ReceiptEmailDto[];
+  /** true when the message or size caps cut the list */
+  truncated: boolean;
+}
+
+export interface GetReceiptRulesRequest extends BaseRequest {
+  action: "getReceiptRules";
+}
+
+export interface ReceiptRulesStateDto {
+  /** Cell text, "" when missing/empty */
+  raw: string;
+  /** Whether the ReceiptRules key exists on the Variables sheet */
+  hasVariable: boolean;
+  /** Parsed config when valid (defaults when raw is empty) */
+  config: ReceiptRulesConfig | null;
+  isDefault: boolean;
+  /** Non-empty when invalid */
+  issues: { path: string; message: string }[];
+  forwardEmailAddress: string;
+  forwardName: string;
+  /** Built from `config` (or null when invalid) */
+  query: string | null;
+}
+
+export interface SaveReceiptRulesRequest extends BaseRequest {
+  action: "saveReceiptRules";
+  /** The config object, or null to clear the cell (back to built-in defaults). */
+  rules: ReceiptRulesConfig | null;
+  /** Optional optimistic check: the `raw` from the last getReceiptRules. Mismatch => error code "conflict". */
+  expectedRaw?: string;
+}
+// saveReceiptRules response data: ReceiptRulesStateDto (after the write)
