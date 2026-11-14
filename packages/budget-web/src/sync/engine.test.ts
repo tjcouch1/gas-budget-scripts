@@ -9,6 +9,7 @@ import { MemoryKeyValueStore } from "../crypto/kv-store.ts";
 import { flush, makeRow, makeState } from "../test/fixtures.ts";
 import { SyncEngine } from "./engine.ts";
 import { buildViewRows } from "./optimistic.ts";
+import type { RowMutation } from "./types.ts";
 
 const SHEET = "3/3/26 - 3/16/26";
 
@@ -589,7 +590,9 @@ describe("SyncEngine splits", () => {
     engine.enqueueUpdate(SHEET, row, { envelope: "Gas" });
     await flush();
     engine.enqueueSplit(SHEET, row, splits);
-    expect(engine.getSnapshot().queue[1].baseFingerprint).toBe(row.fingerprint);
+    expect((engine.getSnapshot().queue[1] as RowMutation).baseFingerprint).toBe(
+      row.fingerprint,
+    );
     release({ ...row, envelope: "Gas", fingerprint: "fresh001" });
     await engine.flush();
     await flush();
@@ -1028,7 +1031,7 @@ describe("SyncEngine deletes", () => {
     ]);
     engine.enqueueDelete(SHEET, [shell]);
     // Chained on the in-flight edit of the same row
-    expect(engine.getSnapshot().queue[2].baseFingerprint).toBe(
+    expect((engine.getSnapshot().queue[2] as RowMutation).baseFingerprint).toBe(
       shell.fingerprint,
     );
     releaseUpdate({ ...shell, envelope: "Gas", fingerprint: "edited" });
@@ -1171,6 +1174,190 @@ describe("SyncEngine deletes", () => {
     const { engine } = newEngine(() => makeState(twoRows()));
     await engine.init();
     engine.enqueueDelete(SHEET, []);
+    expect(engine.getSnapshot().queue).toEqual([]);
+  });
+});
+
+describe("SyncEngine adds", () => {
+  const FIELDS = {
+    date: "2026-03-07",
+    name: "Farmers market",
+    costExpression: "4.25*2",
+    envelope: "Groceries",
+    paidWith: "Pat Venmo",
+    taxDeductible: "" as const,
+    note: "cash",
+  };
+  const added = () =>
+    makeRow(2, {
+      name: "Farmers market",
+      cost: 8.5,
+      costFormula: "=4.25*2",
+      envelope: "Groceries",
+      paidWith: "Pat Venmo",
+      date: "2026-03-07",
+    });
+  const afterAdd = () => ({
+    ...makeState([...twoRows(), added()]),
+    addedRowIndex: 2,
+  });
+
+  it("shows a pending row at the end, persists it, sends a requestId, and accepts the state", async () => {
+    let release: (s: unknown) => void = () => {};
+    const { engine, calls, store } = newEngine((req) => {
+      if (req.action === "getState") return makeState(twoRows());
+      return new Promise((r) => (release = r));
+    });
+    await engine.init();
+    engine.enqueueAdd(SHEET, FIELDS);
+    const pending = rowsOf(engine).at(-1)!;
+    expect(rowsOf(engine)).toHaveLength(3);
+    expect(pending).toMatchObject({
+      synthetic: true,
+      pending: true,
+      name: "Farmers market",
+      date: "2026-03-07",
+      cost: 8.5,
+      costDisplay: "$8.50",
+      envelope: "Groceries",
+      paidWith: "Pat Venmo",
+      note: "cash",
+      splitGroupId: null,
+    });
+    await flush();
+    const persisted = await store.get<{ queue: { action: string }[] }>(
+      "engine",
+    );
+    expect(persisted?.queue.map((q) => q.action)).toEqual(["addTransaction"]);
+    const sent = calls.at(-1) as {
+      action: string;
+      sheetName: string;
+      requestId: string;
+      fields: unknown;
+    };
+    expect(sent).toMatchObject({
+      action: "addTransaction",
+      sheetName: SHEET,
+      fields: FIELDS,
+    });
+    expect(sent.requestId).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+    release(afterAdd());
+    await engine.flush();
+    expect(engine.getSnapshot().queue).toEqual([]);
+    expect(
+      rowsOf(engine).map((r) => [r.rowIndex, r.name, !!r.synthetic]),
+    ).toEqual([
+      [0, "Aldi", false],
+      [1, "Shell", false],
+      [2, "Farmers market", false],
+    ]);
+    expect(engine.getSnapshot().states[SHEET]).not.toHaveProperty(
+      "addedRowIndex",
+    );
+    expect(engine.getSnapshot().recentlySaved).toEqual([
+      { sheetName: SHEET, rowIndex: 2 },
+    ]);
+  });
+
+  it("stays queued offline and retries with the same requestId", async () => {
+    let online = false;
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getState") return makeState(twoRows());
+      if (!online) throw new ApiError("network", "down");
+      return afterAdd();
+    });
+    await engine.init();
+    engine.enqueueAdd(SHEET, FIELDS);
+    await engine.flush();
+    expect(engine.getSnapshot().offline).toBe(true);
+    expect(engine.getSnapshot().queue).toHaveLength(1);
+    expect(rowsOf(engine).at(-1)).toMatchObject({ synthetic: true });
+    online = true;
+    engine.setOnline(true);
+    await flush();
+    await engine.flush();
+    const adds = calls.filter((c) => c.action === "addTransaction") as {
+      requestId: string;
+    }[];
+    expect(adds).toHaveLength(2);
+    expect(adds[1].requestId).toBe(adds[0].requestId);
+    expect(engine.getSnapshot().queue).toEqual([]);
+  });
+
+  it("gives each add its own requestId", async () => {
+    const { engine, calls } = newEngine((req) =>
+      req.action === "getState" ? makeState(twoRows()) : afterAdd(),
+    );
+    await engine.init();
+    engine.enqueueAdd(SHEET, FIELDS);
+    engine.enqueueAdd(SHEET, { ...FIELDS, name: "Second" });
+    await engine.flush();
+    const ids = calls
+      .filter((c) => c.action === "addTransaction")
+      .map((c) => (c as { requestId: string }).requestId);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it("drops a rejected add and shows the error notice", async () => {
+    const { engine } = newEngine((req) => {
+      if (req.action === "getState") return makeState(twoRows());
+      throw new ApiError("bad_request", "There is no empty transaction row");
+    });
+    await engine.init();
+    engine.enqueueAdd(SHEET, FIELDS);
+    await engine.flush();
+    expect(engine.getSnapshot().queue).toEqual([]);
+    expect(engine.getSnapshot().notice).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("no empty transaction row"),
+    });
+    expect(rowsOf(engine)).toHaveLength(2);
+  });
+
+  it("does not re-base a later queued edit (rows do not move)", async () => {
+    let release: (s: unknown) => void = () => {};
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getState") return makeState(twoRows());
+      if (req.action === "addTransaction")
+        return new Promise((r) => (release = r));
+      return makeRow(1, { name: "Shell 2", cost: 30 });
+    });
+    await engine.init();
+    const shell = twoRows()[1];
+    engine.enqueueAdd(SHEET, FIELDS);
+    engine.enqueueUpdate(SHEET, shell, { name: "Shell 2" });
+    await flush();
+    release(afterAdd());
+    await engine.flush();
+    expect(calls.at(-1)).toMatchObject({
+      action: "updateTransaction",
+      rowIndex: 1,
+      baseFingerprint: shell.fingerprint,
+    });
+    expect(engine.getSnapshot().queue).toEqual([]);
+  });
+
+  it("keeps a queued add behind a split (never re-based or a conflict)", async () => {
+    const aldi = twoRows()[0];
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getState") return makeState(twoRows());
+      if (req.action === "splitTransaction")
+        return makeState([
+          makeRow(0, { name: "Aldi | ", splitGroupId: "0" }),
+          makeRow(1, { name: "Aldi | x", splitGroupId: "0" }),
+          makeRow(2, { name: "Shell", cost: 30 }),
+        ]);
+      return afterAdd();
+    });
+    await engine.init();
+    engine.enqueueSplit(SHEET, aldi, [
+      { itemNote: "x", expression: "1", preTax: false, envelope: "" },
+    ]);
+    engine.enqueueAdd(SHEET, FIELDS);
+    await engine.flush();
+    expect(engine.getSnapshot().conflicts).toEqual([]);
+    expect(calls.map((c) => c.action)).toContain("addTransaction");
     expect(engine.getSnapshot().queue).toEqual([]);
   });
 });

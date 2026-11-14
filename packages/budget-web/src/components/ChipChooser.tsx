@@ -12,6 +12,8 @@ export function ChipChooser({
   onSelect,
   renderExtra,
   disabled = false,
+  defaultExpanded = false,
+  onExpandedChange,
 }: {
   /** Header text and the accessible name of the pill group. */
   label: string;
@@ -22,8 +24,12 @@ export function ChipChooser({
   /** Extra content inside a pill (e.g. an envelope's balance). */
   renderExtra?: (option: string, selected: boolean) => ReactNode;
   disabled?: boolean;
+  /** Initial state only; the chooser manages its own toggling afterwards. */
+  defaultExpanded?: boolean;
+  /** Called when the user toggles the header. */
+  onExpandedChange?: (expanded: boolean) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const scroller = useRef<HTMLDivElement>(null);
   // The current value stays choosable even when it is not in the list.
   const all = value && !options.includes(value) ? [...options, value] : options;
@@ -41,7 +47,10 @@ export function ChipChooser({
       <button
         type="button"
         aria-expanded={expanded}
-        onClick={() => setExpanded((e) => !e)}
+        onClick={() => {
+          setExpanded(!expanded);
+          onExpandedChange?.(!expanded);
+        }}
         className="flex min-h-11 items-center gap-1 text-sm font-medium"
       >
         {label}
@@ -56,7 +65,7 @@ export function ChipChooser({
         ref={scroller}
         data-testid="chip-scroller"
         className={`relative flex gap-2 py-0.5 ${
-          expanded ? "flex-wrap" : "flex-nowrap overflow-x-auto"
+          expanded ? "flex-wrap" : "no-scrollbar flex-nowrap overflow-x-auto"
         }`}
       >
         {all.map((option) => {
@@ -68,7 +77,7 @@ export function ChipChooser({
               aria-pressed={selected}
               disabled={disabled}
               onClick={() => onSelect(option)}
-              className={`min-h-11 shrink-0 whitespace-nowrap rounded-full px-4 text-sm ring-1 transition-colors disabled:opacity-50 ${
+              className={`min-h-9 shrink-0 whitespace-nowrap rounded-full px-3 text-xs ring-1 transition-colors disabled:opacity-50 ${
                 selected
                   ? "bg-teal-700 text-white ring-teal-700"
                   : "bg-white ring-slate-300 hover:bg-teal-50 dark:bg-slate-800 dark:ring-slate-600 dark:hover:bg-slate-700"
@@ -84,7 +93,7 @@ export function ChipChooser({
             type="button"
             disabled={disabled}
             onClick={() => onSelect("")}
-            className="min-h-11 shrink-0 rounded-full px-4 text-sm text-slate-500 ring-1 ring-dashed ring-slate-300 disabled:opacity-50 dark:ring-slate-600"
+            className="min-h-9 shrink-0 rounded-full px-3 text-xs text-slate-500 ring-1 ring-dashed ring-slate-300 disabled:opacity-50 dark:ring-slate-600"
           >
             Clear
           </button>

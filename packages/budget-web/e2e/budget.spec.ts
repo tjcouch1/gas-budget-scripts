@@ -168,7 +168,7 @@ test.describe("editing", () => {
     await connect(page);
     await openTransaction(page, "Faux Bakery");
     const dialog = page.getByRole("dialog");
-    // The name is the editable title; Paid with is a pill row; Tax deductible is under Edit details
+    // The name is the editable title; Paid with and Tax deductible are under Edit details
     await dialog.getByLabel("Name", { exact: true }).fill("=SUM(1)");
     await expect(dialog.getByText("Names cannot start with")).toBeVisible();
     await expect(
@@ -176,11 +176,11 @@ test.describe("editing", () => {
     ).toBeDisabled();
 
     await dialog.getByLabel("Name", { exact: true }).fill("Faux Bakery Two");
+    await dialog.getByText("Edit details").click();
     await dialog
       .getByRole("group", { name: "Paid with" })
       .getByRole("button", { name: "Debit", exact: true })
       .click();
-    await dialog.getByText("Edit details").click();
     await dialog.getByLabel("Tax deductible").check();
     await expect(dialog.getByTestId("dirty-indicator")).toBeVisible();
     await dialog.getByRole("button", { name: "Save & close" }).click();
@@ -364,11 +364,11 @@ test.describe("splitting", () => {
     await card.getByLabel("Amount").fill("10");
     await card.getByLabel(/Add tax/).check();
     await expect(original.getByTestId("remaining")).toHaveText("$66.39");
+    await card.getByText("Edit details").click();
     await card
       .getByRole("group", { name: "Paid with" })
       .getByRole("button", { name: "Debit", exact: true })
       .click();
-    await card.getByText("Edit details").click();
     await card.getByLabel("Tax deductible").check();
     await dialog.getByRole("button", { name: "Save & close" }).click();
 

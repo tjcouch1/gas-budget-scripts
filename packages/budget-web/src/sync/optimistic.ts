@@ -8,7 +8,13 @@ import {
 } from "@budget/shared";
 import { formatMoney } from "../lib/format.ts";
 import type { ViewRow } from "../lib/rows.ts";
-import type { QueuedMutation } from "./types.ts";
+import type {
+  AddMutation,
+  QueuedMutation,
+  RowMutation,
+  UpdateMutation,
+  SplitMutation,
+} from "./types.ts";
 
 /** Applies an update's changes to a row the way the sheet will show them. */
 export function applyChangesToRow(
@@ -66,7 +72,7 @@ export function applySplitToParent(
 
 /** The row as it would look if `mutation` were applied ("Discarded Local Change"). */
 export function proposedRow(
-  mutation: QueuedMutation,
+  mutation: RowMutation,
   base: TransactionRowDto,
   taxMultiplier: number,
 ): TransactionRowDto {
@@ -101,10 +107,15 @@ export function buildViewRows(
   scoped = false,
 ): ViewRow[] {
   if (!state) return [];
-  const mutationsByRow = new Map<number, QueuedMutation[]>();
+  const mutationsByRow = new Map<number, (UpdateMutation | SplitMutation)[]>();
   const deleting = new Set<number>();
+  const adds: AddMutation[] = [];
   for (const m of queue) {
     if (m.sheetName !== state.sheetName) continue;
+    if (m.action === "addTransaction") {
+      adds.push(m);
+      continue;
+    }
     if (m.action === "deleteTransaction") {
       for (const r of m.payload.rows) deleting.add(r.rowIndex);
       continue;
@@ -183,5 +194,51 @@ export function buildViewRows(
     }
     rows.push(row, ...synthetic);
   }
+  // Queued new rows go at the end, where the server will write them.
+  adds.forEach((m, i) => rows.push(pendingAddRow(m, i, state, prefix)));
   return rows;
+}
+
+/** The placeholder row of a queued `addTransaction`, as the sheet will show it. */
+function pendingAddRow(
+  m: AddMutation,
+  i: number,
+  state: RowSource,
+  prefix: string,
+): ViewRow {
+  const { fields } = m.payload;
+  const blank: TransactionRowDto = {
+    rowIndex: -1000 - i,
+    date: fields.date,
+    name: "",
+    cost: null,
+    costFormula: null,
+    costDisplay: "",
+    envelope: "",
+    paidWith: "",
+    taxDeductible: "",
+    note: "",
+    isError: false,
+    isNote: false,
+    splitGroupId: null,
+    fingerprint: "",
+  };
+  return {
+    ...applyChangesToRow(
+      blank,
+      {
+        name: fields.name,
+        costExpression: fields.costExpression,
+        envelope: fields.envelope ?? "",
+        paidWith: fields.paidWith ?? "",
+        taxDeductible: fields.taxDeductible ?? "",
+        note: fields.note ?? "",
+      },
+      state.taxMultiplier,
+    ),
+    key: `${prefix}add:${m.id}`,
+    sheetName: state.sheetName,
+    pending: true,
+    synthetic: true,
+  };
 }

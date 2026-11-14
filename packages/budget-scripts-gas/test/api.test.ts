@@ -1817,3 +1817,208 @@ describe("syncReceipts", () => {
     ]);
   });
 });
+
+describe("addTransaction", () => {
+  const REQUEST_ID = "req-0001-abcdefgh";
+  const FIELDS = {
+    date: "2024-02-22",
+    name: "Farmers market",
+    costExpression: "4.25*2",
+    envelope: "Food",
+    paidWith: "Cash",
+    taxDeductible: "Yes",
+    note: "cash only",
+  };
+  const add = (
+    fields: Record<string, unknown> = FIELDS,
+    extra: Record<string, unknown> = {},
+  ) =>
+    api("addTransaction", {
+      sheetName: SHEET,
+      requestId: REQUEST_ID,
+      fields,
+      ...extra,
+    });
+
+  /** Rows 0-1 and 3 have content; row 2 is an interior gap */
+  const seed = () => {
+    sheet.seed("A5", [
+      [D, "Coffee", 4.5, "=BALANCE(0)", "Food", "Credit", ""],
+      [D, "Gas", 30, "=BALANCE(1)", "Gas", "Credit", ""],
+      ["", "", "", "=BALANCE(2)", "", "", ""],
+      [D2, "Last", 9, "=BALANCE(3)", "", "Sam Venmo", ""],
+    ]);
+    sheet.getRange("J5:J14").insertCheckboxes();
+    sheet.getRange("J9").setValue(true);
+  };
+  const balanceColumn = () =>
+    sheet
+      .getRange("D5:D14")
+      .getFormulas()
+      .map(([f]: string[]) => f);
+
+  it("writes the row after the last non-empty row (never into a gap) and returns the state", async () => {
+    seed();
+    const checkboxes = sheet.getRange("J5:J14").getValues();
+    const writes = spySetValues();
+    const res = await add();
+    expect(res.ok).toBe(true);
+    expect(res.data.sheetName).toBe(SHEET);
+    expect(res.data.addedRowIndex).toBe(4);
+    // The interior gap stays empty
+    expect(res.data.transactions[2]).toBeNull();
+    expect(res.data.transactions[4]).toMatchObject({
+      rowIndex: 4,
+      date: "2024-02-22",
+      name: "Farmers market",
+      // The mock does not evaluate formulas, so only the formula is checked
+      costFormula: "=4.25*2",
+      envelope: "Food",
+      paidWith: "Cash",
+      taxDeductible: "Yes",
+      note: "cash only",
+    });
+    const date = sheet.getRange("A9").getValue() as Date;
+    expect(date).toBeInstanceOf(Date);
+    // Midnight in the spreadsheet time zone (America/Chicago, UTC-6 in February)
+    expect(date.toISOString()).toBe("2024-02-22T06:00:00.000Z");
+    expect(sheet.getRange("B7:C7").getValues()).toEqual([["", ""]]);
+    // Two batch writes (cols A-C and E-G of the one row); col D and the checkboxes untouched
+    expect(writes).toEqual([
+      [9, 1, 1, 3],
+      [9, 5, 1, 3],
+    ]);
+    expect(balanceColumn()).toEqual(
+      Array.from({ length: 10 }, (_, i) => `=BALANCE(${i})`),
+    );
+    expect(sheet.getRange("J5:J14").getValues()).toEqual(checkboxes);
+    expect(env.LockService.scriptLock.calls).toEqual([
+      "tryLock:20000",
+      "release",
+    ]);
+  });
+
+  it("writes the first row of an empty table, a plain number cost, and blank optional fields", async () => {
+    const res = await add({
+      date: "2024-02-20",
+      name: "Cash",
+      costExpression: "12",
+    });
+    expect(res.ok).toBe(true);
+    expect(res.data.addedRowIndex).toBe(0);
+    expect(sheet.getRange("A5:G5").getValues()[0].slice(1)).toEqual([
+      "Cash",
+      12,
+      "=BALANCE(0)",
+      "",
+      "",
+      "",
+    ]);
+    expect(sheet.getRange("B5").getNotes()).toEqual([[""]]);
+  });
+
+  it("does not insert twice for a repeated requestId and remembers it for 6 hours", async () => {
+    seed();
+    const first = await add();
+    expect(first.ok).toBe(true);
+    const before = snapshot(sheet);
+    const again = await add();
+    expect(again.ok).toBe(true);
+    expect(again.data.addedRowIndex).toBe(4);
+    expect(again.data.transactions).toHaveLength(5);
+    expect(snapshot(sheet)).toEqual(before);
+    expect(
+      env.CacheService.scriptCache.expirations.get(
+        `addTransaction:${REQUEST_ID}`,
+      ),
+    ).toBe(21600);
+    // A different requestId inserts a new row
+    const other = await add(FIELDS, { requestId: "req-0002-abcdefgh" });
+    expect(other.data.addedRowIndex).toBe(5);
+  });
+
+  it("returns bad_request when the last row is used, even with gaps above", async () => {
+    seed();
+    sheet.seed("A14", [[D2, "Bottom", 1]]);
+    const before = snapshot(sheet);
+    const res = await add();
+    expect(res).toMatchObject({ ok: false, error: { code: "bad_request" } });
+    expect(res.error.message).toMatch(/no empty transaction row/i);
+    expect(snapshot(sheet)).toEqual(before);
+    expect(
+      env.CacheService.scriptCache.get(`addTransaction:${REQUEST_ID}`),
+    ).toBeNull();
+  });
+
+  it.each([
+    ["missing fields", { fields: undefined }, /fields must be an object/],
+    ["unknown field", { fields: { ...FIELDS, extra: 1 } }, /Unknown fields/],
+    ["bad requestId", { requestId: "a b" }, /requestId/],
+    ["missing requestId", { requestId: undefined }, /requestId/],
+    ["empty name", { fields: { ...FIELDS, name: "  " } }, /fields.name/],
+    [
+      "formula name",
+      { fields: { ...FIELDS, name: "=HYPERLINK(1)" } },
+      /fields.name must not start/,
+    ],
+    [
+      "bad cost",
+      { fields: { ...FIELDS, costExpression: "SUM(A1)" } },
+      /fields.costExpression/,
+    ],
+    [
+      "empty cost",
+      { fields: { ...FIELDS, costExpression: "" } },
+      /fields.costExpression/,
+    ],
+    [
+      "bad date format",
+      { fields: { ...FIELDS, date: "2/22/2024" } },
+      /fields.date/,
+    ],
+    [
+      "impossible date",
+      { fields: { ...FIELDS, date: "2024-02-30" } },
+      /fields.date/,
+    ],
+    [
+      "unknown envelope",
+      { fields: { ...FIELDS, envelope: "Rent" } },
+      /fields.envelope "Rent"/,
+    ],
+    [
+      "unknown paid with",
+      { fields: { ...FIELDS, paidWith: "Gold" } },
+      /fields.paidWith "Gold"/,
+    ],
+    [
+      "bad taxDeductible",
+      { fields: { ...FIELDS, taxDeductible: "No" } },
+      /fields.taxDeductible/,
+    ],
+    ["note not a string", { fields: { ...FIELDS, note: 3 } }, /fields.note/],
+  ])("rejects %s without writing", async (_label, extra, message) => {
+    seed();
+    const before = snapshot(sheet);
+    const res = await add(FIELDS, extra);
+    expect(res).toMatchObject({ ok: false, error: { code: "bad_request" } });
+    expect(res.error.message).toMatch(message);
+    expect(snapshot(sheet)).toEqual(before);
+  });
+
+  it("returns not_found for an unknown sheet and busy when the lock is taken", async () => {
+    expect(await add(FIELDS, { sheetName: "Nope" })).toMatchObject({
+      ok: false,
+      error: { code: "not_found" },
+    });
+    env.LockService.scriptLock.contended = true;
+    expect(await add()).toMatchObject({ ok: false, error: { code: "busy" } });
+    expect(sheet.getRange("B5").getValue()).toBe("");
+  });
+
+  it("rejects an envelope on a sheet without option lists", async () => {
+    const res = await add(FIELDS, { sheetName: OLDER_SHEET });
+    expect(res).toMatchObject({ ok: false, error: { code: "bad_request" } });
+    expect(res.error.message).toMatch(/no EnvelopesStart/);
+  });
+});

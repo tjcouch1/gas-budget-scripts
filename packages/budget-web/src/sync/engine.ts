@@ -1,5 +1,7 @@
 import type {
+  AddTransactionResultDto,
   AllTransactionsDto,
+  NewTransactionFields,
   PayPeriodStateDto,
   SplitItemInput,
   SyncReceiptsResultDto,
@@ -9,6 +11,7 @@ import type {
 import { ApiError, type CallApi } from "../api/client.ts";
 import type { KeyValueStore } from "../crypto/kv-store.ts";
 import type {
+  AddMutation,
   Conflict,
   DeleteMutation,
   DeleteRowBase,
@@ -16,6 +19,7 @@ import type {
   Notice,
   PersistedEngine,
   QueuedMutation,
+  RowMutation,
   SavedMark,
   SplitMutation,
   UpdateMutation,
@@ -34,6 +38,8 @@ export interface SyncEngineOptions {
   retryDelaysMs?: number[];
   now?: () => number;
   newId?: () => string;
+  /** Idempotency key of a new row (`addTransaction`); default `crypto.randomUUID()`. */
+  newRequestId?: () => string;
 }
 
 /** Updates return the changed row; splits return the refreshed state. Accept both shapes defensively. */
@@ -89,6 +95,7 @@ function patchAll(
 
 /** The rows a mutation is based on: a delete's rows, or its one row. */
 function baseRowsOf(q: QueuedMutation): DeleteRowBase[] {
+  if (q.action === "addTransaction") return [];
   return q.action === "deleteTransaction"
     ? q.payload.rows
     : [
@@ -101,10 +108,7 @@ function baseRowsOf(q: QueuedMutation): DeleteRowBase[] {
 }
 
 /** `q` re-based onto `rows` (the mirrored top-level fields follow the first row). */
-function withBaseRows(
-  q: QueuedMutation,
-  rows: DeleteRowBase[],
-): QueuedMutation {
+function withBaseRows(q: RowMutation, rows: DeleteRowBase[]): RowMutation {
   const [first] = rows;
   const top = {
     rowIndex: first.rowIndex,
@@ -142,6 +146,7 @@ export class SyncEngine {
   private readonly retryDelays: number[];
   private readonly now: () => number;
   private readonly newId: () => string;
+  private readonly newRequestId: () => string;
   private idCounter = 0;
 
   constructor(private readonly options: SyncEngineOptions) {
@@ -150,6 +155,8 @@ export class SyncEngine {
     this.newId =
       options.newId ??
       (() => `${this.now().toString(36)}-${(this.idCounter++).toString(36)}`);
+    this.newRequestId =
+      options.newRequestId ?? (() => globalThis.crypto.randomUUID());
   }
 
   // ---- external store plumbing -------------------------------------------
@@ -410,7 +417,10 @@ export class SyncEngine {
         !queue
           .slice(queue.indexOf(m) + 1)
           .some(
-            (n) => n.sheetName === sheetName && n.rowIndex === row.rowIndex,
+            (n) =>
+              n.sheetName === sheetName &&
+              n.action !== "addTransaction" &&
+              n.rowIndex === row.rowIndex,
           ),
     );
     if (mergeIndex >= 0) {
@@ -493,6 +503,22 @@ export class SyncEngine {
     void this.flush();
   }
 
+  /**
+   * Queues a new row ("New expense"). The list shows it as a pending row at the end until the
+   * sheet confirms it; retries reuse its `requestId`, so the server inserts it at most once.
+   */
+  enqueueAdd(sheetName: string, fields: NewTransactionFields): void {
+    const mutation: AddMutation = {
+      id: this.newId(),
+      sheetName,
+      createdAt: this.now(),
+      action: "addTransaction",
+      payload: { requestId: this.newRequestId(), fields },
+    };
+    this.set({ queue: [...this.snapshot.queue, mutation] }, true);
+    void this.flush();
+  }
+
   /** Sends queued mutations one at a time, in order. Stops at the first conflict, busy, or offline. */
   flush(): Promise<void> {
     if (this.flushPromise) return this.flushPromise;
@@ -553,6 +579,14 @@ export class SyncEngine {
           })),
         });
         this.onDeleteSucceeded(m, data);
+      } else if (m.action === "addTransaction") {
+        const { data } = await this.options.callApi<AddTransactionResultDto>({
+          action: "addTransaction",
+          sheetName: m.sheetName,
+          requestId: m.payload.requestId,
+          fields: m.payload.fields,
+        });
+        this.onAddSucceeded(m, data);
       } else {
         const { data } = await this.options.callApi<PayPeriodStateDto>({
           action: "splitTransaction",
@@ -601,7 +635,8 @@ export class SyncEngine {
       const chained = (r: DeleteRowBase) =>
         r.rowIndex === m.rowIndex && r.baseFingerprint === m.baseFingerprint;
       queue = queue.map((q) => {
-        if (q.sheetName !== m.sheetName) return q;
+        if (q.sheetName !== m.sheetName || q.action === "addTransaction")
+          return q;
         const rows = baseRowsOf(q);
         if (!rows.some(chained)) return q;
         return withBaseRows(
@@ -683,6 +718,7 @@ export class SyncEngine {
       queue = queue.filter((q) => {
         if (
           q.sheetName !== data.sheetName ||
+          q.action === "addTransaction" ||
           !baseRowsOf(q).some((r) => r.rowIndex >= first && r.rowIndex <= last)
         )
           return true;
@@ -699,6 +735,31 @@ export class SyncEngine {
     this.set({ queue, states, all, conflicts }, true);
   }
 
+  /** Accepts the state after a new row was written. No row moved, so the queue is unchanged. */
+  private onAddSucceeded(m: AddMutation, data: AddTransactionResultDto): void {
+    const queue = this.removeFromQueue(m.id);
+    if (!isState(data)) {
+      this.set({ queue }, true);
+      void this.refresh(m.sheetName);
+      return;
+    }
+    const { addedRowIndex, ...state } = data;
+    this.set(
+      {
+        queue,
+        states: { ...this.snapshot.states, [state.sheetName]: state },
+        all: patchAll(
+          this.snapshot.all,
+          state.sheetName,
+          () => state.transactions,
+        ),
+      },
+      true,
+    );
+    if (typeof addedRowIndex === "number")
+      this.markSaved(state.sheetName, [addedRowIndex]);
+  }
+
   /**
    * After a split moved rows of `data.sheetName`, finds each later mutation's rows by
    * fingerprint near their expected new index. Mutations whose rows cannot be found become conflicts.
@@ -711,7 +772,7 @@ export class SyncEngine {
   ): QueuedMutation[] {
     const rebased: QueuedMutation[] = [];
     for (const q of queue) {
-      if (q.sheetName !== data.sheetName) {
+      if (q.sheetName !== data.sheetName || q.action === "addTransaction") {
         rebased.push(q);
         continue;
       }
@@ -777,7 +838,8 @@ export class SyncEngine {
       this.set({ notice: { kind: "error", message: String(error) } });
       return false;
     }
-    if (error.code === "conflict") {
+    // An add has no base row, so it cannot conflict: treat it as a permanent rejection.
+    if (error.code === "conflict" && m.action !== "addTransaction") {
       const current = error.conflictCurrent ?? null;
       let states = this.snapshot.states;
       const state = states[m.sheetName];

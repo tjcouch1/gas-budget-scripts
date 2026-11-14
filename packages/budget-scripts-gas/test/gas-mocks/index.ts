@@ -1,5 +1,6 @@
 import { MockGmailApp } from "./gmail";
 import {
+  MockCacheService,
   MockContentService,
   MockLockService,
   MockPropertiesService,
@@ -22,6 +23,7 @@ export interface GasEnv {
   PropertiesService: MockPropertiesService;
   LockService: MockLockService;
   ContentService: MockContentService;
+  CacheService: MockCacheService;
   Utilities: MockUtilities;
   logs: unknown[];
 }
@@ -55,6 +57,7 @@ export function installGasGlobals(): GasEnv {
     PropertiesService: new MockPropertiesService(),
     LockService: new MockLockService(),
     ContentService: new MockContentService(),
+    CacheService: new MockCacheService(),
     Utilities: new MockUtilities(),
     logs,
   };
@@ -65,6 +68,7 @@ export function installGasGlobals(): GasEnv {
     PropertiesService: env.PropertiesService,
     LockService: env.LockService,
     ContentService: env.ContentService,
+    CacheService: env.CacheService,
     Utilities: env.Utilities,
     Logger: {
       log: (...args: unknown[]) =>

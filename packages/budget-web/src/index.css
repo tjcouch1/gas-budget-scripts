@@ -29,3 +29,11 @@ body {
 .pb-safe {
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
+
+/* Chip rows scroll by touch, wheel and trackpad without a visible scrollbar. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

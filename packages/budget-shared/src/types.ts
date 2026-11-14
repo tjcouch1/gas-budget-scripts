@@ -84,6 +84,42 @@ export interface DeleteTransactionRequest extends BaseRequest {
   force?: boolean;
 }
 
+/** The fields of a new transaction row (`addTransaction`). */
+export interface NewTransactionFields {
+  /** yyyy-MM-dd, read in the spreadsheet time zone. */
+  date: string;
+  /** Required; must not start with =, +, -, or @. */
+  name: string;
+  /** Validated by the shared math parser (no tax multiplier). */
+  costExpression: string;
+  /** "" or one of the sheet's envelope options. Default "". */
+  envelope?: string;
+  /** "" or one of the sheet's Paid with options. Default "". */
+  paidWith?: string;
+  /** Default "". */
+  taxDeductible?: TaxDeductibleValue;
+  /** The Name cell's note. Default "" (none). */
+  note?: string;
+}
+
+/**
+ * Appends one row after the last non-empty transaction row (never into an interior gap).
+ * Idempotent per `requestId`: a repeat (e.g. an offline retry) returns the state without
+ * inserting again. Response data: `AddTransactionResultDto`.
+ */
+export interface AddTransactionRequest extends BaseRequest {
+  action: "addTransaction";
+  sheetName: string;
+  /** Client-generated id, 8-64 chars of A-Z a-z 0-9 _ -. Remembered for 6 hours. */
+  requestId: string;
+  fields: NewTransactionFields;
+}
+
+/** `addTransaction` response data: the refreshed state plus the row the new transaction went into. */
+export interface AddTransactionResultDto extends PayPeriodStateDto {
+  addedRowIndex: number;
+}
+
 export interface SyncReceiptsRequest extends BaseRequest {
   action: "syncReceipts";
   /** Default true. False imports only: no Gmail labels or archiving ("testing mode"). */
@@ -96,6 +132,7 @@ export type ApiRequest =
   | UpdateTransactionRequest
   | SplitTransactionRequest
   | DeleteTransactionRequest
+  | AddTransactionRequest
   | SyncReceiptsRequest
   | FetchReceiptEmailsRequest
   | GetReceiptRulesRequest

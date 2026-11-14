@@ -23,6 +23,14 @@ import {
 } from "../lib/split-math.ts";
 import { ChipChooser } from "./ChipChooser.tsx";
 import {
+  getDetailsOpen,
+  getEnvelopeExpanded,
+  getPaidWithExpanded,
+  setDetailsOpen,
+  setEnvelopeExpanded,
+  setPaidWithExpanded,
+} from "../lib/preferences.ts";
+import {
   Button,
   ConfirmDialog,
   Dialog,
@@ -57,14 +65,15 @@ export interface TransactionSheetProps {
 }
 
 const cardClass =
-  "space-y-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700";
+  "min-w-0 space-y-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700";
 const unsafeMessage = "Names cannot start with = + - or @.";
 
-function CardLabel({ children }: { children: ReactNode }) {
+/** The card title, sitting in the top border like a fieldset legend. */
+function CardLegend({ children }: { children: ReactNode }) {
   return (
-    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+    <legend className="px-1 text-xs font-medium uppercase tracking-wide text-slate-500">
       {children}
-    </p>
+    </legend>
   );
 }
 
@@ -160,12 +169,15 @@ function EnvelopeChooser({
   envelopes,
   onSelect,
   disabled,
+  follow = false,
 }: {
   value: string;
   options: string[];
   envelopes: EnvelopeRowDto[] | null;
   onSelect: (value: string) => void;
   disabled?: boolean;
+  /** Start in, and write toggles to, the saved expanded preference. */
+  follow?: boolean;
 }) {
   return (
     <ChipChooser
@@ -174,6 +186,8 @@ function EnvelopeChooser({
       value={value}
       onSelect={onSelect}
       disabled={disabled}
+      defaultExpanded={follow && getEnvelopeExpanded()}
+      onExpandedChange={follow ? setEnvelopeExpanded : undefined}
       renderExtra={(option, selected) => {
         const remain = envelopeRemain(envelopes, option);
         if (!remain?.display) return null;
@@ -209,8 +223,14 @@ function RowCard({
   setDraft,
   envelopeChooser,
   paidWithOptions,
+  bordered,
+  follow,
 }: {
   label: string;
+  /** Split mode: a bordered card with its label as a legend on the border. */
+  bordered: boolean;
+  /** Start in, and write toggles to, the saved details/Paid with settings. */
+  follow: boolean;
   rowIndex: number;
   nameField: ReactNode;
   costField: ReactNode;
@@ -222,24 +242,19 @@ function RowCard({
   paidWithOptions: string[] | null;
 }) {
   const [noteShown, setNoteShown] = useState(hasNote);
+  const [detailsOpen, setDetailsOpenState] = useState(
+    () => follow && getDetailsOpen(),
+  );
   return (
-    <div
-      role="group"
+    <fieldset
       aria-label={label}
       data-row-index={rowIndex}
-      className={cardClass}
+      className={bordered ? cardClass : "min-w-0 space-y-2"}
     >
+      {bordered && <CardLegend>{label}</CardLegend>}
       {nameField}
       {costField}
       {envelopeChooser}
-      {paidWithOptions && (
-        <ChipChooser
-          label="Paid with"
-          options={paidWithOptions}
-          value={draft.paidWith}
-          onSelect={(paidWith) => setDraft({ paidWith })}
-        />
-      )}
       {noteShown && (
         <textarea
           aria-label="Note"
@@ -252,10 +267,29 @@ function RowCard({
           onChange={(e) => setDraft({ note: e.target.value })}
         />
       )}
-      <details className="rounded-lg open:border open:border-slate-200 open:px-3 open:pb-2 dark:open:border-slate-700">
+      <details
+        open={detailsOpen}
+        onToggle={(e) => {
+          const open = e.currentTarget.open;
+          if (open === detailsOpen) return;
+          setDetailsOpenState(open);
+          if (follow) setDetailsOpen(open);
+        }}
+        className="rounded-lg open:border open:border-slate-200 open:px-3 open:pb-2 dark:open:border-slate-700"
+      >
         <summary className="cursor-pointer py-1.5 text-sm font-medium text-slate-600 dark:text-slate-300">
           Edit details
         </summary>
+        {paidWithOptions && (
+          <ChipChooser
+            label="Paid with"
+            options={paidWithOptions}
+            value={draft.paidWith}
+            onSelect={(paidWith) => setDraft({ paidWith })}
+            defaultExpanded={follow && getPaidWithExpanded()}
+            onExpandedChange={follow ? setPaidWithExpanded : undefined}
+          />
+        )}
         <div className="flex flex-wrap items-center gap-x-4">
           <label className="flex min-h-11 items-center gap-2 text-sm">
             <input
@@ -272,7 +306,7 @@ function RowCard({
           )}
         </div>
       </details>
-    </div>
+    </fieldset>
   );
 }
 
@@ -446,6 +480,7 @@ export function TransactionSheet(props: TransactionSheetProps) {
     value: string,
     onSelect: (value: string) => void,
     disabled = false,
+    follow = false,
   ) =>
     props.envelopeOptions && (
       <EnvelopeChooser
@@ -454,6 +489,7 @@ export function TransactionSheet(props: TransactionSheetProps) {
         envelopes={props.envelopes}
         onSelect={onSelect}
         disabled={disabled}
+        follow={follow}
       />
     );
 
@@ -498,6 +534,10 @@ export function TransactionSheet(props: TransactionSheetProps) {
       );
     return null;
   };
+
+  /** An unsplit row follows the saved Envelope setting, as does only the clicked card of a group. */
+  const followsPreference = (i: number) =>
+    rows.length === 1 || rows[i].rowIndex === props.focusRowIndex;
 
   const remainder = (
     <div>
@@ -569,13 +609,9 @@ export function TransactionSheet(props: TransactionSheetProps) {
                     : `Split item ${i}`
                 }
                 rowIndex={row.rowIndex}
-                nameField={
-                  <>
-                    {i === 0 && splitMode && <CardLabel>Original</CardLabel>}
-                    {i > 0 && <CardLabel>Split item {i}</CardLabel>}
-                    {nameFieldFor(i)}
-                  </>
-                }
+                bordered={splitMode}
+                follow={followsPreference(i)}
+                nameField={nameFieldFor(i)}
                 costField={
                   i === 0 ? (
                     splitMode ? (
@@ -618,9 +654,13 @@ export function TransactionSheet(props: TransactionSheetProps) {
                               : { envelope },
                           ),
                         invalid,
+                        followsPreference(i),
                       )
-                    : envelopeChooserFor(drafts[i].envelope, (envelope) =>
-                        setDraft(i, { envelope }),
+                    : envelopeChooserFor(
+                        drafts[i].envelope,
+                        (envelope) => setDraft(i, { envelope }),
+                        false,
+                        followsPreference(i),
                       )
                 }
                 paidWithOptions={props.paidWithOptions}
@@ -631,27 +671,24 @@ export function TransactionSheet(props: TransactionSheetProps) {
               const n = childCount + k + 1;
               const ev = summary.items[k];
               return (
-                <div
+                <fieldset
                   key={item.key}
-                  role="group"
                   aria-label={`Split item ${n}`}
                   data-testid="split-item"
-                  className={`${cardClass} border-dashed`}
+                  className={`${cardClass} relative border-dashed pt-4`}
                 >
-                  <div className="flex items-center justify-between">
-                    <CardLabel>Split item {n} · new</CardLabel>
-                    <button
-                      type="button"
-                      aria-label={`Remove split item ${n}`}
-                      title="Remove item"
-                      onClick={() =>
-                        setItems((l) => l.filter((x) => x.key !== item.key))
-                      }
-                      className="-mr-1 -mt-1 flex min-h-11 min-w-11 items-center justify-center rounded-lg text-xl leading-none text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                    >
-                      ×
-                    </button>
-                  </div>
+                  <CardLegend>Split item {n} · new</CardLegend>
+                  <button
+                    type="button"
+                    aria-label={`Remove split item ${n}`}
+                    title="Remove item"
+                    onClick={() =>
+                      setItems((l) => l.filter((x) => x.key !== item.key))
+                    }
+                    className="absolute -top-4 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-white text-xl leading-none text-slate-500 hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800"
+                  >
+                    ×
+                  </button>
                   <ItemNoteField
                     prefix={prefix}
                     value={item.itemNote}
@@ -687,12 +724,12 @@ export function TransactionSheet(props: TransactionSheetProps) {
                     Paid with defaults to the original&apos;s. Tax deductible
                     and notes can be set after saving.
                   </p>
-                </div>
+                </fieldset>
               );
             })}
           </div>
 
-          <div className="my-4 flex flex-wrap items-center gap-2">
+          <div className="my-4 flex items-center justify-between gap-2">
             {splitPending ? (
               <span className="text-sm text-slate-500">Split queued…</span>
             ) : (
@@ -700,10 +737,7 @@ export function TransactionSheet(props: TransactionSheetProps) {
                 <span aria-hidden="true">+ </span>Add split item
               </Button>
             )}
-          </div>
-
-          {props.onDelete && (
-            <div className="mb-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+            {props.onDelete && (
               <Button
                 variant="danger"
                 onClick={() => setConfirmingDelete(true)}
@@ -711,12 +745,12 @@ export function TransactionSheet(props: TransactionSheetProps) {
               >
                 {deletesGroup ? "Delete split" : "Delete transaction"}
               </Button>
-              {splitPending && (
-                <p className="mt-1 text-xs text-slate-500">
-                  Can be deleted once the queued split is saved.
-                </p>
-              )}
-            </div>
+            )}
+          </div>
+          {props.onDelete && splitPending && (
+            <p className="-mt-2 mb-4 text-xs text-slate-500">
+              Can be deleted once the queued split is saved.
+            </p>
           )}
 
           <div className="sticky bottom-0 -mx-4 flex items-center gap-3 border-t border-slate-200 bg-white px-4 pt-3 dark:border-slate-700 dark:bg-slate-900">

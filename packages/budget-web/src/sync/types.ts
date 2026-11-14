@@ -1,5 +1,6 @@
 import type {
   AllTransactionsDto,
+  NewTransactionFields,
   PayPeriodStateDto,
   SplitItemInput,
   TransactionChanges,
@@ -50,12 +51,28 @@ export interface DeleteMutation extends MutationBase {
   payload: { rows: DeleteRowBase[] };
 }
 
-export type QueuedMutation = UpdateMutation | SplitMutation | DeleteMutation;
+/** A mutation of existing rows (it carries base rows and can conflict). */
+export type RowMutation = UpdateMutation | SplitMutation | DeleteMutation;
+
+/**
+ * Appends a new row ("New expense"). It has no base row and never conflicts: the server
+ * writes it after the last non-empty row, so no other row moves. `requestId` stays the same
+ * across retries, so the server inserts it at most once.
+ */
+export interface AddMutation {
+  id: string;
+  sheetName: string;
+  createdAt: number;
+  action: "addTransaction";
+  payload: { requestId: string; fields: NewTransactionFields };
+}
+
+export type QueuedMutation = RowMutation | AddMutation;
 
 /** A mutation the server rejected because the row changed since `baseRow`. */
 export interface Conflict {
   id: string;
-  mutation: QueuedMutation;
+  mutation: RowMutation;
   /** The sheet's current row ("Current Remote Value"); null if the row can no longer be found. */
   current: TransactionRowDto | null;
 }

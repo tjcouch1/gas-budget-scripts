@@ -13,8 +13,9 @@ import {
 import type { SyncEngine } from "../sync/engine.ts";
 import { buildViewRows } from "../sync/optimistic.ts";
 import type { EngineSnapshot } from "../sync/types.ts";
+import { NewExpenseSheet } from "./NewExpenseSheet.tsx";
 import { TransactionSheet } from "./TransactionSheet.tsx";
-import { inputClass } from "./ui.tsx";
+import { Button, inputClass } from "./ui.tsx";
 
 type SaveStatus = "conflict" | "offline" | "saving" | "saved";
 
@@ -140,6 +141,7 @@ export function ExpensesView({
   const [filter, setFilter] = useState<FilterId>("uncategorized");
   const [query, setQuery] = useState("");
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const { all, loadingAll, queue } = snapshot;
 
   // All pay periods read every tab, so they load on demand only (cached rows show meanwhile).
@@ -315,6 +317,27 @@ export function ExpensesView({
             </li>
           ))}
         </ul>
+      )}
+
+      {/* At the end of the list (not sticky): new rows go after the last row of the selected tab. */}
+      {!showAll && state && (
+        <Button
+          variant="secondary"
+          className="mt-4 w-full"
+          onClick={() => setAdding(true)}
+        >
+          New expense
+        </Button>
+      )}
+
+      {adding && state && !showAll && (
+        <NewExpenseSheet
+          period={state.sheets.find((x) => x.name === state.sheetName) ?? null}
+          envelopeOptions={options}
+          paidWithOptions={state.paidWithOptions}
+          onSave={(fields) => engine.enqueueAdd(state.sheetName, fields)}
+          onClose={() => setAdding(false)}
+        />
       )}
 
       {openRow && canOpen && (

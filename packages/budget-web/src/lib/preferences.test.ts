@@ -1,0 +1,34 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ENVELOPE_EXPANDED_KEY,
+  getEnvelopeExpanded,
+  setEnvelopeExpanded,
+} from "./preferences.ts";
+
+describe("envelope expanded preference", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("defaults to collapsed and round-trips", () => {
+    expect(getEnvelopeExpanded()).toBe(false);
+    setEnvelopeExpanded(true);
+    expect(localStorage.getItem(ENVELOPE_EXPANDED_KEY)).toBe("1");
+    expect(getEnvelopeExpanded()).toBe(true);
+    setEnvelopeExpanded(false);
+    expect(getEnvelopeExpanded()).toBe(false);
+  });
+
+  it("survives unavailable storage", () => {
+    const spy = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    expect(getEnvelopeExpanded()).toBe(false);
+    expect(() => setEnvelopeExpanded(true)).not.toThrow();
+    spy.mockRestore();
+    vi.restoreAllMocks();
+  });
+});

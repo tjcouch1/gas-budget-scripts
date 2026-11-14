@@ -5,6 +5,7 @@
 import {
   formatSplitCostFormula,
   getSplitGroupKey,
+  type AddTransactionResultDto,
   isUnsafeFreeText,
   type AllTransactionsDto,
   type PayPeriodStateDto,
@@ -546,6 +547,138 @@ export function handleDeleteTransaction(
 
   const { state, warnings } = buildPayPeriodState(sheetName);
   return { data: state, warnings };
+}
+
+const ADD_FIELD_KEYS = new Set([
+  "date",
+  "name",
+  "costExpression",
+  "envelope",
+  "paidWith",
+  "taxDeductible",
+  "note",
+]);
+const REQUEST_ID_REGEX = /^[A-Za-z0-9_-]{8,64}$/;
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+/** How long `addTransaction` remembers a requestId (the CacheService maximum: 6 hours) */
+const ADD_REQUEST_ID_TTL_SECONDS = 6 * 60 * 60;
+
+/** Parses yyyy-MM-dd as midnight in the spreadsheet time zone. Rejects impossible dates */
+function requireDate(value: unknown, field: string): Date {
+  const text = requireString(value, field);
+  if (!DATE_REGEX.test(text)) badRequest(`${field} must be yyyy-MM-dd`);
+  const timeZone =
+    SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  let date: Date;
+  try {
+    date = Utilities.parseDate(text, timeZone, "yyyy-MM-dd");
+  } catch {
+    return badRequest(`${field} is not a valid date`);
+  }
+  // The parser is lenient (2024-02-30 becomes March 1): require a round trip
+  if (Utilities.formatDate(date, timeZone, "yyyy-MM-dd") !== text)
+    badRequest(`${field} is not a valid date`);
+  return date;
+}
+
+/** Validates `addTransaction`'s fields into the cells of the new row */
+function validateNewFields(fields: unknown, getOptions: () => SheetOptions) {
+  if (!isObject(fields)) badRequest("fields must be an object");
+  const unknownKeys = Object.keys(fields).filter(
+    (key) => !ADD_FIELD_KEYS.has(key),
+  );
+  if (unknownKeys.length > 0)
+    badRequest(`Unknown fields: ${unknownKeys.join(", ")}`);
+
+  const date = requireDate(fields.date, "fields.date");
+  const name = requireSafeText(fields.name, "fields.name");
+  if (name.trim() === "") badRequest("fields.name must not be empty");
+  const costExpression = requireString(
+    fields.costExpression,
+    "fields.costExpression",
+  );
+  if (costExpression.trim() === "")
+    badRequest("fields.costExpression must not be empty");
+  const cost = buildCost(costExpression, false, "fields.costExpression");
+  const envelope =
+    fields.envelope === undefined
+      ? ""
+      : requireOption(
+          fields.envelope,
+          () => getOptions().envelopeOptions,
+          "fields.envelope",
+          "EnvelopesStart/EnvelopesMax",
+        );
+  const paidWith =
+    fields.paidWith === undefined
+      ? ""
+      : requireOption(
+          fields.paidWith,
+          () => getOptions().paidWithOptions,
+          "fields.paidWith",
+          "PaidWithStart/PaidWithMax",
+        );
+  const taxDeductible = fields.taxDeductible ?? "";
+  if (taxDeductible !== "Yes" && taxDeductible !== "")
+    badRequest('fields.taxDeductible must be "Yes" or ""');
+  const note =
+    fields.note === undefined ? "" : requireString(fields.note, "fields.note");
+  if (note.length > MAX_NOTE_LENGTH)
+    badRequest(`fields.note must be at most ${MAX_NOTE_LENGTH} characters`);
+  return { date, name, cost, envelope, paidWith, taxDeductible, note };
+}
+
+/**
+ * `addTransaction`: writes one new row into the first empty row after the last non-empty
+ * transaction row (like receipt import; interior gaps are never filled), under the script lock.
+ * A requestId seen in the last 6 hours (CacheService) returns the state without inserting again,
+ * so a retried request never adds a duplicate. Never writes col 3 (Current Balance) or the split
+ * checkboxes. Returns the refreshed state of the sheet and the new row's index
+ */
+export function handleAddTransaction(
+  request: Json,
+): HandlerResult<AddTransactionResultDto> {
+  const sheetName = requireString(request.sheetName, "sheetName");
+  const sheet = getTransactionSheet(sheetName);
+  const requestId = requireString(request.requestId, "requestId");
+  if (!REQUEST_ID_REGEX.test(requestId))
+    badRequest("requestId must be 8-64 characters of A-Z, a-z, 0-9, _ or -");
+  const row = validateNewFields(request.fields, sheetOptionsGetter(sheet));
+  const cacheKey = `addTransaction:${requestId}`;
+
+  const addedRowIndex = tryWithScriptLock(
+    () => {
+      const cache = CacheService.getScriptCache();
+      const remembered = cache.get(cacheKey);
+      if (remembered !== null) return Number(remembered);
+
+      const table = readTransactionTable(sheet);
+      const rowIndex = table.hasContent.lastIndexOf(true) + 1;
+      if (rowIndex >= table.rows.length)
+        badRequest(
+          `There is no empty transaction row left at the end of sheet ${sheetName}`,
+        );
+      table.range
+        .offset(rowIndex, COL.date, 1, 3)
+        .setValues([[row.date, row.name, row.cost]]);
+      table.range
+        .offset(rowIndex, COL.envelope, 1, 3)
+        .setValues([[row.envelope, row.paidWith, row.taxDeductible]]);
+      if (row.note)
+        table.range.offset(rowIndex, COL.name, 1, 1).setNote(row.note);
+      cache.put(cacheKey, String(rowIndex), ADD_REQUEST_ID_TTL_SECONDS);
+      return rowIndex;
+    },
+    () => {
+      throw new ApiError(
+        "busy",
+        "Another change is in progress. Please try again.",
+      );
+    },
+  );
+
+  const { state, warnings } = buildPayPeriodState(sheetName);
+  return { data: { ...state, addedRowIndex }, warnings };
 }
 
 /**
