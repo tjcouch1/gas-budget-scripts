@@ -181,6 +181,23 @@ describe("recording receipts", () => {
     ]);
   });
 
+  it("gap: appends after the last non-empty row and does not fill interior blank rows", async () => {
+    const env = getEnv();
+    sheet.seed("A5", [[new Date("2024-02-26T12:00:00Z"), "First", 1]]);
+    sheet.seed("A7", [[new Date("2024-02-27T12:00:00Z"), "After gap", 2]]);
+    env.GmailApp.threads = [
+      makeThread(chase("9.00", "New Shop", "2024-02-28T12:00:00Z")),
+    ];
+    const { getAndRecordReceipts } = await load();
+    expect(getAndRecordReceipts(null, null, false)).toEqual({ [SHEET]: 1 });
+    expect(sheet.getRange("A5:C8").getValues()).toEqual([
+      [new Date("2024-02-26T12:00:00Z"), "First", 1],
+      ["", "", ""],
+      [new Date("2024-02-27T12:00:00Z"), "After gap", 2],
+      [new Date("2024-02-28T12:00:00Z"), "New Shop", 9],
+    ]);
+  });
+
   it("does not mark threads processed unless asked", async () => {
     const env = getEnv();
     const thread = makeThread(chase("1.00", "Shop", "2024-02-20T12:00:00Z"));
@@ -240,7 +257,7 @@ describe("recording receipts", () => {
     const { getAndRecordReceipts } = await load();
     getAndRecordReceipts(null, null, false);
     expect(sheet.getRange("A5:C5").getValues()[0].slice(1)).toEqual([
-      "Shell   (Gas)",
+      "Shell (Gas)",
       "",
     ]);
     expect(sheet.getRange("E5:F5").getValues()).toEqual([["Gas", "Credit"]]);
@@ -539,6 +556,82 @@ describe("splitTransaction", () => {
       ["", "t1"],
       ["c2", "t2"],
       ["c3", "t3"],
+    ]);
+  });
+
+  it("moves Tax Deductible (col G) with the rows below and leaves the new child's blank", async () => {
+    const D2 = new Date("2024-02-21T12:00:00Z");
+    sheet.seed("A5", [
+      [D, "First", 10],
+      [D2, "Second", 20],
+      [D2, "Third", 30],
+    ]);
+    sheet.seed("G5", [["No"], ["Yes"], ["No"]]);
+    const { splitTransaction } = await load();
+    splitTransaction(sheet, 0);
+    expect(sheet.getRange("G5:G8").getValues()).toEqual([
+      ["No"],
+      [""],
+      ["Yes"],
+      ["No"],
+    ]);
+  });
+
+  it("gap: a blank row ends the split group; the native split fills blank rows below it without shifting", async () => {
+    const D2 = new Date("2024-02-21T12:00:00Z");
+    sheet.seed("A5", [
+      [D, "Store | ", "=5.5-R[1]C[0]"],
+      [D, "Store | milk", "=1.0825*(2)"],
+      ["", "", ""],
+      [D, "Store | after gap", "=1.0825*(1)"],
+      [D2, "Later", 3],
+    ]);
+    sheet.seed("G5", [["Yes"], [""], [""], ["Yes"], ["No"]]);
+    const { splitTransaction } = await load();
+    splitTransaction(sheet, 0);
+    // Group is rows 5-6 only (the gap ends it, so row 8 is not in the group); the child lands in the gap
+    expect(rows(5)).toEqual([
+      [D, "Store | ", "=5.5-R[1]C[0]-R[2]C[0]"],
+      [D, "Store | milk", "=1.0825*(2)"],
+      [D, "Store | ", "=1.0825*(0)"],
+      [D, "Store | after gap", "=1.0825*(1)"],
+      [D2, "Later", 3],
+    ]);
+    // Nothing shifted, including Tax Deductible
+    expect(sheet.getRange("G5:G9").getValues()).toEqual([
+      ["Yes"],
+      [""],
+      [""],
+      ["Yes"],
+      ["No"],
+    ]);
+  });
+
+  it("gap: shifts the whole block below (gap included) down by one when the target row has content", async () => {
+    const D2 = new Date("2024-02-21T12:00:00Z");
+    sheet.seed("A5", [
+      [D, "First", 10],
+      [D2, "Second", 20],
+      ["", "", ""],
+      [D2, "Third", 30],
+    ]);
+    sheet.seed("G5", [[""], ["Yes"], [""], ["No"]]);
+    const { splitTransaction } = await load();
+    splitTransaction(sheet, 0);
+    // Everything below the group up to the last non-empty row moves down one, so the gap is kept
+    expect(rows(5)).toEqual([
+      [D, "First | ", "=10-R[1]C[0]"],
+      [D, "First | ", "=1.0825*(0)"],
+      [D2, "Second", 20],
+      ["", "", ""],
+      [D2, "Third", 30],
+    ]);
+    expect(sheet.getRange("G5:G9").getValues()).toEqual([
+      [""],
+      [""],
+      ["Yes"],
+      [""],
+      ["No"],
     ]);
   });
 

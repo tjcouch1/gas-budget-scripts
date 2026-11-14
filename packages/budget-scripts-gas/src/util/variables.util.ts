@@ -34,6 +34,22 @@ const SHEET_VARIABLE_NAMES = [
   "SplitCheckboxesStart",
 ] as const;
 
+/**
+ * Cell-note text for each optional per-sheet key. `setupAddOptionalSheetVariables` puts these on the
+ * key cells it adds. They are the single source of truth for the TSDoc on the optional keys of
+ * `SheetVariables` below: keep the two in sync
+ */
+export const OPTIONAL_SHEET_VARIABLE_NOTES = {
+  EnvelopesStart:
+    "Optional. A1 address of the first envelope-name data cell of the Envelope table on this tab, e.g. J4. Set it so the web app can offer the envelope names. Leave empty to hide envelopes in the web app.",
+  EnvelopesMax:
+    "Optional. Max number of rows in the Envelope table starting at EnvelopesStart, e.g. 30. Set it with EnvelopesStart.",
+  PaidWithStart:
+    "Optional. A1 address of the first data cell of the Paid With table on this tab (left-most column holds the option names), e.g. P4. Set it so the web app can offer the options. Leave empty to hide Paid With options in the web app.",
+  PaidWithMax:
+    "Optional. Max number of rows in the Paid With table starting at PaidWithStart, e.g. 15. Set it with PaidWithStart.",
+} as const;
+
 /** Per-sheet variables */
 export type SheetVariables = {
   /** Location of the first available space for transactions - A1 notation */
@@ -44,13 +60,13 @@ export type SheetVariables = {
   SplitCheckboxesStart: string;
   // Optional keys (web-plan.md section 3.3). Deliberately NOT in SHEET_VARIABLE_NAMES so older tabs
   // without them keep working for receipt import and native splitting.
-  /** Optional: first envelope-name data cell of the Envelope table - A1 notation */
+  /** Optional (see `OPTIONAL_SHEET_VARIABLE_NOTES.EnvelopesStart`): first envelope-name data cell of the Envelope table - A1 notation */
   EnvelopesStart?: string;
-  /** Optional: max number of envelope rows */
+  /** Optional (see `OPTIONAL_SHEET_VARIABLE_NOTES.EnvelopesMax`): max number of envelope rows */
   EnvelopesMax?: number;
-  /** Optional: first data cell of the Paid With table (left-most column = option names) - A1 notation */
+  /** Optional (see `OPTIONAL_SHEET_VARIABLE_NOTES.PaidWithStart`): first data cell of the Paid With table (left-most column = option names) - A1 notation */
   PaidWithStart?: string;
-  /** Optional: max number of rows in the Paid With table */
+  /** Optional (see `OPTIONAL_SHEET_VARIABLE_NOTES.PaidWithMax`): max number of rows in the Paid With table */
   PaidWithMax?: number;
 };
 
@@ -170,8 +186,8 @@ function bustSheetVariablesCache(
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for when cache busting is needed again
-function bustVariablesCache() {
+/** Clear all memoized variables (e.g. after the Variables sheet was changed in this execution) */
+export function bustVariablesCache() {
   variablesRangeCache = undefined;
   variablesCache = undefined;
   bustSheetVariablesCache(undefined);

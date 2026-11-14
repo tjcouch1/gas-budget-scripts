@@ -10,6 +10,8 @@ import { ApiError, type CallApi } from "../api/client.ts";
 import type { KeyValueStore } from "../crypto/kv-store.ts";
 import type {
   Conflict,
+  DeleteMutation,
+  DeleteRowBase,
   EngineSnapshot,
   Notice,
   PersistedEngine,
@@ -83,6 +85,35 @@ function patchAll(
       x.name === sheetName ? { ...x, transactions: update(x.transactions) } : x,
     ),
   };
+}
+
+/** The rows a mutation is based on: a delete's rows, or its one row. */
+function baseRowsOf(q: QueuedMutation): DeleteRowBase[] {
+  return q.action === "deleteTransaction"
+    ? q.payload.rows
+    : [
+        {
+          rowIndex: q.rowIndex,
+          baseFingerprint: q.baseFingerprint,
+          baseRow: q.baseRow,
+        },
+      ];
+}
+
+/** `q` re-based onto `rows` (the mirrored top-level fields follow the first row). */
+function withBaseRows(
+  q: QueuedMutation,
+  rows: DeleteRowBase[],
+): QueuedMutation {
+  const [first] = rows;
+  const top = {
+    rowIndex: first.rowIndex,
+    baseFingerprint: first.baseFingerprint,
+    baseRow: first.baseRow,
+  };
+  return q.action === "deleteTransaction"
+    ? { ...q, ...top, payload: { rows } }
+    : { ...q, ...top };
 }
 
 export class SyncEngine {
@@ -198,38 +229,71 @@ export class SyncEngine {
 
   /** Removes every cached state, queued change, and conflict. */
   async clearLocalData(): Promise<void> {
+    const wipe = () =>
+      this.set({
+        currentSheet: null,
+        states: {},
+        all: null,
+        queue: [],
+        conflicts: [],
+        notice: null,
+        warnings: [],
+      });
     if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.retryAttempt = 0;
+    // Empty the queue first so a running flush loop sends nothing more, then let any
+    // in-flight request settle and wipe again so its result cannot repopulate old data.
+    wipe();
+    await this.tail;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    wipe();
     await this.options.store.clear();
-    this.set({
-      currentSheet: null,
-      states: {},
-      all: null,
-      queue: [],
-      conflicts: [],
-      notice: null,
-      warnings: [],
-    });
   }
 
   // ---- reading -----------------------------------------------------------
 
   selectSheet(name: string): Promise<void> {
     this.set({ currentSheet: name }, true);
-    return this.refresh(name);
+    return this.refresh(name).then(() => undefined);
   }
 
   /** Pulls state from the server (stale-while-revalidate: the cache stays visible meanwhile). */
-  refresh(sheetName?: string): Promise<void> {
+  refresh(sheetName?: string): Promise<boolean> {
     return this.run(async () => {
       const target = sheetName ?? this.snapshot.currentSheet ?? undefined;
       this.set({ refreshing: true });
+      const fetchState = (name?: string) =>
+        this.options.callApi<PayPeriodStateDto>(
+          name
+            ? { action: "getState", sheetName: name }
+            : { action: "getState" },
+        );
       try {
-        const { data, warnings } =
-          await this.options.callApi<PayPeriodStateDto>(
-            target
-              ? { action: "getState", sheetName: target }
-              : { action: "getState" },
-          );
+        let result;
+        try {
+          result = await fetchState(target);
+        } catch (error) {
+          if (
+            !target ||
+            !(error instanceof ApiError) ||
+            error.code !== "not_found"
+          )
+            throw error;
+          // The cached pay period is gone from the spreadsheet: drop it and show the default one.
+          const states = { ...this.snapshot.states };
+          delete states[target];
+          this.set({ states, currentSheet: null }, true);
+          result = await fetchState();
+          this.set({
+            notice: {
+              kind: "info",
+              message: `Pay period "${target}" is no longer in the spreadsheet, so the current pay period is shown.`,
+            },
+          });
+        }
+        const { data, warnings } = result;
         this.acceptState(data);
         // A successful read means the connection works now, so a "go to Settings" notice
         // (e.g. from the first load before credentials were saved) is stale.
@@ -239,8 +303,10 @@ export class SyncEngine {
             : this.snapshot.notice;
         this.set({ offline: false, warnings, notice }, true);
         this.retryAttempt = 0;
+        return true;
       } catch (error) {
         this.handleReadError(error);
+        return false;
       } finally {
         this.set({ refreshing: false });
       }
@@ -319,10 +385,12 @@ export class SyncEngine {
   ) {
     // If an earlier queued change touches the same row, ride on its base fingerprint;
     // it is re-based to the server's new fingerprint once that change succeeds.
-    const earlier = [...this.snapshot.queue]
-      .reverse()
-      .find((m) => m.sheetName === sheetName && m.rowIndex === rowIndex);
-    return earlier ? earlier.baseFingerprint : row.fingerprint;
+    for (const m of [...this.snapshot.queue].reverse()) {
+      if (m.sheetName !== sheetName) continue;
+      const base = baseRowsOf(m).find((r) => r.rowIndex === rowIndex);
+      if (base) return base.baseFingerprint;
+    }
+    return row.fingerprint;
   }
 
   /** Queues a field edit. Successive edits to the same row are merged. */
@@ -398,6 +466,33 @@ export class SyncEngine {
     void this.flush();
   }
 
+  /**
+   * Queues deleting a row or a whole split group (all its rows, contiguous). `rows` are the rows
+   * as last pulled; each carries its fingerprint for the server's conflict check.
+   */
+  enqueueDelete(sheetName: string, rows: TransactionRowDto[]): void {
+    if (rows.length === 0) return;
+    const base: DeleteRowBase[] = [...rows]
+      .sort((a, b) => a.rowIndex - b.rowIndex)
+      .map((row) => ({
+        rowIndex: row.rowIndex,
+        baseFingerprint: this.chainBase(sheetName, row.rowIndex, row),
+        baseRow: row,
+      }));
+    const mutation: DeleteMutation = {
+      id: this.newId(),
+      sheetName,
+      rowIndex: base[0].rowIndex,
+      baseFingerprint: base[0].baseFingerprint,
+      baseRow: base[0].baseRow,
+      createdAt: this.now(),
+      action: "deleteTransaction",
+      payload: { rows: base },
+    };
+    this.set({ queue: [...this.snapshot.queue, mutation] }, true);
+    void this.flush();
+  }
+
   /** Sends queued mutations one at a time, in order. Stops at the first conflict, busy, or offline. */
   flush(): Promise<void> {
     if (this.flushPromise) return this.flushPromise;
@@ -442,8 +537,22 @@ export class SyncEngine {
           rowIndex: m.rowIndex,
           baseFingerprint: m.baseFingerprint,
           changes: m.payload.changes,
+          ...(m.payload.changes.note !== undefined
+            ? { baseNote: m.baseRow.note }
+            : {}),
         });
         this.onUpdateSucceeded(m, data);
+      } else if (m.action === "deleteTransaction") {
+        const { data } = await this.options.callApi<PayPeriodStateDto>({
+          action: "deleteTransaction",
+          sheetName: m.sheetName,
+          rowIndex: m.rowIndex,
+          rows: m.payload.rows.map((r) => ({
+            rowIndex: r.rowIndex,
+            baseFingerprint: r.baseFingerprint,
+          })),
+        });
+        this.onDeleteSucceeded(m, data);
       } else {
         const { data } = await this.options.callApi<PayPeriodStateDto>({
           action: "splitTransaction",
@@ -489,13 +598,25 @@ export class SyncEngine {
     // Re-base later mutations that were chained on this row's previous fingerprint.
     if (newRow) {
       const fresh = newRow;
-      queue = queue.map((q) =>
-        q.sheetName === m.sheetName &&
-        q.rowIndex === m.rowIndex &&
-        q.baseFingerprint === m.baseFingerprint
-          ? { ...q, baseFingerprint: fresh.fingerprint, baseRow: fresh }
-          : q,
-      );
+      const chained = (r: DeleteRowBase) =>
+        r.rowIndex === m.rowIndex && r.baseFingerprint === m.baseFingerprint;
+      queue = queue.map((q) => {
+        if (q.sheetName !== m.sheetName) return q;
+        const rows = baseRowsOf(q);
+        if (!rows.some(chained)) return q;
+        return withBaseRows(
+          q,
+          rows.map((r) =>
+            chained(r)
+              ? {
+                  rowIndex: r.rowIndex,
+                  baseFingerprint: fresh.fingerprint,
+                  baseRow: fresh,
+                }
+              : r,
+          ),
+        );
+      });
     }
     this.set({ queue, states, all }, true);
     this.markSaved(m.sheetName, [m.rowIndex]);
@@ -525,38 +646,13 @@ export class SyncEngine {
     if (isState(data)) {
       states = { ...states, [data.sheetName]: data };
       all = patchAll(all, data.sheetName, () => data.transactions);
-      // Rows below the split moved; find each later mutation's row by fingerprint.
+      // Rows below the split moved down.
       const shift = m.payload.splits.length;
-      const rebased: QueuedMutation[] = [];
-      for (const q of queue) {
-        if (q.sheetName !== m.sheetName) {
-          rebased.push(q);
-          continue;
-        }
-        const expected =
-          q.rowIndex > m.rowIndex ? q.rowIndex + shift : q.rowIndex;
-        const match = this.findRowByFingerprint(
-          data,
-          q.baseRow.fingerprint,
-          expected,
-        );
-        if (match) {
-          rebased.push({
-            ...q,
-            rowIndex: match.rowIndex,
-            baseFingerprint: match.fingerprint,
-            baseRow: match,
-          });
-        } else {
-          conflicts.push({
-            id: this.newId(),
-            mutation: q,
-            current: data.transactions[q.rowIndex] ?? null,
-          });
-        }
-      }
-      queue = rebased.filter(
-        (q) => !conflicts.some((c) => c.mutation.id === q.id),
+      queue = this.rebaseAfterShift(
+        queue,
+        data,
+        (rowIndex) => (rowIndex > m.rowIndex ? rowIndex + shift : rowIndex),
+        conflicts,
       );
     } else {
       // Unexpected shape: pull fresh state; later mutations will be conflict-checked by the server.
@@ -569,6 +665,91 @@ export class SyncEngine {
         { length: m.payload.splits.length + 1 },
         (_, i) => m.rowIndex + i,
       ),
+    );
+  }
+
+  private onDeleteSucceeded(m: DeleteMutation, data: PayPeriodStateDto): void {
+    let queue = this.removeFromQueue(m.id);
+    const conflicts: Conflict[] = [...this.snapshot.conflicts];
+    let states = this.snapshot.states;
+    let all = this.snapshot.all;
+    if (isState(data)) {
+      states = { ...states, [data.sheetName]: data };
+      all = patchAll(all, data.sheetName, () => data.transactions);
+      // Deleting clears rows in place (a gap), so no row moves: only later mutations that are
+      // based on a deleted row become conflicts (their row is now blank).
+      const first = m.rowIndex;
+      const last = m.rowIndex + m.payload.rows.length - 1;
+      queue = queue.filter((q) => {
+        if (
+          q.sheetName !== data.sheetName ||
+          !baseRowsOf(q).some((r) => r.rowIndex >= first && r.rowIndex <= last)
+        )
+          return true;
+        conflicts.push({
+          id: this.newId(),
+          mutation: q,
+          current: data.transactions[q.rowIndex] ?? null,
+        });
+        return false;
+      });
+    } else {
+      void this.refresh(m.sheetName);
+    }
+    this.set({ queue, states, all, conflicts }, true);
+  }
+
+  /**
+   * After a split moved rows of `data.sheetName`, finds each later mutation's rows by
+   * fingerprint near their expected new index. Mutations whose rows cannot be found become conflicts.
+   */
+  private rebaseAfterShift(
+    queue: QueuedMutation[],
+    data: PayPeriodStateDto,
+    expectedIndex: (rowIndex: number) => number,
+    conflicts: Conflict[],
+  ): QueuedMutation[] {
+    const rebased: QueuedMutation[] = [];
+    for (const q of queue) {
+      if (q.sheetName !== data.sheetName) {
+        rebased.push(q);
+        continue;
+      }
+      const baseRows = baseRowsOf(q);
+      const rows: DeleteRowBase[] = [];
+      for (const r of baseRows) {
+        const match = this.findRowByFingerprint(
+          data,
+          r.baseRow.fingerprint,
+          expectedIndex(r.rowIndex),
+        );
+        if (!match) break;
+        rows.push({
+          rowIndex: match.rowIndex,
+          baseFingerprint: match.fingerprint,
+          baseRow: match,
+        });
+      }
+      if (rows.length === baseRows.length) rebased.push(withBaseRows(q, rows));
+      else
+        conflicts.push({
+          id: this.newId(),
+          mutation: q,
+          current: data.transactions[q.rowIndex] ?? null,
+        });
+    }
+    return rebased;
+  }
+
+  /** A sheet's cached transactions: its pay-period state, else its tab in the all-sheets view. */
+  private sheetTransactions(
+    sheetName: string,
+  ): (TransactionRowDto | null)[] | null {
+    return (
+      this.snapshot.states[sheetName]?.transactions ??
+      this.snapshot.all?.sheets.find((x) => x.name === sheetName)
+        ?.transactions ??
+      null
     );
   }
 
@@ -620,6 +801,9 @@ export class SyncEngine {
         },
         true,
       );
+      // Only the first changed row comes back: pull the sheet so "Overwrite with Mine" can
+      // resend the delete with every row's current fingerprint.
+      if (m.action === "deleteTransaction") void this.refresh(m.sheetName);
       return false;
     }
     if (error.isTransient) {
@@ -673,14 +857,37 @@ export class SyncEngine {
     let queue = this.snapshot.queue;
     if (choice === "overwrite" && conflict.current) {
       const current = conflict.current;
-      const resend: QueuedMutation = {
-        ...conflict.mutation,
-        id: this.newId(),
-        rowIndex: current.rowIndex,
-        baseFingerprint: current.fingerprint,
-        baseRow: current,
-      };
-      queue = [resend, ...queue];
+      const mutation = conflict.mutation;
+      if (mutation.action === "deleteTransaction") {
+        // Resend the same rows with their current fingerprints (still checked by the server).
+        const transactions = this.sheetTransactions(mutation.sheetName);
+        const rows: DeleteRowBase[] = [];
+        for (const r of mutation.payload.rows) {
+          const row =
+            transactions?.[r.rowIndex] ??
+            (r.rowIndex === current.rowIndex ? current : null);
+          if (row)
+            rows.push({
+              rowIndex: row.rowIndex,
+              baseFingerprint: row.fingerprint,
+              baseRow: row,
+            });
+        }
+        if (rows.length === mutation.payload.rows.length)
+          queue = [
+            withBaseRows({ ...mutation, id: this.newId() }, rows),
+            ...queue,
+          ];
+      } else {
+        const resend: QueuedMutation = {
+          ...mutation,
+          id: this.newId(),
+          rowIndex: current.rowIndex,
+          baseFingerprint: current.fingerprint,
+          baseRow: current,
+        };
+        queue = [resend, ...queue];
+      }
     }
     this.set({ conflicts, queue }, true);
     void this.flush();
@@ -689,12 +896,13 @@ export class SyncEngine {
   // ---- receipts ----------------------------------------------------------
 
   /** Imports Gmail receipts. Online only (it is not queued). */
-  syncReceipts(): Promise<void> {
+  syncReceipts(options?: { mark?: boolean }): Promise<void> {
     return this.run(async () => {
       this.set({ syncingReceipts: true });
       try {
         const { data } = await this.options.callApi<SyncReceiptsResultDto>({
           action: "syncReceipts",
+          ...(options?.mark === false ? { mark: false } : {}),
         });
         if (isState(data.state)) this.acceptState(data.state);
         const errors =

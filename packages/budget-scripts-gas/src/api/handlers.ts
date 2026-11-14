@@ -170,12 +170,17 @@ function mutateUnderLock<T>(
   baseFingerprint: string,
   force: boolean,
   mutate: (table: TransactionTable, current: TransactionRowDto) => T,
+  baseNote?: string,
 ): T {
   return tryWithScriptLock(
     () => {
       const table = readTransactionTable(sheet);
       const current = table.rows[rowIndex];
-      if (current.fingerprint !== baseFingerprint && !force)
+      if (
+        !force &&
+        (current.fingerprint !== baseFingerprint ||
+          (baseNote !== undefined && current.note !== baseNote))
+      )
         throw new ApiError(
           "conflict",
           "The transaction changed on the sheet since it was loaded",
@@ -216,7 +221,10 @@ type ValidatedChanges = {
   envelope?: string;
   paidWith?: string;
   taxDeductible?: TaxDeductibleValue;
+  note?: string;
 };
+
+const MAX_NOTE_LENGTH = 5000;
 
 const CHANGE_KEYS = new Set([
   "name",
@@ -225,6 +233,7 @@ const CHANGE_KEYS = new Set([
   "envelope",
   "paidWith",
   "taxDeductible",
+  "note",
 ]);
 
 function validateChanges(
@@ -272,6 +281,13 @@ function validateChanges(
     validated.taxDeductible = changes.taxDeductible;
   }
 
+  if (changes.note !== undefined) {
+    const note = requireString(changes.note, "changes.note");
+    if (note.length > MAX_NOTE_LENGTH)
+      badRequest(`changes.note must be at most ${MAX_NOTE_LENGTH} characters`);
+    validated.note = note;
+  }
+
   if (Object.keys(validated).length === 0) badRequest("No changes given");
   return validated;
 }
@@ -285,6 +301,10 @@ export function handleUpdateTransaction(
 ): HandlerResult<TransactionRowDto> {
   const { sheet, rowIndex, baseFingerprint, force } = getTarget(request);
   const changes = validateChanges(request.changes, sheetOptionsGetter(sheet));
+  const baseNote =
+    changes.note === undefined
+      ? undefined
+      : requireString(request.baseNote, "baseNote");
 
   const data = mutateUnderLock(
     sheet,
@@ -346,8 +366,12 @@ export function handleUpdateTransaction(
             ],
           ]);
 
+      if (changes.note !== undefined)
+        table.range.offset(rowIndex, COL.name, 1, 1).setNote(changes.note);
+
       return readTransactionTable(sheet).rows[rowIndex];
     },
+    baseNote,
   );
 
   return { data };
@@ -430,12 +454,106 @@ export function handleSplitTransaction(
   return { data: state, warnings };
 }
 
+/** Most rows one `deleteTransaction` request may delete */
+const MAX_DELETE_ROWS = 100;
+
+/** Validates `deleteTransaction`'s `rows`: 1..MAX contiguous rows starting at `rowIndex` */
+function validateDeleteRows(rows: unknown, rowIndex: number) {
+  if (!Array.isArray(rows) || rows.length < 1 || rows.length > MAX_DELETE_ROWS)
+    badRequest(`rows must be an array of 1 to ${MAX_DELETE_ROWS} items`);
+  return rows.map((row, i) => {
+    const field = `rows[${i}]`;
+    if (!isObject(row)) badRequest(`${field} must be an object`);
+    if (row.rowIndex !== rowIndex + i)
+      badRequest(
+        "rows must list contiguous row indexes in order, starting at rowIndex",
+      );
+    const baseFingerprint = requireString(
+      row.baseFingerprint,
+      `${field}.baseFingerprint`,
+    );
+    if (!baseFingerprint)
+      badRequest(`${field}.baseFingerprint must not be empty`);
+    return { rowIndex: rowIndex + i, baseFingerprint };
+  });
+}
+
+/**
+ * `deleteTransaction`: deletes one row, or every row of a split group together. Under the script
+ * lock it re-reads the table, checks every row's fingerprint (`conflict` with the first changed
+ * row unless `force`), and checks that the rows are non-empty and form exactly one whole split
+ * group (or one row not in a group). Then the rows are cleared in place (a gap; no row moves). Returns the refreshed sheet state
+ */
+export function handleDeleteTransaction(
+  request: Json,
+): HandlerResult<PayPeriodStateDto> {
+  const sheetName = requireString(request.sheetName, "sheetName");
+  const sheet = getTransactionSheet(sheetName);
+  const rowIndex = requireRowIndex(request.rowIndex, sheet);
+  const rows = validateDeleteRows(request.rows, rowIndex);
+  const force = optionalBoolean(request.force, "force") ?? false;
+  const transactionsMax = Number(
+    Variables.getSheetVariables(sheet).TransactionsMax,
+  );
+  if (rowIndex + rows.length > transactionsMax)
+    badRequest(`rows must be within [0, ${transactionsMax})`);
+
+  tryWithScriptLock(
+    () => {
+      const table = readTransactionTable(sheet);
+      if (!force)
+        rows.forEach(({ rowIndex: r, baseFingerprint }) => {
+          if (table.rows[r].fingerprint !== baseFingerprint)
+            throw new ApiError(
+              "conflict",
+              "The transaction changed on the sheet since it was loaded",
+              { current: table.rows[r] },
+            );
+        });
+      rows.forEach(({ rowIndex: r }) => {
+        if (!table.hasContent[r]) badRequest(`Row ${r} is empty`);
+      });
+      const groupId = table.rows[rowIndex].splitGroupId;
+      const groupRows =
+        groupId === null
+          ? [rowIndex]
+          : table.rows
+              .filter((row) => row.splitGroupId === groupId)
+              .map((row) => row.rowIndex);
+      if (
+        groupRows.length !== rows.length ||
+        groupRows.some((r, i) => r !== rows[i].rowIndex)
+      )
+        badRequest(
+          groupId === null
+            ? "rows must list only the one row, because it is not in a split group"
+            : `rows must list every row of the split group (rows ${groupRows[0]}-${groupRows[groupRows.length - 1]}) and nothing else`,
+        );
+      Budgeting.deleteTransactionRows(sheet, rowIndex, rows.length);
+    },
+    () => {
+      throw new ApiError(
+        "busy",
+        "Another change is in progress. Please try again.",
+      );
+    },
+  );
+
+  const { state, warnings } = buildPayPeriodState(sheetName);
+  return { data: state, warnings };
+}
+
 /**
  * `syncReceipts`: imports and marks up to 25 receipt threads (like "Import 25 receipts and mark")
  * under the script lock. Errors in emails are returned, never shown with `getUi()`. Never creates
  * pay-period sheets: a receipt that fits no sheet is a `bad_request`
  */
-export function handleSyncReceipts(): HandlerResult<SyncReceiptsResultDto> {
+export function handleSyncReceipts(
+  req: Json,
+): HandlerResult<SyncReceiptsResultDto> {
+  if (req.mark !== undefined && typeof req.mark !== "boolean")
+    badRequest("mark must be a boolean");
+  const mark = req.mark ?? true;
   return tryWithScriptLock(
     () => {
       let result: ReturnType<typeof Budgeting.recordReceiptsCore>;
@@ -444,7 +562,7 @@ export function handleSyncReceipts(): HandlerResult<SyncReceiptsResultDto> {
           0,
           SYNC_RECEIPTS_MAX_THREADS,
         );
-        result = Budgeting.recordReceiptsCore(threadList, true);
+        result = Budgeting.recordReceiptsCore(threadList, mark);
       } catch (e) {
         if (SYNC_USER_ERROR_REGEX.test(getErrorMessage(e)))
           badRequest(getErrorMessage(e));

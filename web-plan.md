@@ -22,6 +22,7 @@ The agent cannot do these. Phases are referenced by the step numbers in §5.
      - **`PaidWithStart`**: first data cell of the Paid With table.
      - **`PaidWithMax`**: max number of rows in the Paid With table (e.g. `15`).
    - Before expanding, check that the 4 new rows of that range are **empty on all existing tabs**. Any non-empty cells there would be read as extra keys. The code treats the 4 new keys as **optional** (§3.3), so older tabs without them keep working for receipt import and native splitting. The app only shows envelopes for tabs that have them (it hides envelope balances on tabs without them; see §3.3). The owner adds the keys to the Template and to the latest few pay-period tabs. Older tabs simply lack envelope data in the app.
+   - **Shortcut (after pushing the code):** in the Apps Script editor, run `setupAddOptionalSheetVariables` from the **Run** dropdown. It adds whichever of the 4 keys are missing, with empty values, to the **Template tab only**. If the block has no empty rows left, it first checks that the rows it needs below the block are empty on every non-`Variables` tab (it throws, listing the cells, and changes nothing if not), then expands the `SheetVariables` value. The Execution log lists the exact cells to fill in (e.g. `Template!I4: EnvelopesStart = ...`). Existing pay-period tabs still need the keys added (or the rows copied) by hand.
 2. Tabs created by `addTransactionSheet()` copy the Template, so they pick up the new keys automatically.
 
 ### A2. First manual test target
@@ -148,14 +149,14 @@ Existing code touches columns 0–2 (`getTransactionsRange`, 3 cols) and 4–5 (
 - **3 `Current Balance`**: read-only sheet formula **[USER-PROVIDED]**. Never write it. Native split does not move it.
 - **4 `Envelope`** (`category` in code) **[VERIFIED position]**.
 - **5 `Paid with`** (`type` in code) **[VERIFIED position]**.
-- **6 `Tax Deductible`**: `Yes` or blank **[USER-PROVIDED]**. Existing code never reads, writes, or **shifts** this column. Native split not moving cols 3 and 6 is tracked in a GitHub issue. The prototype must **not** change native split behavior, and the web split matches native for parity (new child's col 6 left blank).
+- **6 `Tax Deductible`**: `Yes` or blank **[USER-PROVIDED]**. The native split moves it with cols 4–5 when it shifts rows down (so values stay with their transactions), and a new child's col 6 is left blank. The web split uses the same code.
 
 **Native `splitTransaction(sheet, index)` behavior that the web split must reproduce [VERIFIED, pinned in `test/budgeting.test.ts`]:**
 
 1. Finds the group: the clicked row plus following rows that "seem equal" to it. Rejects an empty row, a row whose previous row seems equal (middle of a group), or a group with no room after it.
 2. Parent row: name gets `" | "` appended unless it already contains `"|"`. Cost: number `C` → `=C-R[k]C[0]`. Existing formula `=F` → `=F-R[k]C[0]`, where `k` = current group size, i.e. the new child's offset.
 3. New child row, appended directly after the group: same date, name `"<parent name before ' | '> | "`, cost `=${TaxMultiplier}*(0)`, `Envelope` blank, `Paid with` copied from parent.
-4. If the row after the group is non-empty, everything from there to the first empty row after the last used row shifts down one row via `copyTo` (values, formulas, notes, formats). This covers cols 0–2 and 4–5 only. The vacated row is cleared, including notes and backgrounds.
+4. If the row after the group is non-empty, everything from there to the first empty row after the last used row shifts down one row via `copyTo` (values, formulas, notes, formats). This covers cols 0–2 and 4–6 (Tax Deductible moves with its row; col 3 is never moved). The vacated row is cleared, including notes and backgrounds.
 5. Real Sheets returns A1 from `getFormulas()`: after one split the parent reads back as e.g. `=5.5-C6`, so a second split produces `=5.5-C6-R[2]C[0]`. The mocks store text verbatim.
 
 ### 3.5 Envelope Table Columns (from `EnvelopesStart`) **[USER-PROVIDED]** **[ASSUMPTION]**
@@ -256,7 +257,9 @@ type ApiRequest =
         envelope: string;
         paidWith: string;
         taxDeductible: "Yes" | "";
+        note: string; // the Name cell note; "" removes it (background unchanged)
       }>;
+      baseNote?: string; // required with changes.note: notes are not fingerprinted, so a different current note is a conflict
       force?: boolean;
     }
   | {
@@ -269,6 +272,15 @@ type ApiRequest =
       splits: SplitItemInput[];
       parentItemNote?: string; // optional: the original row becomes "<prefix> | <parentItemNote>"
       parentEnvelope?: string; // optional: the original row's envelope, written with the split
+      force?: boolean;
+    }
+  | {
+      apiVersion: 1;
+      apiKey: string;
+      action: "deleteTransaction";
+      sheetName: string;
+      rowIndex: number; // first row of the split group, or the single row
+      rows: { rowIndex: number; baseFingerprint: string }[]; // every row to delete, contiguous, in order
       force?: boolean;
     }
   | { apiVersion: 1; apiKey: string; action: "syncReceipts" };
@@ -312,7 +324,8 @@ type ApiResponse<T> =
 - **`getAllTransactions` response (`AllTransactionsDto`, additive):** read only, no lock. `{ taxMultiplier, sheets: SheetTransactionsDto[] }`, one entry per transaction tab, newest first. Each entry is `{ name, startDate, endDate, isGap, transactions, envelopeOptions, paidWithOptions }`, where `transactions` is exactly what `getState` returns for that tab (same DTOs and fingerprints, trailing rows trimmed, interior empty rows `null`) and the option lists are that tab's own (`null` on tabs without the optional sheet variables). Envelope balances are not included (use `getState` for those). Per tab it does one batch read each of `getValues`, `getFormulas`, `getDisplayValues`, `getNotes`, `getBackgrounds` plus the option tables, never per-row I/O. The "All" pay-period option loads it on demand only and caches it in IndexedDB. Edits and splits on rows from other tabs use the existing `updateTransaction`/`splitTransaction` with that entry's `name` as `sheetName` and the row's own fingerprint. Payload estimate: about 300 bytes of JSON per row, so roughly 30 rows x 26 tabs is under 250 KB (GAS gzips it); about 10 Sheets reads per tab, a few seconds in GAS for ~26 tabs (unmeasured on a real sheet).
 - **`updateTransaction`:** inside the lock, re-read row `rowIndex`. If its fingerprint ≠ `baseFingerprint` and `!force`, return `conflict` with `current`. Otherwise write only the changed cells: Name/Cost with one `setValues` on `offset(rowIndex, 1, 1, 2)` and cols 4–6 with one `setValues` on `offset(rowIndex, 4, 1, 3)`, writing unchanged values back as read (an unchanged Cost formula must be written back from `getFormulas()`, not from its value). Never touch col 0 or col 3. Return the updated DTO.
 - **`splitTransaction`:** inside the lock, check the fingerprint the same way. Then perform the split by **generalizing the existing `Budgeting.splitTransaction`** so it accepts N child specs, not by writing a second implementation. The checkbox path must keep calling it with the current defaults and stay byte-for-byte identical (existing tests must pass unmodified). For each child: name = `"<parent prefix> | <itemNote>"`, cost = `formatSplitCostFormula(expression, preTax, taxMultiplier)`, envelope = given, paid-with = given or the parent's. Optional `parentItemNote` renames the original row to `"<parent prefix> | <parentItemNote>"` (instead of the native `"<name> | "`) and optional `parentEnvelope` sets its Envelope cell, both in the same lock as the split and validated like item notes/envelopes (additive; the checkbox path passes neither). Parent formula: append `-R[k]C[0]` for each new child offset `k` to the existing number/formula (rule 2 of §3.4). That yields `=C-R[1]C[0]-…-R[N]C[0]` for an unsplit parent and stays correct for an already-split group. Shift following rows down by N in one `copyTo` per column block. Use the same columns as native (see the GitHub issue on cols 3/6; do not change native split in the prototype). Return the refreshed `getState` for that sheet.
-- **`syncReceipts`:** under the lock, call `getChaseReceipts(0, 25)` + `recordReceiptsCore(threadList, true)` (§4.2). Return `{ receiptInfosAdded, numErrors, errors }` plus the refreshed state. It never calls `getUi()`. **The API never auto-creates pay-period sheets** (conservative default). If a receipt fits no sheet, the existing error ("Could not find transaction sheet…") is returned as `bad_request`, and the UI shows "No sheet for this pay period" with an explicit button that calls the existing add-transaction-sheet action. Scheduled (time-driven) runs keep their existing behavior.
+- **`deleteTransaction` (additive):** deletes one row, or a whole split group together. Validation before the lock: `rows` holds 1-100 entries with `rowIndex` = `rowIndex`, `rowIndex`+1, ... (contiguous, in order) and non-empty fingerprints, all inside `TransactionsMax`. Inside the lock it re-reads the table; any row whose fingerprint differs returns `conflict` with that row as `current` (unless `force`); then every row must be non-empty, and the rows must be exactly the first row's split group (same grouping as `splitGroupId`), or just that one row when it is not in a group, else `bad_request`. `Budgeting.deleteTransactionRows` then clears the rows **in place**, leaving a gap (nothing moves and no other row, split formula, or Current Balance cell is rewritten, because moving rows risked corrupting other splits): one batch `setValues`, `setNotes`, and `setBackgrounds` per column block for exactly those rows, cols 0-2 and 4-6 (Date, Name, Cost, Envelope, Paid with, Tax Deductible). Col 3 (Current Balance) and the split checkboxes are never touched. The gap reads as `null` in `transactions`. Gaps and the native code: grouping (`doTransactionRowInfosSeemEqual`) treats a blank row as the end of a group; the native split writes new child rows into blank rows directly below the group (no shift) and only shifts when those rows have content; receipt import appends after the last non-empty row and never fills interior gaps. Returns the refreshed `getState` for that sheet. The web client queues it like a split (offline-capable): the rows are hidden while queued, later queued changes based on a deleted row become conflicts (the row is now blank; no rows move, so nothing is re-based), and a conflict shows "Delete" as the discarded local change (Accept Remote cancels the delete; Overwrite with Mine resends it with the rows' current fingerprints, not `force`).
+- **`syncReceipts`:** under the lock, call `getChaseReceipts(0, 25)` + `recordReceiptsCore(threadList, mark)` (§4.2); optional `mark` (boolean, default true, non-boolean is `bad_request`) set to false imports without Gmail labels/archiving (the client's per-device "Testing mode"). Return `{ receiptInfosAdded, numErrors, errors }` plus the refreshed state. It never calls `getUi()`. **The API never auto-creates pay-period sheets** (conservative default). If a receipt fits no sheet, the existing error ("Could not find transaction sheet…") is returned as `bad_request`, and the UI shows "No sheet for this pay period" with an explicit button that calls the existing add-transaction-sheet action. Scheduled (time-driven) runs keep their existing behavior.
 - **Locking for existing entry points:** wrap the bodies of `getAndRecordReceipts*` exports and the split branch of `onEditInstalled` in the same script lock (`waitLock(30000)`) so the owner's 12-hourly time-driven import and a PWA sync cannot record the same threads twice. This changes no outputs, and scheduled runs must keep working unchanged (if the lock cannot be obtained within the wait, the scheduled run fails loudly rather than silently skipping; Apps Script emails failures). Add a test that the lock is acquired and released.
 - **Manifest:** add `"webapp": { "executeAs": "USER_DEPLOYING", "access": "ANYONE_ANONYMOUS" }` to `appsscript.json`, so deployments made with `clasp deploy` match §0.B.5.
 
@@ -458,5 +471,5 @@ Resolved by the owner and folded into the plan above: optional per-sheet keys (�
 
 **Still open, tracked as GitHub issues** (not blockers; the prototype keeps current behavior):
 
-- Native split not moving cols 3 and 6 (see the GitHub issue). The prototype must not change native split.
+- Native split not moving col 3 (Current Balance formula): intentional. Col 6 now moves (owner-approved, issue #6).
 - Failed/ignored Gmail threads being re-recorded and the label/archive policy (see the GitHub issue). §4.2 is the intended fix.

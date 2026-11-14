@@ -4,8 +4,6 @@ import { formatMoney, formatShortDate } from "../lib/format.ts";
 import {
   FILTERS,
   groupRows,
-  isSplitChild,
-  isSplitParent,
   matchesFilter,
   matchesSearch,
   orderEnvelopeOptions,
@@ -128,7 +126,8 @@ export function ExpensesView({
 }: {
   engine: SyncEngine;
   sheetName: string;
-  state: PayPeriodStateDto;
+  /** The selected pay period; undefined while it is loading. */
+  state: PayPeriodStateDto | undefined;
   /** Rows of the selected pay period, with queued edits applied. */
   rows: ViewRow[];
   /** True when the pay-period dropdown is on "All". */
@@ -196,14 +195,28 @@ export function ExpensesView({
     showAll && openRow
       ? all?.sheets.find((x) => x.name === openSheetName)
       : undefined;
-  const serverRow =
-    openRow &&
-    (openAllSheet ? openAllSheet.transactions : state.transactions).find(
-      (t) => t?.rowIndex === openRow.rowIndex,
-    );
+  // The whole split group opens together, in sheet order (queued split placeholders are not editable).
+  const openGroup = !openRow
+    ? []
+    : openRow.splitGroupId === null
+      ? [openRow]
+      : rows.filter(
+          (r) =>
+            !r.synthetic &&
+            r.splitGroupId === openRow.splitGroupId &&
+            (r.sheetName ?? sheetName) === openSheetName,
+        );
+  const serverRows = openAllSheet
+    ? openAllSheet.transactions
+    : (state?.transactions ?? []);
+  /** The row as last pulled: edits and splits carry its fingerprint. */
+  const serverRowOf = (row: ViewRow) =>
+    serverRows.find((t) => t?.rowIndex === row.rowIndex) ?? null;
+  const canOpen =
+    openGroup.length > 0 && openGroup.every((r) => serverRowOf(r) !== null);
   const rawEnvelopeOptions = openAllSheet
     ? openAllSheet.envelopeOptions
-    : state.envelopeOptions;
+    : (state?.envelopeOptions ?? null);
   const options = useMemo(
     () =>
       rawEnvelopeOptions
@@ -262,6 +275,10 @@ export function ExpensesView({
             ? "Loading all pay periods…"
             : "All pay periods could not be loaded yet. Check your connection and try again."}
         </p>
+      ) : !showAll && !state ? (
+        <p role="status" className="py-10 text-center text-slate-500">
+          Loading this pay period…
+        </p>
       ) : groups.length === 0 ? (
         <p className="py-10 text-center text-slate-500">
           {rows.length === 0
@@ -300,26 +317,39 @@ export function ExpensesView({
         </ul>
       )}
 
-      {openRow && serverRow && (
+      {openRow && canOpen && (
         <TransactionSheet
           key={openRow.key}
-          row={openRow}
-          isSplitParent={isSplitParent(openRow, rows)}
-          isSplitChild={isSplitChild(openRow, rows)}
+          rows={openGroup}
+          focusRowIndex={openRow.rowIndex}
           taxMultiplier={
-            all && openAllSheet ? all.taxMultiplier : state.taxMultiplier
+            all && openAllSheet
+              ? all.taxMultiplier
+              : (state?.taxMultiplier ?? 1)
           }
           envelopeOptions={options}
-          envelopes={openSheetName === state.sheetName ? state.envelopes : null}
+          envelopes={
+            state && openSheetName === state.sheetName ? state.envelopes : null
+          }
           paidWithOptions={
-            openAllSheet ? openAllSheet.paidWithOptions : state.paidWithOptions
+            openAllSheet
+              ? openAllSheet.paidWithOptions
+              : (state?.paidWithOptions ?? null)
           }
-          onChange={(changes) =>
-            engine.enqueueUpdate(openSheetName, serverRow, changes)
-          }
-          onSplit={(splits, parent) =>
-            engine.enqueueSplit(openSheetName, serverRow, splits, parent)
-          }
+          onUpdate={(row, changes) => {
+            const server = serverRowOf(row);
+            if (server) engine.enqueueUpdate(openSheetName, server, changes);
+          }}
+          onSplit={(row, splits, parent) => {
+            const server = serverRowOf(row);
+            if (server)
+              engine.enqueueSplit(openSheetName, server, splits, parent);
+          }}
+          onDelete={(group) => {
+            const servers = group.map(serverRowOf);
+            if (servers.every((r) => r !== null))
+              engine.enqueueDelete(openSheetName, servers);
+          }}
           onClose={() => setOpenKey(null)}
         />
       )}

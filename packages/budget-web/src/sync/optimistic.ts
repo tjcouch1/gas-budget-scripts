@@ -18,6 +18,7 @@ export function applyChangesToRow(
 ): TransactionRowDto {
   const next = { ...row };
   if (changes.name !== undefined) next.name = changes.name;
+  if (changes.note !== undefined) next.note = changes.note;
   if (changes.envelope !== undefined) next.envelope = changes.envelope;
   if (changes.paidWith !== undefined) next.paidWith = changes.paidWith;
   if (changes.taxDeductible !== undefined)
@@ -72,6 +73,8 @@ export function proposedRow(
   if (mutation.action === "updateTransaction") {
     return applyChangesToRow(base, mutation.payload.changes, taxMultiplier);
   }
+  // A delete has no proposed row (the conflict dialog shows it as deleted).
+  if (mutation.action === "deleteTransaction") return base;
   return applySplitToParent(base, 0, {
     itemNote: mutation.payload.parentItemNote,
     envelope: mutation.payload.parentEnvelope,
@@ -88,7 +91,8 @@ export interface RowSource {
 /**
  * Server rows with queued mutations applied optimistically. Queued splits mark
  * the parent and add synthetic placeholder children (without shifting real
- * row indexes, which later queued edits still refer to).
+ * row indexes, which later queued edits still refer to). Rows of a queued
+ * delete are hidden.
  */
 export function buildViewRows(
   state: RowSource | undefined,
@@ -98,8 +102,13 @@ export function buildViewRows(
 ): ViewRow[] {
   if (!state) return [];
   const mutationsByRow = new Map<number, QueuedMutation[]>();
+  const deleting = new Set<number>();
   for (const m of queue) {
     if (m.sheetName !== state.sheetName) continue;
+    if (m.action === "deleteTransaction") {
+      for (const r of m.payload.rows) deleting.add(r.rowIndex);
+      continue;
+    }
     const list = mutationsByRow.get(m.rowIndex) ?? [];
     list.push(m);
     mutationsByRow.set(m.rowIndex, list);
@@ -107,7 +116,7 @@ export function buildViewRows(
   const rows: ViewRow[] = [];
   const prefix = scoped ? `${state.sheetName}#` : "";
   for (const original of state.transactions) {
-    if (!original) continue;
+    if (!original || deleting.has(original.rowIndex)) continue;
     const t: TransactionRowDto = scoped
       ? {
           ...original,
@@ -133,7 +142,7 @@ export function buildViewRows(
           pending: true,
           splitPending: row.splitPending,
         };
-      } else {
+      } else if (m.action === "splitTransaction") {
         let total = 0;
         m.payload.splits.forEach((s, i) => {
           const expr = s.expression.trim().replace(/^=/, "");

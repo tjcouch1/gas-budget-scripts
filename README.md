@@ -49,9 +49,11 @@ We use **[Volta](https://volta.sh)** to pin and manage compatible Node and `pnpm
 
 3. **Configure clasp connection**:
    Clone or connect your Apps Script project:
+
    ```bash
    pnpm run connect   # runs `clasp clone SCRIPT_PROJECT_ID --rootDir ./dist` inside packages/budget-scripts-gas
    ```
+
    > **IMPORTANT**: Your `.clasp.json` lives in `packages/budget-scripts-gas/` (it is gitignored; if you had one in the repo root before the workspace move, move it there along with any variants). It (as well as any environment variants like `.clasp - prod.json` and `.clasp - test.json`) **must** set:
    >
    > ```json
@@ -59,6 +61,8 @@ We use **[Volta](https://volta.sh)** to pin and manage compatible Node and `pnpm
    > ```
    >
    > Clasp pushes the bundled files from `dist/` rather than the raw TypeScript files in `src/`.
+
+4. **Web app setup (optional)**: see `web-plan.md` §0. After pushing, run `setupGenerateApiKey` and `setupAddOptionalSheetVariables` once from the Apps Script editor's **Run** dropdown. The second adds the optional `EnvelopesStart`/`EnvelopesMax`/`PaidWithStart`/`PaidWithMax` keys (empty) to the Template tab and logs which cells to fill in.
 
 ---
 

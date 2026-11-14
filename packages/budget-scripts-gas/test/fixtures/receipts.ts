@@ -79,8 +79,7 @@ export const receiptFixtures = {
       subject: "You have a $45.00 credit pending on your credit card",
       body: "Account ending in 1234\r\nMerchant   Target Store  \r\nDate Mar 1\r\n",
     },
-    // NOTE: possible bug: greedy `.+` before `s+` keeps trailing spaces in the merchant name
-    expected: { cost: -45, name: "Target Store  ", type: "Credit" },
+    expected: { cost: -45, name: "Target Store", type: "Credit" },
   },
   chaseGasStation: {
     description: "parses a gas station receipt with the Gas category",
@@ -89,10 +88,9 @@ export const receiptFixtures = {
       subject: "You used your card at a gas station",
       body: "Hello\nMerchant   SHELL OIL 123  \n\nMore text\n",
     },
-    // NOTE: possible bug: trailing spaces from the body are kept before " (Gas)"
     expected: {
       cost: undefined,
-      name: "SHELL OIL 123   (Gas)",
+      name: "SHELL OIL 123 (Gas)",
       category: "Gas",
       type: "Credit",
     },
@@ -219,15 +217,26 @@ export const receiptFixtures = {
   },
   venmoReceived: {
     description:
-      "parses money received as negative cost; name is NOT taken from the subject",
+      "parses money received as negative cost; name is the sender from the subject",
     email: {
       from: VENMO,
       subject: "Alice paid you $40.00",
       body: "Alice paid\nyou\n$40.00\nConcert tickets\nmore\n",
     },
-    // NOTE: possible bug: for received payments `name` is never assigned from the subject, so the
-    // recorded name is "undefined - <note>"
-    expected: { cost: -40, name: "undefined - Concert tickets" },
+    expected: { cost: -40, name: "Alice - Concert tickets" },
+  },
+  venmoForwardedReceived: {
+    description:
+      "parses a forwarded Venmo received payment with the sender name",
+    email: {
+      from: FWD,
+      subject: "Fwd: Alice paid you $40.00",
+      body:
+        "---------- Forwarded message ---------\nFrom: Venmo <venmo@venmo.com>\n" +
+        "Date: Mon\nSubject: Alice paid you $40.00\nTo: Sam <fwd@example.com>\n\n" +
+        "Alice paid\nyou\n$40.00\nConcert tickets\nmore\n",
+    },
+    expected: { cost: -40, name: "Alice - Concert tickets", type: "Sam Venmo" },
   },
   venmoForwarded: {
     description: "parses a forwarded Venmo payment",

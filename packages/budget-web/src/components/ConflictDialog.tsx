@@ -9,16 +9,20 @@ const FIELDS: { label: string; get: (r: TransactionRowDto) => string }[] = [
   { label: "Envelope", get: (r) => r.envelope },
   { label: "Paid with", get: (r) => r.paidWith },
   { label: "Tax deductible", get: (r) => r.taxDeductible },
+  { label: "Note", get: (r) => r.note },
 ];
 
 function Column({
   title,
   row,
   other,
+  replacement,
 }: {
   title: string;
   row: TransactionRowDto | null;
   other: TransactionRowDto | null;
+  /** Shown instead of the fields (e.g. for a deleted row). */
+  replacement?: string;
 }) {
   return (
     <section
@@ -26,7 +30,11 @@ function Column({
       className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"
     >
       <h3 className="mb-2 text-sm font-semibold">{title}</h3>
-      {row ? (
+      {replacement ? (
+        <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+          {replacement}
+        </p>
+      ) : row ? (
         <dl className="space-y-1 text-sm">
           {FIELDS.map((f) => {
             const value = f.get(row);
@@ -65,8 +73,14 @@ export function ConflictDialog({
   onResolve: (choice: "accept" | "overwrite") => void;
 }) {
   const { mutation, current } = conflict;
-  const original = mutation.baseRow;
+  const isDelete = mutation.action === "deleteTransaction";
+  // For a delete, compare the row that changed (it may be any row of the split group).
+  const original = isDelete
+    ? (mutation.payload.rows.find((r) => r.rowIndex === current?.rowIndex)
+        ?.baseRow ?? mutation.baseRow)
+    : mutation.baseRow;
   const mine = proposedRow(mutation, original, taxMultiplier);
+  const deleteCount = isDelete ? mutation.payload.rows.length : 0;
   return (
     <Dialog title="This row changed in the sheet" wide>
       <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
@@ -83,9 +97,30 @@ export function ConflictDialog({
             .join("; ")}
         </p>
       )}
+      {isDelete && (
+        <p className="mb-3 text-sm">
+          Your discarded change was a delete of{" "}
+          {deleteCount === 1
+            ? "this transaction"
+            : `all ${deleteCount} rows of this split`}
+          . Accept Remote keeps the row(s); Overwrite with Mine deletes them
+          anyway.
+        </p>
+      )}
       <div className="grid gap-3 sm:grid-cols-3">
         <Column title="Original Value" row={original} other={null} />
-        <Column title="Discarded Local Change" row={mine} other={original} />
+        <Column
+          title="Discarded Local Change"
+          row={mine}
+          other={original}
+          replacement={
+            isDelete
+              ? deleteCount === 1
+                ? "Delete"
+                : `Delete (all ${deleteCount} rows)`
+              : undefined
+          }
+        />
         <Column title="Current Remote Value" row={current} other={original} />
       </div>
       <div className="mt-4 flex flex-wrap gap-2">

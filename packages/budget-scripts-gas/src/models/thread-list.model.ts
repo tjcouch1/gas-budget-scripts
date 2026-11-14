@@ -207,7 +207,7 @@ const chaseSubjectGasRegExp = /^You used your card at a gas station$/;
  *
  * Named groups: `name`
  */
-const chaseBodyMerchantRegExp = /\r?\nMerchant\s+(?<name>.+)\s+\r?\n/;
+const chaseBodyMerchantRegExp = /\r?\nMerchant\s+(?<name>.*\S)\s*\r?\n/;
 
 // #endregion
 
@@ -481,6 +481,7 @@ function getReceiptInfoVenmo(
       );
       if (matches) {
         cost = matches.cost! * -1;
+        name = matches.name;
         matches = getMessagePartInfo(
           isForwarded ? getForwardPlainBody(message) : message.getPlainBody(),
           venmoBodyReceivedNoteRegExp,

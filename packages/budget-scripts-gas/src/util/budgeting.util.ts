@@ -900,8 +900,9 @@ export function splitTransaction(
       3,
     );
     /** Transaction metadata to move down `numNewRows` rows */
-    const transactionsMetadataToMove =
-      getTransactionMetadataRange(transactionsToMove);
+    const transactionsMetadataToMove = getTransactionMetadataRange(
+      transactionsToMove,
+    ).offset(0, 0, transactionsToMove.getNumRows(), 3); // Envelope, Paid with, Tax Deductible
 
     // Copy the transactions down
     transactionsToMove.copyTo(transactionsToMove.offset(numNewRows, 0));
@@ -922,6 +923,10 @@ export function splitTransaction(
       .clearContent()
       .setNotes(nullArrayNewRowsMetadataSize)
       .setBackgrounds(nullArrayNewRowsMetadataSize);
+    // Tax Deductible (col 6) moved with the rows, so the new rows start blank
+    newRowsMetadataRange
+      .offset(0, 2, newRowsMetadataRange.getNumRows(), 1)
+      .clearContent();
   }
 
   // Add the split transaction rows directly after this transaction group
@@ -967,6 +972,47 @@ export function splitTransaction(
   return splitTransactionRange;
 }
 
+/** Transaction column blocks cleared by `deleteTransactionRows`: Date/Name/Cost and Envelope/Paid with/Tax Deductible */
+const DELETE_CLEARED_COLUMN_BLOCKS = [
+  { column: 0, numColumns: 3 },
+  { column: 4, numColumns: 3 },
+] as const;
+
+/**
+ * Deletes `count` transaction rows starting at `rowIndex` (0-based from TransactionsStart) by
+ * clearing them in place and leaving a gap: nothing moves and no other row is rewritten. Clears
+ * contents, notes, and backgrounds of cols 0-2 and 4-6. Never touches col 3 (Current Balance) or the
+ * split checkboxes. One batch call per kind of data and block
+ */
+export function deleteTransactionRows(
+  sheet: GoogleAppsScript.Spreadsheet.Sheet,
+  rowIndex: number,
+  count: number,
+) {
+  const sheetVariables = Variables.getSheetVariables(sheet);
+  const transactionsMax = Number(sheetVariables.TransactionsMax);
+  if (
+    !Number.isInteger(rowIndex) ||
+    !Number.isInteger(count) ||
+    rowIndex < 0 ||
+    count < 1 ||
+    rowIndex + count > transactionsMax
+  )
+    throw new Error(
+      `Cannot delete ${count} transaction row(s) at row ${rowIndex}: out of range`,
+    );
+  const topLeft = sheet.getRange(sheetVariables.TransactionsStart);
+
+  DELETE_CLEARED_COLUMN_BLOCKS.forEach(({ column, numColumns }) => {
+    const range = topLeft.offset(rowIndex, column, count, numColumns);
+    const grid = <T>(value: T) =>
+      Array.from({ length: count }, () => Array<T>(numColumns).fill(value));
+    range.setValues(grid<unknown>(""));
+    range.setNotes(grid(""));
+    range.setBackgrounds(grid<string | null>(null));
+  });
+}
+
 export const Budgeting = {
   getChaseReceipts,
   getTransactionSheetInfos,
@@ -976,4 +1022,5 @@ export const Budgeting = {
   recordReceiptsCore,
   getTransactionSplitCheckboxesRange,
   splitTransaction,
+  deleteTransactionRows,
 };

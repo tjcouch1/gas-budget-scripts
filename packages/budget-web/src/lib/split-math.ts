@@ -11,7 +11,21 @@ export interface SplitDraftItem {
   expression: string;
   preTax: boolean;
   envelope: string;
+  /** "" copies the original row's Paid with. */
+  paidWith: string;
 }
+
+let keyCounter = 0;
+
+/** A blank new split item; "Add tax" starts checked (most receipts list pre-tax prices). */
+export const newSplitItem = (): SplitDraftItem => ({
+  key: `item-${keyCounter++}`,
+  itemNote: "",
+  expression: "",
+  preTax: true,
+  envelope: "",
+  paidWith: "",
+});
 
 export interface EvaluatedSplitItem {
   /** Tax-applied amount, or null when the expression is invalid. */
@@ -71,5 +85,6 @@ export function toSplitInputs(items: SplitDraftItem[]): SplitItemInput[] {
     expression: i.expression.trim(),
     preTax: i.preTax,
     envelope: i.envelope,
+    ...(i.paidWith ? { paidWith: i.paidWith } : {}),
   }));
 }

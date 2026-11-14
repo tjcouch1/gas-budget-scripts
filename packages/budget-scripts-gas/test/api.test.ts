@@ -855,6 +855,46 @@ describe("updateTransaction", () => {
     expect(sheet.getRange("E5").getValue()).toBe("Gas");
   });
 
+  it("edits the note alone with one setNote on the Name cell, leaving the background", async () => {
+    sheet.getRange("B5").setBackground("#E8A9CA");
+    const writes = spySetValues();
+    const res = await update(0, { note: "new note" }, { baseNote: "" });
+    expect(res.ok).toBe(true);
+    expect(writes).toEqual([]);
+    expect(sheet.getRange("B5").getNotes()).toEqual([["new note"]]);
+    expect(sheet.getRange("B5").getBackgrounds()).toEqual([["#E8A9CA"]]);
+    expect(res.data.note).toBe("new note");
+    const cleared = await update(0, { note: "" }, { baseNote: "new note" });
+    expect(cleared.ok).toBe(true);
+    expect(sheet.getRange("B5").getNotes()).toEqual([[""]]);
+  });
+
+  it("requires baseNote with changes.note and limits the note length", async () => {
+    const missing = await update(0, { note: "x" });
+    expect(missing.ok).toBe(false);
+    expect(missing.error.code).toBe("bad_request");
+    const long = await update(0, { note: "x".repeat(5001) }, { baseNote: "" });
+    expect(long.ok).toBe(false);
+    expect(long.error.code).toBe("bad_request");
+    expect(sheet.getRange("B5").getNotes()).toEqual([[""]]);
+  });
+
+  it("returns conflict when the note changed on the sheet, unless forced", async () => {
+    sheet.getRange("B5").setNote("theirs");
+    const res = await update(0, { note: "mine" }, { baseNote: "" });
+    expect(res.ok).toBe(false);
+    expect(res.error.code).toBe("conflict");
+    expect(res.conflict.current).toMatchObject({ note: "theirs" });
+    expect(sheet.getRange("B5").getNotes()).toEqual([["theirs"]]);
+    const forced = await update(
+      0,
+      { note: "mine" },
+      { baseNote: "", force: true },
+    );
+    expect(forced.ok).toBe(true);
+    expect(sheet.getRange("B5").getNotes()).toEqual([["mine"]]);
+  });
+
   it("force skips the fingerprint check", async () => {
     const res = await api("updateTransaction", {
       sheetName: SHEET,
@@ -975,8 +1015,8 @@ describe("splitTransaction", () => {
     expect(rows(4)).toEqual([
       [D, "Store | ", "=5.5-R[1]C[0]", "=BALANCE(0)", "Food", "Credit", "Yes"],
       [D, "Store | ", "=1.0825*(0)", "=BALANCE(1)", "", "Credit", ""],
-      [D2, "Next", 7, "=BALANCE(2)", "Gas", "Sam Venmo", "Yes"],
-      [D2, "After", "=1+2", "=BALANCE(3)", "", "Credit", ""],
+      [D2, "Next", 7, "=BALANCE(2)", "Gas", "Sam Venmo", ""],
+      [D2, "After", "=1+2", "=BALANCE(3)", "", "Credit", "Yes"],
     ]);
   });
 
@@ -1162,7 +1202,7 @@ describe("splitTransaction", () => {
     },
   );
 
-  it("shifts following rows (cols 0-2 and 4-5 with notes and formats) down by N", async () => {
+  it("shifts following rows (cols 0-2 and 4-6 with notes and formats) down by N", async () => {
     sheet.seed("A5", [
       [D, "First", 10, "=BALANCE(0)", "c1", "Credit", "Yes"],
       [D2, "Second", 20, "=BALANCE(1)", "c2", "Cash", "T2"],
@@ -1181,10 +1221,10 @@ describe("splitTransaction", () => {
         "Credit",
         "Yes",
       ],
-      [D, "First | ", "=1.0825*(0)", "=BALANCE(1)", "", "Credit", "T2"],
+      [D, "First | ", "=1.0825*(0)", "=BALANCE(1)", "", "Credit", ""],
       [D, "First | ", "=1.0825*(0)", "=BALANCE(2)", "", "Credit", ""],
       [D, "First | ", "=1.0825*(0)", "=BALANCE(3)", "", "Credit", ""],
-      [D2, "Second", 20, "=BALANCE(4)", "c2", "Cash", ""],
+      [D2, "Second", 20, "=BALANCE(4)", "c2", "Cash", "T2"],
       [D2, "Third", 30, "=BALANCE(5)", "c3", "Credit", ""],
       ["", "", "", "=BALANCE(6)", "", "", ""],
     ]);
@@ -1192,6 +1232,34 @@ describe("splitTransaction", () => {
     expect(sheet.getRange("B9").getBackgrounds()).toEqual([["#E8A9CA"]]);
     expect(sheet.getRange("B6").getNotes()).toEqual([[""]]);
     expect(sheet.getRange("B6").getBackgrounds()).toEqual([[null]]);
+  });
+
+  it("gap: a split on a row above a gap fills the blank rows without shifting; groups never span the gap", async () => {
+    sheet.seed("A5", [
+      [D, "Store", 10, "=BALANCE(0)", "Food", "Credit", "Yes"],
+      ["", "", "", "=BALANCE(1)", "", "", ""],
+      [D, "Store", 7, "=BALANCE(2)", "Food", "Credit", "No"],
+    ]);
+    // Same name and date on both sides of the gap: they are not one group
+    const state = await getState();
+    expect(state.transactions[1]).toBeNull();
+    expect(state.transactions[0].splitGroupId).toBeNull();
+    expect(state.transactions[2].splitGroupId).toBeNull();
+
+    const res = await split(0, [item({ itemNote: "milk", expression: "4" })]);
+    expect(res.ok).toBe(true);
+    expect(rows(3)).toEqual([
+      [D, "Store | ", "=10-R[1]C[0]", "=BALANCE(0)", "Food", "Credit", "Yes"],
+      [D, "Store | milk", "=1.0825*(4)", "=BALANCE(1)", "", "Credit", ""],
+      [D, "Store", 7, "=BALANCE(2)", "Food", "Credit", "No"],
+    ]);
+    // Once the child fills the gap, the later "Store" row is adjacent and has the same name prefix,
+    // so serialize now groups it with the split (current behavior)
+    expect(res.data.transactions.map((r: any) => r && r.splitGroupId)).toEqual([
+      "0",
+      "0",
+      "0",
+    ]);
   });
 
   it("shifts when only a later one of the N target rows has content", async () => {
@@ -1344,6 +1412,295 @@ describe("splitTransaction", () => {
   });
 });
 
+describe("deleteTransaction", () => {
+  /** Rows A:G, with col D the sheet's =BALANCE(i) formula seeded by addApiSheet */
+  const seed = () => {
+    sheet.seed("A5", [
+      [D, "Coffee", 4.5, "=BALANCE(0)", "Food", "Credit", ""],
+      [
+        D,
+        "Store | ",
+        "=87.5-R[1]C[0]-R[2]C[0]",
+        "=BALANCE(1)",
+        "Food",
+        "Credit",
+        "Yes",
+      ],
+      [D, "Store | milk", "=1.0825*(4)", "=BALANCE(2)", "Food", "Credit", ""],
+      [D, "Store | toy", "=10", "=BALANCE(3)", "Fun", "Cash", "Yes"],
+      [D2, "Gas | ", "=30-R[1]C[0]", "=BALANCE(4)", "Gas", "Credit", ""],
+      [D2, "Gas | snack", "=1.0825*(2)", "=BALANCE(5)", "Food", "Credit", ""],
+      [D2, "Last", 9, "=BALANCE(6)", "", "Sam Venmo", "Yes"],
+    ]);
+    sheet.getRange("B9").setNote("gas note").setBackground("#E8A9CA");
+    sheet.getRange("C10").setBackground("#FF0000");
+    sheet.getRange("B10").setNote("snack note");
+    // Split checkboxes (col J) and anything outside cols A-G must never move
+    sheet.getRange("J5:J11").insertCheckboxes();
+    sheet.getRange("J6").setValue(true);
+  };
+
+  const del = async (
+    rowIndex: number,
+    count: number,
+    extra: Record<string, unknown> = {},
+  ) => {
+    const state = await getState();
+    return api("deleteTransaction", {
+      sheetName: SHEET,
+      rowIndex,
+      rows: Array.from({ length: count }, (_, i) => ({
+        rowIndex: rowIndex + i,
+        baseFingerprint: state.transactions[rowIndex + i]?.fingerprint ?? "x",
+      })),
+      ...extra,
+    });
+  };
+
+  const rows = (n: number) => sheet.getRange(5, 1, n, 7).getValues();
+  const balanceColumn = () =>
+    sheet
+      .getRange("D5:D14")
+      .getFormulas()
+      .map(([f]: string[]) => f);
+  const originalBalance = Array.from(
+    { length: 10 },
+    (_, i) => `=BALANCE(${i})`,
+  );
+
+  /** The seeded rows after clearing `blank` row indexes in cols A-C and E-G */
+  const seeded = [
+    [D, "Coffee", 4.5, "=BALANCE(0)", "Food", "Credit", ""],
+    [
+      D,
+      "Store | ",
+      "=87.5-R[1]C[0]-R[2]C[0]",
+      "=BALANCE(1)",
+      "Food",
+      "Credit",
+      "Yes",
+    ],
+    [D, "Store | milk", "=1.0825*(4)", "=BALANCE(2)", "Food", "Credit", ""],
+    [D, "Store | toy", "=10", "=BALANCE(3)", "Fun", "Cash", "Yes"],
+    [D2, "Gas | ", "=30-R[1]C[0]", "=BALANCE(4)", "Gas", "Credit", ""],
+    [D2, "Gas | snack", "=1.0825*(2)", "=BALANCE(5)", "Food", "Credit", ""],
+    [D2, "Last", 9, "=BALANCE(6)", "", "Sam Venmo", "Yes"],
+  ];
+  const blanked = (blank: number[]) =>
+    seeded.map((row, i) =>
+      blank.includes(i) ? ["", "", "", row[3], "", "", ""] : row,
+    );
+
+  it("deletes a single row in place: the row is blank, nothing else moves or is rewritten", async () => {
+    seed();
+    const writes = spySetValues();
+    const res = await del(0, 1);
+    expect(res.ok).toBe(true);
+    expect(rows(7)).toEqual(blanked([0]));
+    // Rows below keep their formulas, notes, and backgrounds in place
+    expect(sheet.getRange("B9").getNotes()).toEqual([["gas note"]]);
+    expect(sheet.getRange("B9").getBackgrounds()).toEqual([["#E8A9CA"]]);
+    expect(sheet.getRange("B10").getNotes()).toEqual([["snack note"]]);
+    expect(sheet.getRange("C10").getBackgrounds()).toEqual([["#FF0000"]]);
+    // Col D and the checkbox column are untouched
+    expect(balanceColumn()).toEqual(originalBalance);
+    expect(sheet.getRange("J5:J7").getValues()).toEqual([
+      [false],
+      [true],
+      [false],
+    ]);
+    // One batch write per cleared column block (A:C and E:G), for exactly the deleted row
+    expect(writes).toEqual([
+      [5, 1, 1, 3],
+      [5, 5, 1, 3],
+    ]);
+    // The refreshed state is returned: the gap is null and the other rows keep their indexes
+    expect(res.data.sheetName).toBe(SHEET);
+    expect(res.data.transactions[0]).toBeNull();
+    expect(res.data.transactions[1]).toMatchObject({
+      rowIndex: 1,
+      name: "Store | ",
+      splitGroupId: "1",
+    });
+  });
+
+  it("clears the notes and backgrounds of the deleted cells only", async () => {
+    seed();
+    expect((await del(4, 2)).ok).toBe(true);
+    expect(sheet.getRange("B9:B10").getNotes()).toEqual([[""], [""]]);
+    expect(sheet.getRange("B9").getBackgrounds()).toEqual([[null]]);
+    expect(sheet.getRange("C10").getBackgrounds()).toEqual([[null]]);
+  });
+
+  it("deletes a whole split group in place and leaves another split group's formulas untouched", async () => {
+    seed();
+    const res = await del(1, 3);
+    expect(res.ok).toBe(true);
+    expect(rows(7)).toEqual(blanked([1, 2, 3]));
+    expect(sheet.getRange("B9").getNotes()).toEqual([["gas note"]]);
+    expect(sheet.getRange("C10").getBackgrounds()).toEqual([["#FF0000"]]);
+    expect(balanceColumn()).toEqual(originalBalance);
+    expect(
+      res.data.transactions.map((r: any) => (r ? r.splitGroupId : "gap")),
+    ).toEqual([null, "gap", "gap", "gap", "4", "4", null]);
+  });
+
+  it("keeps the other split group evaluating correctly after a delete", async () => {
+    env.spreadsheet.evaluateFormulas = true;
+    seed();
+    expect((await del(0, 1)).ok).toBe(true);
+    const state = await getState();
+    expect(state.transactions[1].cost).toBeCloseTo(87.5 - 1.0825 * 4 - 10);
+    expect(state.transactions[4].cost).toBeCloseTo(30 - 1.0825 * 2);
+  });
+
+  it("deletes the last row of a full table", async () => {
+    sheet.seed(
+      "A5",
+      // Alternating dates so no rows form a split group
+      Array.from({ length: 10 }, (_, i) => [
+        i % 2 ? D2 : D,
+        `Row ${i}`,
+        i,
+        `=BALANCE(${i})`,
+        "",
+        "",
+        "",
+      ]),
+    );
+    expect((await del(9, 1)).ok).toBe(true);
+    expect(sheet.getRange("A14:C14").getValues()).toEqual([["", "", ""]]);
+    expect(sheet.getRange("B13").getValue()).toBe("Row 8");
+    expect(sheet.getRange("B5").getValue()).toBe("Row 0");
+    expect(balanceColumn()).toEqual(originalBalance);
+  });
+
+  it("returns a conflict with the current row when any row changed, and deletes nothing", async () => {
+    seed();
+    const state = await getState();
+    sheet.getRange("C7").setValue("=1.0825*(5)");
+    const before = snapshot(sheet);
+    const request = {
+      sheetName: SHEET,
+      rowIndex: 1,
+      rows: [1, 2, 3].map((r) => ({
+        rowIndex: r,
+        baseFingerprint: state.transactions[r].fingerprint,
+      })),
+    };
+    const res = await api("deleteTransaction", request);
+    expect(res.error.code).toBe("conflict");
+    expect(res.conflict.current).toMatchObject({
+      rowIndex: 2,
+      costFormula: "=1.0825*(5)",
+    });
+    expect(snapshot(sheet)).toEqual(before);
+
+    // force deletes anyway
+    const forced = await api("deleteTransaction", { ...request, force: true });
+    expect(forced.ok).toBe(true);
+    expect(sheet.getRange("B6:B8").getValues()).toEqual([[""], [""], [""]]);
+    expect(sheet.getRange("B9").getValue()).toBe("Gas | ");
+  });
+
+  it.each([
+    ["only part of a split group", 1, 2],
+    ["a child row of a split group", 2, 1],
+    ["the tail of a split group", 2, 2],
+    ["a split group plus the next row", 4, 3],
+    ["a single row plus the next group", 0, 2],
+  ])("rejects %s", async (_label, rowIndex, count) => {
+    seed();
+    const before = snapshot(sheet);
+    const res = await del(rowIndex, count);
+    expect(res.error.code).toBe("bad_request");
+    expect(snapshot(sheet)).toEqual(before);
+  });
+
+  it("rejects an empty row", async () => {
+    seed();
+    // force skips the fingerprint check (an empty row is not in the pulled list)
+    const res = await del(8, 1, { force: true });
+    expect(res.error.code).toBe("bad_request");
+    expect(res.error.message).toBe("Row 8 is empty");
+  });
+
+  it.each([
+    ["missing rows", { rows: undefined }],
+    ["empty rows", { rows: [] }],
+    [
+      "non-contiguous rows",
+      {
+        rows: [
+          { rowIndex: 1, baseFingerprint: "a" },
+          { rowIndex: 3, baseFingerprint: "b" },
+        ],
+      },
+    ],
+    [
+      "rows not starting at rowIndex",
+      { rows: [{ rowIndex: 2, baseFingerprint: "a" }] },
+    ],
+    ["empty fingerprint", { rows: [{ rowIndex: 1, baseFingerprint: "" }] }],
+    [
+      "rows past the table end",
+      {
+        rowIndex: 9,
+        rows: [
+          { rowIndex: 9, baseFingerprint: "a" },
+          { rowIndex: 10, baseFingerprint: "b" },
+        ],
+      },
+    ],
+    [
+      "a bad rowIndex",
+      { rowIndex: 10, rows: [{ rowIndex: 10, baseFingerprint: "a" }] },
+    ],
+  ])("validates the request: %s", async (_label, fields) => {
+    seed();
+    const before = snapshot(sheet);
+    const res = await api("deleteTransaction", {
+      sheetName: SHEET,
+      rowIndex: 1,
+      ...fields,
+    });
+    expect(res.error.code).toBe("bad_request");
+    expect(snapshot(sheet)).toEqual(before);
+  });
+
+  it("Budgeting.deleteTransactionRows rejects out-of-range rows", async () => {
+    const { Budgeting } = await import("../src/util/budgeting.util");
+    for (const [rowIndex, count] of [
+      [-1, 1],
+      [0, 0],
+      [9, 2],
+      [0.5, 1],
+    ])
+      expect(() =>
+        Budgeting.deleteTransactionRows(sheet, rowIndex, count),
+      ).toThrow("out of range");
+  });
+
+  it("returns not_found for an unknown sheet and busy when the lock is held", async () => {
+    seed();
+    const missing = await api("deleteTransaction", {
+      sheetName: "Nope",
+      rowIndex: 0,
+      rows: [{ rowIndex: 0, baseFingerprint: "a" }],
+    });
+    expect(missing.error.code).toBe("not_found");
+    const fp = await fingerprintOf(0);
+    env.LockService.scriptLock.contended = true;
+    const res = await api("deleteTransaction", {
+      sheetName: SHEET,
+      rowIndex: 0,
+      rows: [{ rowIndex: 0, baseFingerprint: fp }],
+    });
+    expect(res.error.code).toBe("busy");
+    expect(sheet.getRange("B5").getValue()).toBe("Coffee");
+  });
+});
+
 describe("syncReceipts", () => {
   const chase = chasePurchaseEmail;
 
@@ -1412,6 +1769,30 @@ describe("syncReceipts", () => {
     expect(env.spreadsheet.getSheets()).toHaveLength(sheetCount);
     expect(t.labels).toEqual([]);
     expect(env.LockService.scriptLock.held).toBe(false);
+  });
+
+  it("mark:false imports rows but does not label or archive; omitted mark still marks", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-02-25T18:00:00Z"));
+    const a = makeThread(chase("10.50", "Shop", "2024-02-20T12:00:00Z"));
+    env.GmailApp.threads = [a];
+    const res = await api("syncReceipts", { mark: false });
+    expect(res.ok).toBe(true);
+    expect(res.data.receiptInfosAdded).toBe(1);
+    expect(a.labels).toEqual([]);
+    expect(a.archived).toBe(false);
+    const res2 = await api("syncReceipts");
+    expect(res2.data.receiptInfosAdded).toBe(1);
+    expect(a.archived).toBe(true);
+    expect(a.labels.map((l: any) => l.getName())).toContain(
+      "Receipts/Scripted",
+    );
+  });
+
+  it("rejects a non-boolean mark", async () => {
+    const res = await api("syncReceipts", { mark: "no" });
+    expect(res.error.code).toBe("bad_request");
+    expect(env.GmailApp.searches).toEqual([]);
   });
 
   it("returns busy without searching Gmail when the lock is held elsewhere", async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  newSplitItem,
   summarizeSplit,
   toSplitInputs,
   type SplitDraftItem,
@@ -11,6 +12,7 @@ const item = (over: Partial<SplitDraftItem>): SplitDraftItem => ({
   expression: "",
   preTax: false,
   envelope: "",
+  paidWith: "",
   ...over,
 });
 
@@ -88,5 +90,32 @@ describe("summarizeSplit", () => {
         envelope: "Groceries",
       },
     ]);
+  });
+
+  it("sends Paid with only when chosen", () => {
+    expect(
+      toSplitInputs([item({ expression: "1", paidWith: "Debit" })])[0],
+    ).toEqual({
+      itemNote: "",
+      expression: "1",
+      preTax: false,
+      envelope: "",
+      paidWith: "Debit",
+    });
+  });
+});
+
+describe("newSplitItem", () => {
+  it("starts blank with Add tax checked and a unique key", () => {
+    const a = newSplitItem();
+    const b = newSplitItem();
+    expect(a).toMatchObject({
+      itemNote: "",
+      expression: "",
+      preTax: true,
+      envelope: "",
+      paidWith: "",
+    });
+    expect(a.key).not.toBe(b.key);
   });
 });

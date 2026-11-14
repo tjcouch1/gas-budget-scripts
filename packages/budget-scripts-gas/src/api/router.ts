@@ -11,6 +11,7 @@ import {
 import { ApiError, getErrorMessage } from "./api-error";
 import { isAuthorized } from "./auth";
 import {
+  handleDeleteTransaction,
   handleGetAllTransactions,
   handleGetState,
   handleSplitTransaction,
@@ -83,8 +84,11 @@ export function handleApiRequest(body: unknown): ApiResponse<unknown> {
       case "splitTransaction":
         result = handleSplitTransaction(req);
         break;
+      case "deleteTransaction":
+        result = handleDeleteTransaction(req);
+        break;
       case "syncReceipts":
-        result = handleSyncReceipts();
+        result = handleSyncReceipts(req);
         break;
       default:
         throw new ApiError("bad_request", "Unknown action");

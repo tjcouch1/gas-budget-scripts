@@ -3,11 +3,14 @@ import { createPortal } from "react-dom";
 
 export function Button({
   variant = "secondary",
+  size = "md",
   className = "",
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary" | "danger" | "ghost";
+  size?: "md" | "sm";
 }) {
+  const sizing = size === "sm" ? "min-h-9 px-3 py-1" : "min-h-11 px-4 py-2";
   const styles = {
     primary: "bg-teal-700 text-white hover:bg-teal-800 disabled:bg-teal-700/40",
     secondary:
@@ -19,7 +22,7 @@ export function Button({
   return (
     <button
       type="button"
-      className={`min-h-11 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed ${styles} ${className}`}
+      className={`${sizing} rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed ${styles} ${className}`}
       {...props}
     />
   );
@@ -171,6 +174,59 @@ export function UnsavedPrompt({
           </Button>
           <Button autoFocus onClick={onBack}>
             Go back
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * Modal confirmation for a destructive action. Nothing happens until the red confirm button is
+ * pressed; Cancel has focus, and Escape cancels (without closing the dialog underneath).
+ */
+export function ConfirmDialog({
+  title,
+  children,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  children: ReactNode;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  useEffect(() => {
+    // Capture phase on window runs before the drawer's Escape handler, which must not run.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onCancel();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onCancel]);
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/60 p-4 sm:items-center">
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-label={title}
+        className="w-full max-w-sm space-y-3 rounded-2xl bg-white p-4 shadow-xl dark:bg-slate-900"
+      >
+        <h2 className="text-lg font-semibold">{title}</h2>
+        <div className="text-sm text-slate-600 dark:text-slate-400">
+          {children}
+        </div>
+        <div className="flex flex-col gap-2">
+          <Button variant="danger" onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+          <Button autoFocus onClick={onCancel}>
+            Cancel
           </Button>
         </div>
       </div>

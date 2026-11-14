@@ -124,6 +124,80 @@ describe("SyncEngine reads", () => {
   });
 });
 
+describe("SyncEngine stale pay period and note edits", () => {
+  const GONE = "1/1/26 - 1/14/26";
+
+  it("falls back to the default pay period when the cached sheet no longer exists", async () => {
+    const store = new MemoryKeyValueStore();
+    await store.set("engine", {
+      currentSheet: GONE,
+      states: { [GONE]: makeState(twoRows(), { sheetName: GONE }) },
+      queue: [],
+      conflicts: [],
+    });
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getState" && req.sheetName === GONE)
+        throw new ApiError("not_found", `No transaction sheet named "${GONE}"`);
+      return makeState(twoRows());
+    }, store);
+    await engine.init();
+    const snap = engine.getSnapshot();
+    expect(
+      calls.map((c) => ("sheetName" in c ? c.sheetName : undefined)),
+    ).toEqual([GONE, undefined]);
+    expect(snap.states[GONE]).toBeUndefined();
+    expect(snap.currentSheet).toBe(SHEET);
+    expect(snap.states[SHEET]).toBeDefined();
+    expect(snap.notice).toMatchObject({
+      kind: "info",
+      message: `Pay period "${GONE}" is no longer in the spreadsheet, so the current pay period is shown.`,
+    });
+    const saved = await store.get<{ states: object }>("engine");
+    expect(Object.keys(saved!.states)).toEqual([SHEET]);
+  });
+
+  it("refresh resolves true on success and false on failure", async () => {
+    let fail = false;
+    const { engine } = newEngine(() => {
+      if (fail) throw new ApiError("network", "down");
+      return makeState(twoRows());
+    });
+    await engine.init();
+    expect(await engine.refresh()).toBe(true);
+    fail = true;
+    expect(await engine.refresh()).toBe(false);
+  });
+
+  it("sends baseNote with a note change", async () => {
+    const { engine, calls } = newEngine((req) =>
+      req.action === "getState"
+        ? makeState([makeRow(0, { name: "Aldi", note: "old" })])
+        : makeRow(0, { name: "Aldi", note: "new", fingerprint: "newfp000" }),
+    );
+    await engine.init();
+    const row = engine.getSnapshot().states[SHEET].transactions[0]!;
+    engine.enqueueUpdate(SHEET, row, { note: "new" });
+    await engine.flush();
+    expect(calls.find((c) => c.action === "updateTransaction")).toMatchObject({
+      changes: { note: "new" },
+      baseNote: "old",
+    });
+  });
+
+  it("does not send baseNote without a note change", async () => {
+    const { engine, calls } = newEngine((req) =>
+      req.action === "getState" ? makeState(twoRows()) : makeRow(0),
+    );
+    await engine.init();
+    const row = engine.getSnapshot().states[SHEET].transactions[0]!;
+    engine.enqueueUpdate(SHEET, row, { envelope: "Gas" });
+    await engine.flush();
+    expect(
+      calls.find((c) => c.action === "updateTransaction"),
+    ).not.toHaveProperty("baseNote");
+  });
+});
+
 describe("SyncEngine updates", () => {
   async function setup(handler: Handler) {
     const ctx = newEngine((req) =>
@@ -560,6 +634,45 @@ describe("SyncEngine receipts and local data", () => {
     expect(engine.getSnapshot().states[SHEET].transactions).toHaveLength(1);
   });
 
+  it("sends mark:false only when asked", async () => {
+    const { engine, calls } = newEngine((req) =>
+      req.action === "syncReceipts"
+        ? {
+            receiptInfosAdded: 0,
+            numErrors: 0,
+            errors: [],
+            state: makeState(twoRows()),
+          }
+        : makeState(twoRows()),
+    );
+    await engine.init();
+    await engine.syncReceipts();
+    await engine.syncReceipts({ mark: false });
+    const sent = calls.filter((c) => c.action === "syncReceipts");
+    expect(sent[0]).not.toHaveProperty("mark");
+    expect(sent[1]).toMatchObject({ mark: false });
+  });
+
+  it("clearLocalData also resets the selected sheet and drops in-flight results", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const { engine } = newEngine(async (req) => {
+      if (req.action === "getState") return makeState(twoRows());
+      await gate;
+      return makeRow(0, { name: "Aldi", note: "x", fingerprint: "fp2" });
+    });
+    await engine.init();
+    const row = engine.getSnapshot().states[SHEET].transactions[0]!;
+    engine.enqueueUpdate(SHEET, row, { note: "x" });
+    const cleared = engine.clearLocalData();
+    release();
+    await cleared;
+    const snap = engine.getSnapshot();
+    expect(snap.currentSheet).toBeNull();
+    expect(snap.states).toEqual({});
+    expect(snap.queue).toEqual([]);
+  });
+
   it("explains a missing pay-period sheet", async () => {
     const { engine } = newEngine((req) => {
       if (req.action === "syncReceipts") {
@@ -768,5 +881,279 @@ describe("SyncEngine split parent fields and saved marks", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("SyncEngine deletes", () => {
+  /** Coffee (0), a split group Aldi (1-2), Shell (3) */
+  const groupRows = () => [
+    makeRow(0, { name: "Coffee", cost: 4 }),
+    makeRow(1, { name: "Aldi | ", cost: 6, splitGroupId: "1" }),
+    makeRow(2, { name: "Aldi | milk", cost: 4, splitGroupId: "1" }),
+    makeRow(3, { name: "Shell", cost: 30 }),
+  ];
+  /** The sheet after deleting the Aldi group: rows 1-2 are blank gaps and Shell stays at row 3 */
+  const afterGroupDelete = () =>
+    makeState([groupRows()[0], null, null, groupRows()[3]]);
+
+  it("hides the rows optimistically, sends every row's fingerprint, and accepts the returned state", async () => {
+    let release: (s: PayPeriodStateDto) => void = () => {};
+    const { engine, calls, store } = newEngine((req) => {
+      if (req.action === "getState") return makeState(groupRows());
+      return new Promise<PayPeriodStateDto>((r) => (release = r));
+    });
+    await engine.init();
+    const [, parent, child] = groupRows();
+    // Passed out of order: rows are sorted by index
+    engine.enqueueDelete(SHEET, [child, parent]);
+    expect(rowsOf(engine).map((r) => r.name)).toEqual(["Coffee", "Shell"]);
+    await flush();
+    // Persisted while queued (offline-capable)
+    const persisted = await store.get<{ queue: { action: string }[] }>(
+      "engine",
+    );
+    expect(persisted?.queue.map((q) => q.action)).toEqual([
+      "deleteTransaction",
+    ]);
+    expect(calls.at(-1)).toEqual({
+      action: "deleteTransaction",
+      sheetName: SHEET,
+      rowIndex: 1,
+      rows: [
+        { rowIndex: 1, baseFingerprint: parent.fingerprint },
+        { rowIndex: 2, baseFingerprint: child.fingerprint },
+      ],
+    });
+    release(afterGroupDelete());
+    await engine.flush();
+    await flush();
+    expect(engine.getSnapshot().queue).toEqual([]);
+    expect(rowsOf(engine).map((r) => [r.rowIndex, r.name])).toEqual([
+      [0, "Coffee"],
+      [3, "Shell"],
+    ]);
+  });
+
+  it("keeps a later queued edit on a row below the delete unchanged (no rows move)", async () => {
+    let release: (s: PayPeriodStateDto) => void = () => {};
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getState") return makeState(groupRows());
+      if (req.action === "deleteTransaction")
+        return new Promise<PayPeriodStateDto>((r) => (release = r));
+      return {
+        ...groupRows()[3],
+        rowIndex: 1,
+        envelope: "Gas",
+        fingerprint: "s2",
+      };
+    });
+    await engine.init();
+    engine.enqueueDelete(SHEET, groupRows().slice(1, 3));
+    await flush();
+    engine.enqueueUpdate(SHEET, groupRows()[3], { envelope: "Gas" });
+    release(afterGroupDelete());
+    await engine.flush();
+    await flush();
+    expect(calls.find((c) => c.action === "updateTransaction")).toMatchObject({
+      rowIndex: 3,
+      baseFingerprint: groupRows()[3].fingerprint,
+    });
+    expect(engine.getSnapshot().queue).toHaveLength(0);
+    expect(engine.getSnapshot().conflicts).toHaveLength(0);
+  });
+
+  it("turns a later queued edit of a deleted row into a conflict instead of sending it", async () => {
+    let release: (s: PayPeriodStateDto) => void = () => {};
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getState") return makeState(groupRows());
+      if (req.action === "deleteTransaction")
+        return new Promise<PayPeriodStateDto>((r) => (release = r));
+      throw new Error("unexpected " + req.action);
+    });
+    await engine.init();
+    engine.enqueueDelete(SHEET, groupRows().slice(1, 3));
+    await flush();
+    engine.enqueueUpdate(SHEET, groupRows()[2], { envelope: "Gas" });
+    release(afterGroupDelete());
+    await engine.flush();
+    await flush();
+    expect(calls.some((c) => c.action === "updateTransaction")).toBe(false);
+    const snap = engine.getSnapshot();
+    expect(snap.queue).toHaveLength(0);
+    expect(snap.conflicts).toHaveLength(1);
+    expect(snap.conflicts[0].current).toBeNull();
+    expect(snap.conflicts[0].mutation.rowIndex).toBe(2);
+  });
+
+  it("re-bases a queued delete after an earlier split and chains it on an earlier edit", async () => {
+    const shell = groupRows()[3];
+    let releaseUpdate: (r: TransactionRowDto) => void = () => {};
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getState") return makeState(groupRows());
+      if (req.action === "updateTransaction")
+        return new Promise<TransactionRowDto>((r) => (releaseUpdate = r));
+      if (req.action === "splitTransaction")
+        // Coffee split into 2 rows: Shell moves from 3 to 4
+        return makeState([
+          makeRow(0, { name: "Coffee | ", splitGroupId: "0" }),
+          makeRow(1, { name: "Coffee | x", splitGroupId: "0" }),
+          { ...groupRows()[1], rowIndex: 2, splitGroupId: "2" },
+          { ...groupRows()[2], rowIndex: 3, splitGroupId: "2" },
+          { ...shell, rowIndex: 4, envelope: "Gas", fingerprint: "edited" },
+        ]);
+      return afterGroupDelete();
+    });
+    await engine.init();
+    engine.enqueueUpdate(SHEET, shell, { envelope: "Gas" });
+    await flush();
+    engine.enqueueSplit(SHEET, groupRows()[0], [
+      { itemNote: "x", expression: "1", preTax: false, envelope: "" },
+    ]);
+    engine.enqueueDelete(SHEET, [shell]);
+    // Chained on the in-flight edit of the same row
+    expect(engine.getSnapshot().queue[2].baseFingerprint).toBe(
+      shell.fingerprint,
+    );
+    releaseUpdate({ ...shell, envelope: "Gas", fingerprint: "edited" });
+    await engine.flush();
+    await flush();
+    expect(calls.find((c) => c.action === "deleteTransaction")).toMatchObject({
+      rowIndex: 4,
+      rows: [{ rowIndex: 4, baseFingerprint: "edited" }],
+    });
+  });
+
+  it("surfaces a conflict, restores the rows, and Accept Remote cancels the delete", async () => {
+    const remote = {
+      ...groupRows()[2],
+      name: "Aldi | eggs",
+      fingerprint: "remote",
+    };
+    let pulls = 0;
+    const { engine, calls } = newEngine((req) => {
+      // The sheet is pulled again after a delete conflict
+      if (req.action === "getState")
+        return pulls++ === 0
+          ? makeState(groupRows())
+          : makeState([groupRows()[0], groupRows()[1], remote, groupRows()[3]]);
+      throw new ApiError("conflict", "changed", remote);
+    });
+    await engine.init();
+    engine.enqueueDelete(SHEET, groupRows().slice(1, 3));
+    await engine.flush();
+    const snap = engine.getSnapshot();
+    expect(snap.queue).toEqual([]);
+    expect(snap.conflicts).toHaveLength(1);
+    expect(snap.conflicts[0].mutation.action).toBe("deleteTransaction");
+    expect(snap.conflicts[0].current).toEqual(remote);
+    // The rows are listed again, with the remote value
+    expect(rowsOf(engine).map((r) => r.name)).toEqual([
+      "Coffee",
+      "Aldi | ",
+      "Aldi | eggs",
+      "Shell",
+    ]);
+    const deletes = () =>
+      calls.filter((c) => c.action === "deleteTransaction").length;
+    const before = deletes();
+    engine.resolveConflict(snap.conflicts[0].id, "accept");
+    await engine.flush();
+    expect(deletes()).toBe(before);
+    expect(engine.getSnapshot().conflicts).toEqual([]);
+  });
+
+  it("Overwrite with Mine resends the delete with every row's current fingerprint, without force", async () => {
+    const remoteChild = {
+      ...groupRows()[2],
+      name: "Aldi | eggs",
+      fingerprint: "remote",
+    };
+    const remoteState = () =>
+      makeState([groupRows()[0], groupRows()[1], remoteChild, groupRows()[3]]);
+    let pulled = 0;
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getState")
+        return pulled++ === 0 ? makeState(groupRows()) : remoteState();
+      const rows = (req as { rows: { baseFingerprint: string }[] }).rows;
+      if (rows[1].baseFingerprint !== "remote")
+        throw new ApiError("conflict", "changed", remoteChild);
+      return afterGroupDelete();
+    });
+    await engine.init();
+    engine.enqueueDelete(SHEET, groupRows().slice(1, 3));
+    await engine.flush();
+    await flush();
+    engine.resolveConflict(engine.getSnapshot().conflicts[0].id, "overwrite");
+    await engine.flush();
+    await flush();
+    const resend = calls
+      .filter((c) => c.action === "deleteTransaction")
+      .at(-1)!;
+    expect(resend).toEqual({
+      action: "deleteTransaction",
+      sheetName: SHEET,
+      rowIndex: 1,
+      rows: [
+        { rowIndex: 1, baseFingerprint: groupRows()[1].fingerprint },
+        { rowIndex: 2, baseFingerprint: "remote" },
+      ],
+    });
+    expect(engine.getSnapshot().conflicts).toEqual([]);
+    expect(engine.getSnapshot().queue).toEqual([]);
+    expect(rowsOf(engine).map((r) => r.name)).toEqual(["Coffee", "Shell"]);
+  });
+
+  it("deletes a row of another tab in the All view with that tab's sheetName", async () => {
+    const OLD = "2/17/26 - 3/2/26";
+    const oldRow = makeRow(0, { name: "Old shop" });
+    const all: AllTransactionsDto = {
+      taxMultiplier: 1.0825,
+      sheets: [
+        {
+          name: OLD,
+          startDate: "2026-02-17",
+          endDate: "2026-03-02",
+          isGap: false,
+          transactions: [oldRow, makeRow(1, { name: "Old two" })],
+          envelopeOptions: null,
+          paidWithOptions: null,
+        },
+      ],
+    };
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getAllTransactions") return all;
+      if (req.action === "deleteTransaction")
+        return makeState([makeRow(0, { name: "Old two" })], { sheetName: OLD });
+      return makeState(twoRows());
+    });
+    await engine.init();
+    await engine.loadAll();
+    engine.enqueueDelete(OLD, [oldRow]);
+    const view = () =>
+      buildViewRows(
+        {
+          sheetName: OLD,
+          taxMultiplier: 1,
+          transactions: engine.getSnapshot().all!.sheets[0].transactions,
+        },
+        engine.getSnapshot().queue,
+        true,
+      ).map((r) => r.name);
+    expect(view()).toEqual(["Old two"]);
+    await engine.flush();
+    expect(calls.at(-1)).toMatchObject({
+      action: "deleteTransaction",
+      sheetName: OLD,
+      rows: [{ rowIndex: 0, baseFingerprint: oldRow.fingerprint }],
+    });
+    expect(view()).toEqual(["Old two"]);
+    expect(engine.getSnapshot().all!.sheets[0].transactions).toHaveLength(1);
+  });
+
+  it("ignores an empty delete", async () => {
+    const { engine } = newEngine(() => makeState(twoRows()));
+    await engine.init();
+    engine.enqueueDelete(SHEET, []);
+    expect(engine.getSnapshot().queue).toEqual([]);
   });
 });

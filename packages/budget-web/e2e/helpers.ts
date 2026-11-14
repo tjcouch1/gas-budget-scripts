@@ -81,7 +81,12 @@ export async function connect(page: Page) {
   await dialog.getByLabel("API key").fill(API_KEY);
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(dialog.getByRole("status")).toContainText("Saved");
-  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  // The dialog closes itself shortly after a successful first save; close it sooner if still open
+  await dialog
+    .getByRole("button", { name: "Close", exact: true })
+    .click({ timeout: 1000 })
+    .catch(() => {});
+  await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("status").first()).toBeVisible();
   await expect(page.getByLabel("Pay period")).toBeVisible();
   await expect(syncedPill(page)).toBeVisible();

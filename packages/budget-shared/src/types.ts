@@ -17,6 +17,8 @@ export interface TransactionChanges {
   envelope?: string;
   paidWith?: string;
   taxDeductible?: TaxDeductibleValue;
+  /** The Name cell's note (plain text, not a formula). "" removes it. */
+  note?: string;
 }
 
 export interface SplitItemInput {
@@ -48,6 +50,8 @@ export interface UpdateTransactionRequest extends BaseRequest {
   rowIndex: number;
   baseFingerprint: string;
   changes: TransactionChanges;
+  /** Required when `changes.note` is set: the note at the client's last pull (notes are not fingerprinted). */
+  baseNote?: string;
   force?: boolean;
 }
 
@@ -64,8 +68,24 @@ export interface SplitTransactionRequest extends BaseRequest {
   force?: boolean;
 }
 
+/**
+ * Deletes one row, or a whole split group together (rows below move up). Response data: the
+ * refreshed `PayPeriodStateDto`, like `splitTransaction`.
+ */
+export interface DeleteTransactionRequest extends BaseRequest {
+  action: "deleteTransaction";
+  sheetName: string;
+  /** First row of the split group, or the single row. */
+  rowIndex: number;
+  /** Every row to delete, contiguous and in order starting at `rowIndex`, with its fingerprint at the last pull. */
+  rows: { rowIndex: number; baseFingerprint: string }[];
+  force?: boolean;
+}
+
 export interface SyncReceiptsRequest extends BaseRequest {
   action: "syncReceipts";
+  /** Default true. False imports only: no Gmail labels or archiving ("testing mode"). */
+  mark?: boolean;
 }
 
 export type ApiRequest =
@@ -73,6 +93,7 @@ export type ApiRequest =
   | GetAllTransactionsRequest
   | UpdateTransactionRequest
   | SplitTransactionRequest
+  | DeleteTransactionRequest
   | SyncReceiptsRequest;
 
 export type ApiErrorCode =

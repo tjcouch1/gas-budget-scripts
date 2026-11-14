@@ -34,7 +34,23 @@ export interface SplitMutation extends MutationBase {
   };
 }
 
-export type QueuedMutation = UpdateMutation | SplitMutation;
+/** One row of a queued delete, with its fingerprint at the last pull (re-based like `MutationBase`). */
+export interface DeleteRowBase {
+  rowIndex: number;
+  baseFingerprint: string;
+  baseRow: TransactionRowDto;
+}
+
+/**
+ * Deletes one row or a whole split group. `rowIndex`/`baseFingerprint`/`baseRow` mirror
+ * `payload.rows[0]`; every row is re-based by fingerprint when earlier changes move rows.
+ */
+export interface DeleteMutation extends MutationBase {
+  action: "deleteTransaction";
+  payload: { rows: DeleteRowBase[] };
+}
+
+export type QueuedMutation = UpdateMutation | SplitMutation | DeleteMutation;
 
 /** A mutation the server rejected because the row changed since `baseRow`. */
 export interface Conflict {
