@@ -4,7 +4,10 @@ import {
   DEFAULT_RECEIPT_RULES,
   type ReceiptEmailDto,
 } from "@budget/shared";
-import { demoInbox } from "../../../budget-scripts-gas/test/fixtures/receipts.ts";
+import {
+  demoInbox,
+  receiptEdgeFixtures,
+} from "../../../budget-scripts-gas/test/fixtures/receipts.ts";
 import {
   formatOutcome,
   previewReceiptRules,
@@ -97,9 +100,29 @@ describe("formatOutcome", () => {
     expect(formatOutcome(other)).toEqual({
       label: "Not a receipt",
       tone: "muted",
+      detail: "no rule matched",
     });
     expect(
       formatOutcome({ email: receipt.email, outcome: null, error: "x" }),
     ).toEqual({ label: "Error", tone: "error" });
+  });
+
+  it("explains why an email is not a receipt", () => {
+    const [unknown, reply] = previewReceiptRules(
+      rules,
+      [
+        dto(receiptEdgeFixtures.edgeUnknownSender.email),
+        dto(receiptEdgeFixtures.edgeForwarderReply.email),
+      ],
+      context,
+    ) as [PreviewItem, PreviewItem];
+    expect(formatOutcome(unknown)).toEqual({
+      label: "Not a receipt",
+      tone: "muted",
+      detail: "unknown sender",
+    });
+    expect(formatOutcome(reply).detail).toBe(
+      "from the forward address but not a forward",
+    );
   });
 });

@@ -231,6 +231,12 @@ export interface FetchReceiptEmailsRequest extends BaseRequest {
   maxThreads?: number;
   /** 1-3650 days. */
   newerThanDays?: number;
+  /**
+   * Forward subject prefixes for the forward address's query clause (the candidate rules'
+   * forwarding.subjectPrefixes), 1-5, see forwardPrefixToken. Omit to use the saved rules' (or the
+   * built-in default when `senders` is given).
+   */
+  forwardSubjectPrefixes?: string[];
 }
 
 export interface ReceiptEmailDto {

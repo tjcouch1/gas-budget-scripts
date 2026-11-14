@@ -8,12 +8,13 @@ import {
   MAX_RECEIPT_RULES_CHARS,
 } from "./receipt-rules-defaults.ts";
 import { isUnsafeFreeText } from "./names.ts";
-import { isStrictEmailAddress } from "./receipt-query.ts";
+import {
+  DEFAULT_FORWARD_SUBJECT_PREFIXES,
+  forwardPrefixToken,
+  isStrictEmailAddress,
+} from "./receipt-query.ts";
 
 export const RECEIPT_RULES_VERSION = 1 as const;
-
-/** Used when `forwarding.subjectPrefixes` is omitted (today's behavior) */
-export const DEFAULT_FORWARD_SUBJECT_PREFIXES: readonly string[] = ["Fwd: "];
 
 /** A JavaScript regular expression given as JSON-safe source text (no surrounding slashes). */
 export interface RegexSpec {
@@ -80,14 +81,16 @@ export interface SenderRules {
 
 export interface ForwardingConfig {
   /**
-   * Literal subject prefixes of forwarded emails (regex-escaped when used). 1-5 entries of 1-20 chars.
-   * Optional; default ["Fwd: "].
+   * Literal subject prefixes of forwarded emails (regex-escaped when used). 1-5 entries of 1-20 chars,
+   * each letters/digits plus an optional trailing ":" and whitespace (that word is the Gmail query's
+   * `subject:` token, see forwardPrefixToken). Optional; default ["Fwd: "]. A message from
+   * ForwardEmailAddress whose subject starts with none of them is "not a receipt" (not-a-forward).
    */
   subjectPrefixes?: string[];
   /**
    * Regexes with a named group `email`, run in order on the forwarded email's whole plain body to find the original
    * sender ("From: PayPal <service@paypal.com>"). The group may hold a formal address; the address is extracted.
-   * None matching => error "Could not get 'from' email address from forwarded email with subject '<subject>'".
+   * None matching (the subject has a forward prefix) => error "Could not get 'from' email address from forwarded email with subject '<subject>'".
    */
   fromPatterns: RegexSpec[];
   /**
@@ -414,9 +417,16 @@ function checkForwarding(value: unknown, path: string, issues: IssueList) {
       "prefixes",
       issues,
     );
-    prefixes?.forEach((prefix, i) =>
-      checkText(prefix, child(prefixesPath, i), { max: 20 }, issues),
-    );
+    prefixes?.forEach((prefix, i) => {
+      if (
+        checkText(prefix, child(prefixesPath, i), { max: 20 }, issues) &&
+        forwardPrefixToken(prefix as string) === undefined
+      )
+        issues.add(
+          child(prefixesPath, i),
+          'must be letters or digits, optionally followed by ":" and spaces (e.g. "Fwd: ")',
+        );
+    });
   }
 
   const fromPath = child(path, "fromPatterns");
@@ -688,11 +698,20 @@ export function compileReceiptRules(
 
 // #region helpers
 
-const FORMAL_EMAIL_REGEX = /(?<email>[^<>\s\u00a0]+@[^<>\s\u00a0]+)/;
+/** An address inside angle brackets: `Name <a@b.com>` */
+const ANGLE_EMAIL_REGEX = /<\s*(?<email>[^<>\s\u00a0"']+@[^<>\s\u00a0"']+)\s*>/;
+/** The first bare address token, without surrounding quotes */
+const FORMAL_EMAIL_REGEX = /(?<email>[^<>\s\u00a0"']+@[^<>\s\u00a0"']+)/;
 
-/** Formal-address extraction ("Name <a@b.com>" => "a@b.com"); throws "Could not get email address from <text>" */
+/**
+ * Formal-address extraction. Prefers the address inside `<...>`, else the first `x@y` token, never
+ * including quotes: `"service@paypal.com" <service@paypal.com>`, `"a@b.com"`, `Name <a@b.com>` and
+ * `a@b.com` all give the plain address. Throws "Could not get email address from <text>"
+ */
 export function extractEmailAddress(formal: string): string {
-  const email = FORMAL_EMAIL_REGEX.exec(formal)?.groups?.email;
+  const email = (
+    ANGLE_EMAIL_REGEX.exec(formal) ?? FORMAL_EMAIL_REGEX.exec(formal)
+  )?.groups?.email;
   if (email === undefined)
     throw new Error(`Could not get email address from ${formal}`);
   return email;
@@ -745,12 +764,29 @@ export interface RuleContext {
 
 export type RuleCaptures = Record<string, string | undefined>;
 
+/**
+ * Why an email is not a receipt:
+ * - "unknown-sender": no sender has that address (the original sender, for a forward)
+ * - "not-forwardable": a forward of a known sender whose `forwardable` is false
+ * - "not-a-forward": from ForwardEmailAddress, but the subject does not start with a forward prefix
+ * - "no-rule-matched": known sender, but no rule's subject matched
+ * - "no-receipt-data": a rule matched but gave no cost and no name
+ */
+export type RuleOutcomeReason =
+  | "unknown-sender"
+  | "not-forwardable"
+  | "not-a-forward"
+  | "no-rule-matched"
+  | "no-receipt-data";
+
 export interface RuleOutcome {
-  /** Lower-cased address the rules were chosen by (original sender for forwards). null for a forwarded email whose sender is unknown or not forwardable. */
+  /** Lower-cased address the rules were chosen by (original sender for forwards). null when no sender's rules were used (unknown sender, not forwardable, not a forward). */
   senderAddress: string | null;
   forwarded: boolean;
-  /** null: sender known but no rule's subject matched (or forwarded sender has no forwardable rules). */
+  /** null: no rule's subject matched, or no sender's rules were used. */
   ruleId: string | null;
+  /** null for a receipt; otherwise why it is not one */
+  reason: RuleOutcomeReason | null;
   receipt: {
     cost: number | undefined;
     name: string | undefined;
@@ -777,6 +813,25 @@ function unwrapForwardedBody(
   return plainBody;
 }
 
+/** A non-receipt outcome for which no sender's rules were used */
+function noRules(forwarded: boolean, reason: RuleOutcomeReason): RuleOutcome {
+  return {
+    senderAddress: null,
+    forwarded,
+    ruleId: null,
+    reason,
+    receipt: {
+      cost: undefined,
+      name: undefined,
+      category: undefined,
+      type: undefined,
+    },
+    isReceipt: false,
+    captures: { subject: null, body: null },
+    warnings: [],
+  };
+}
+
 function tryExtractEmailAddress(text: string): string | undefined {
   try {
     return extractEmailAddress(text);
@@ -786,11 +841,12 @@ function tryExtractEmailAddress(text: string): string | undefined {
 }
 
 /**
- * Applies the rules to one email (receipt-rules-plan.md section 2.3). Throws plain Error with these
- * exact messages (pinned by tests):
+ * Applies the rules to one email (receipt-rules-plan.md section 2.3). Unknown senders and messages
+ * from ForwardEmailAddress without a forward subject prefix are not receipts (see RuleOutcomeReason).
+ * Throws plain Error with these exact messages (pinned by tests):
  *  - "Could not get email address from <from>"
- *  - "No function to handle receipt message from <address>"
- *  - "Could not get 'from' email address from forwarded email with subject '<subject>'"
+ *  - "Could not get 'from' email address from forwarded email with subject '<subject>'" (the subject
+ *    starts with a forward prefix but no fromPattern matched: likely a new forward format)
  */
 export function applyReceiptRules(
   rules: CompiledReceiptRules,
@@ -811,6 +867,10 @@ export function applyReceiptRules(
   let body = email.plainBody;
   let explicitPrefix: string | undefined;
   if (forwarded) {
+    const prefixes =
+      config.forwarding.subjectPrefixes ?? DEFAULT_FORWARD_SUBJECT_PREFIXES;
+    if (!prefixes.some((prefix) => email.subject.startsWith(prefix)))
+      return noRules(false, "not-a-forward");
     let original: string | undefined;
     for (const regex of compiled.fromPatterns) {
       original = regex.exec(email.plainBody)?.groups?.email;
@@ -824,29 +884,13 @@ export function applyReceiptRules(
       tryExtractEmailAddress(original) ?? original
     ).toLowerCase();
     sender = compiled.senders.get(originalAddress);
-    if (!sender?.sender.forwardable)
-      return {
-        senderAddress: null,
-        forwarded: true,
-        ruleId: null,
-        receipt: {
-          cost: undefined,
-          name: undefined,
-          category: undefined,
-          type: undefined,
-        },
-        isReceipt: false,
-        captures: { subject: null, body: null },
-        warnings: [],
-      };
+    if (!sender) return noRules(true, "unknown-sender");
+    if (!sender.sender.forwardable) return noRules(true, "not-forwardable");
     body = unwrapForwardedBody(email.plainBody, config.forwarding.bodyMarkers);
     explicitPrefix = context.forwardName || undefined;
   } else {
     sender = compiled.senders.get(fromAddress);
-    if (!sender)
-      throw new Error(
-        `No function to handle receipt message from ${fromAddress}`,
-      );
+    if (!sender) return noRules(false, "unknown-sender");
   }
 
   const recipientPrefix = () => {
@@ -908,6 +952,7 @@ export function applyReceiptRules(
       senderAddress,
       forwarded,
       ruleId: rule.id,
+      reason: isReceipt ? null : "no-receipt-data",
       receipt: {
         cost,
         name,
@@ -924,6 +969,7 @@ export function applyReceiptRules(
     senderAddress,
     forwarded,
     ruleId: null,
+    reason: "no-rule-matched",
     receipt: { cost: undefined, name: undefined, category: undefined, type },
     isReceipt: false,
     captures: { subject: null, body: null },

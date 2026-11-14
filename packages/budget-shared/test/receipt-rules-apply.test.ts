@@ -69,6 +69,7 @@ describe("applyReceiptRules: direct emails", () => {
       senderAddress: "no.reply.alerts@chase.com",
       forwarded: false,
       ruleId: "chase-purchase",
+      reason: null,
       receipt: {
         cost: 12.34,
         name: "Shop",
@@ -90,10 +91,41 @@ describe("applyReceiptRules: direct emails", () => {
     expect(outcome.receipt.name).toBe("Shop");
   });
 
-  it("throws for an unknown sender with the lower-cased address", () => {
-    expect(() => apply({ from: "Spam <Spam@Example.org>" })).toThrow(
-      new Error("No function to handle receipt message from spam@example.org"),
-    );
+  it('an unknown sender is not a receipt (intentional change; previously threw "No function to handle receipt message from <address>")', () => {
+    expect(apply({ from: "Spam <Spam@Example.org>", subject: "Hi" })).toEqual({
+      senderAddress: null,
+      forwarded: false,
+      ruleId: null,
+      reason: "unknown-sender",
+      receipt: {
+        cost: undefined,
+        name: undefined,
+        category: undefined,
+        type: undefined,
+      },
+      isReceipt: false,
+      captures: { subject: null, body: null },
+      warnings: [],
+    });
+  });
+
+  it('a quoted formal From finds the sender ("service@paypal.com" <service@paypal.com>)', () => {
+    const outcome = apply({
+      from: '"service@paypal.com" <service@paypal.com>',
+      subject: "Pat Fakename sent you $8.07 USD",
+    });
+    expect(outcome.senderAddress).toBe("service@paypal.com");
+    expect(outcome.ruleId).toBe("paypal-sent-you");
+  });
+
+  it("a matched rule that yields no cost and no name has reason no-receipt-data", () => {
+    const outcome = apply({
+      from: "no.reply.alerts@chase.com",
+      subject: "You used your card at a gas station",
+      plainBody: "no merchant",
+    });
+    expect(outcome.ruleId).toBe("chase-gas");
+    expect(outcome.reason).toBe("no-receipt-data");
   });
 
   it("throws when the sender cannot be parsed", () => {
@@ -108,6 +140,7 @@ describe("applyReceiptRules: direct emails", () => {
       subject: "Update to your account",
     });
     expect(outcome.ruleId).toBeNull();
+    expect(outcome.reason).toBe("no-rule-matched");
     expect(outcome.isReceipt).toBe(false);
     expect(outcome.receipt).toEqual({
       cost: undefined,
@@ -285,10 +318,12 @@ describe("applyReceiptRules: forwarded emails", () => {
       context,
     );
     expect(outcome.ruleId).toBeNull();
-    expect(outcome.receipt.type).toBe("Sam Venmo");
+    // Intentional change: previously the Venmo rules ran (type "Sam Venmo", no rule matched)
+    expect(outcome.reason).toBe("not-a-forward");
+    expect(outcome.receipt.type).toBeUndefined();
   });
 
-  it("supports configured subject prefixes, escaped as literal text", () => {
+  it("supports configured subject prefixes as literal text", () => {
     const rules = single(
       {
         typePrefix: "recipient",
@@ -300,7 +335,7 @@ describe("applyReceiptRules: forwarded emails", () => {
           },
         ],
       },
-      { subjectPrefixes: ["Fwd: ", "[FW] (x)? "] },
+      { subjectPrefixes: ["Fwd: ", "FW: "] },
     );
     const run = (subject: string) =>
       applyReceiptRules(
@@ -313,14 +348,13 @@ describe("applyReceiptRules: forwarded emails", () => {
         }),
         context,
       );
-    expect(run("[FW] (x)? Paid Bob").receipt).toMatchObject({
+    expect(run("FW: Paid Bob").receipt).toMatchObject({
       name: "Bob",
       type: "Sam Card",
     });
     expect(run("Fwd: Paid Bob").receipt.name).toBe("Bob");
-    // "?" and "()" are literal, not regex syntax
-    expect(run("[FW]  Paid Bob").ruleId).toBeNull();
-    expect(run("F Paid Bob").ruleId).toBeNull();
+    expect(run("FW:Paid Bob").reason).toBe("not-a-forward");
+    expect(run("FWX Paid Bob").reason).toBe("not-a-forward");
   });
 
   it("throws when the original sender cannot be found", () => {
@@ -331,6 +365,37 @@ describe("applyReceiptRules: forwarded emails", () => {
         "Could not get 'from' email address from forwarded email with subject 'Fwd: hi'",
       ),
     );
+  });
+
+  it("a message from the forward address without a forward prefix is not a receipt (intentional change)", () => {
+    const notForward = {
+      senderAddress: null,
+      forwarded: false,
+      ruleId: null,
+      reason: "not-a-forward",
+      receipt: {
+        cost: undefined,
+        name: undefined,
+        category: undefined,
+        type: undefined,
+      },
+      isReceipt: false,
+      captures: { subject: null, body: null },
+      warnings: [],
+    };
+    // Previously: "Could not get 'from' email address from forwarded email with subject 'Re: dinner'"
+    expect(
+      apply({ from: FWD, subject: "Re: dinner", plainBody: "Sounds good" }),
+    ).toEqual(notForward);
+    // A reply quoting a forward: the prefix must start the subject
+    expect(
+      apply({
+        from: FWD,
+        subject: "Re: Fwd: You paid Jane Doe $15.00",
+        plainBody:
+          "ok\n---------- Forwarded message ---------\nFrom: Venmo <venmo@venmo.com>\n",
+      }),
+    ).toEqual(notForward);
   });
 
   it("not-forwardable and unknown original senders give an empty non-receipt", () => {
@@ -355,7 +420,7 @@ describe("applyReceiptRules: forwarded emails", () => {
         plainBody:
           "---------- Forwarded message ---------\nFrom: Chase <no.reply.alerts@chase.com>\n",
       }),
-    ).toEqual(empty);
+    ).toEqual({ ...empty, reason: "not-forwardable" });
     expect(
       apply({
         from: FWD,
@@ -363,7 +428,7 @@ describe("applyReceiptRules: forwarded emails", () => {
         plainBody:
           "---------- Forwarded message ---------\nFrom: Someone <x@example.com>\n",
       }),
-    ).toEqual(empty);
+    ).toEqual({ ...empty, reason: "unknown-sender" });
   });
 
   it("uses the whole body when no marker is found", () => {

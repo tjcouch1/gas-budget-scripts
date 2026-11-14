@@ -5,7 +5,7 @@ import { addVariablesSheet, getEnv, MockMessage } from "./gas-mocks";
 const load = () => import("../src/util/receipt-rules.util");
 
 const PINNED_QUERY =
-  "from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR fwd@example.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ";
+  "(from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com) OR (from:fwd@example.com subject:Fwd)) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ";
 
 /** Variables sheet with ReceiptRules in row 8 */
 function withRules(value: unknown) {

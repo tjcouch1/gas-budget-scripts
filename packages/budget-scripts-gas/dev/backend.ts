@@ -53,9 +53,11 @@ export class DemoBackend {
 
   /**
    * Filters threads like Gmail would for the queries `buildReceiptSearchQuery` emits (the base mock
-   * returns every thread): `from:(a OR b)` keeps threads whose first message's address is in the set
-   * (case-insensitive), `subject:("x" OR "y")` keeps subjects containing any term
-   * (case-insensitive), and `in:inbox` drops archived and `Receipts/Scripted` threads.
+   * returns every thread). A thread matches when ANY of its messages matches (as in Gmail):
+   * `from:(a OR b)` matches a message whose address is in the set (case-insensitive);
+   * `(from:fwd subject:Fwd)` / `subject:(Fwd OR FW)` matches a message from fwd whose subject has one
+   * of the tokens as a word (case-insensitive); `subject:("x" OR "y")` requires the subject to
+   * contain any term (case-insensitive). `in:inbox` drops archived and `Receipts/Scripted` threads.
    * `newer_than:` and the label exclusions other than Receipts/Scripted are ignored
    */
   private useRealisticGmailSearch() {
@@ -63,34 +65,54 @@ export class DemoBackend {
     gmail.search = (query: string, start?: number, max?: number) => {
       gmail.searches.push({ query, start, max });
       const fromMatch = /from:\(([^)]*)\)/.exec(query);
-      const senders = fromMatch
-        ? new Set(fromMatch[1].split(" OR ").map((a) => a.toLowerCase()))
-        : undefined;
-      const subjectMatch = /subject:\(([^)]*)\)/.exec(query);
+      const forwardMatch = /\(from:(\S+) subject:(?:\(([^)]*)\)|(\S+?))\)/.exec(
+        query,
+      );
+      const forward = forwardMatch && {
+        address: forwardMatch[1].toLowerCase(),
+        tokens: (forwardMatch[2] ?? forwardMatch[3])
+          .split(" OR ")
+          .map((t) => t.toLowerCase()),
+      };
+      const senders =
+        fromMatch || forward
+          ? new Set(
+              (fromMatch?.[1].split(" OR ") ?? []).map((a) => a.toLowerCase()),
+            )
+          : undefined;
+      const subjectMatch = /subject:\(("[^)]*)\)/.exec(query);
       const subjects = subjectMatch
         ? [...subjectMatch[1].matchAll(/"([^"]*)"/g)].map(([, s]) =>
             s.toLowerCase(),
           )
         : undefined;
       const inboxOnly = query.includes("in:inbox");
-      const matching = gmail.threads.filter((thread) => {
-        const first = thread.getMessages()[0];
-        if (
-          senders &&
-          !senders.has(extractEmailAddress(first.getFrom()).toLowerCase())
-        )
-          return false;
-        const subject = String(first.getSubject()).toLowerCase();
+      const messageMatches = (message: {
+        getFrom(): string;
+        getSubject(): string;
+      }) => {
+        const subject = String(message.getSubject()).toLowerCase();
         if (subjects && !subjects.some((s) => subject.includes(s)))
           return false;
+        if (!senders) return true;
+        const from = extractEmailAddress(message.getFrom()).toLowerCase();
+        if (senders.has(from)) return true;
+        const words = subject.split(/[^\p{L}\p{N}]+/u);
         return (
-          !inboxOnly ||
-          (!thread.archived &&
-            !thread.labels.some(
-              (label: { name: string }) => label.name === "Receipts/Scripted",
-            ))
+          !!forward &&
+          from === forward.address &&
+          forward.tokens.some((t) => words.includes(t))
         );
-      });
+      };
+      const matching = gmail.threads.filter(
+        (thread) =>
+          thread.getMessages().some(messageMatches) &&
+          (!inboxOnly ||
+            (!thread.archived &&
+              !thread.labels.some(
+                (label: { name: string }) => label.name === "Receipts/Scripted",
+              ))),
+      );
       return start === undefined
         ? matching
         : matching.slice(start, start + (max ?? Infinity));
@@ -174,18 +196,26 @@ export class DemoBackend {
     }
   }
 
-  /** Adds fake Gmail threads that the next `syncReceipts` will import */
+  /**
+   * Adds fake Gmail threads that the next `syncReceipts` will import. Each is one message
+   * (`{ from, subject, body?, html?, to?, date? }`) or `{ messages: [<message>, ...] }`
+   */
   addThreads(threads: Json[]) {
+    const toMessage = (m: Json) => ({
+      from: String(m.from),
+      subject: String(m.subject),
+      body: String(m.body ?? ""),
+      html: m.html === undefined ? undefined : String(m.html),
+      to: m.to === undefined ? undefined : String(m.to),
+      date: m.date ? new Date(String(m.date)) : new Date(),
+    });
     for (const t of threads)
       this.env.GmailApp.threads.push(
-        makeThread({
-          from: String(t.from),
-          subject: String(t.subject),
-          body: String(t.body ?? ""),
-          html: t.html === undefined ? undefined : String(t.html),
-          to: t.to === undefined ? undefined : String(t.to),
-          date: t.date ? new Date(String(t.date)) : new Date(),
-        }),
+        makeThread(
+          ...(Array.isArray(t.messages)
+            ? (t.messages as Json[]).map(toMessage)
+            : [toMessage(t)]),
+        ),
       );
   }
 

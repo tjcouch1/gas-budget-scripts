@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { receiptThreadFixtures } from "../../budget-scripts-gas/test/fixtures/receipts.ts";
 import { CURRENT_PERIOD } from "../../budget-scripts-gas/test/fixtures/sheets.ts";
 import {
   API_KEY,
@@ -668,6 +669,26 @@ test.describe("receipts", () => {
     await page.getByRole("button", { name: "Sync receipts" }).click();
     await expect(syncedPill(page)).toBeVisible();
     expect((await backend.dump(sheetName)).length).toBe(before + 4);
+  });
+
+  test("a forwarded non-receipt from an unknown sender, with a reply, is ignored without an error", async ({
+    page,
+    sheetName,
+  }) => {
+    await backend.addThreads([
+      { messages: receiptThreadFixtures.forwardedFromUnknownSender },
+    ]);
+    await connect(page);
+    const before = (await backend.dump(sheetName)).length;
+    await page.getByRole("button", { name: "Sync receipts" }).click();
+    await expect(page.getByText("Demo Cafe").first()).toBeVisible();
+
+    expect((await backend.dump(sheetName)).length).toBe(before + 4);
+    const thread = (await backend.threads()).find(
+      (t) => t.subject === "Fwd: Dinner Friday?",
+    );
+    expect(thread?.labels).toEqual(["Receipts/Scripted", "Receipts/Ignored"]);
+    expect(thread?.archived).toBe(false);
   });
 });
 

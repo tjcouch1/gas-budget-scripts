@@ -1710,7 +1710,7 @@ describe("syncReceipts", () => {
     vi.setSystemTime(new Date("2024-02-25T18:00:00Z"));
     const good = makeThread(chase("10.50", "Shop", "2024-02-20T12:00:00Z"));
     const bad = makeThread({
-      from: "Weird <weird@example.org>",
+      from: "Weird <weird at example.org>",
       subject: "huh",
       body: "",
       date: new Date("2024-02-21T12:00:00Z"),
@@ -1731,7 +1731,7 @@ describe("syncReceipts", () => {
     expect(res.data.receiptInfosAddedBySheet).toEqual({ [SHEET]: 2 });
     expect(res.data.numErrors).toBe(1);
     expect(res.data.errors[0]).toContain(
-      "No function to handle receipt message from weird@example.org",
+      "Could not get email address from Weird <weird at example.org>",
     );
     expect(env.SpreadsheetApp.ui.alerts).toEqual([]);
     expect(good.archived).toBe(true);

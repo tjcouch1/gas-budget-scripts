@@ -4,6 +4,7 @@
  * (unsaved) rules against emails.
  */
 import {
+  forwardPrefixToken,
   isSafeSubjectFilter,
   isStrictEmailAddress,
   MAX_QUERY_SENDERS,
@@ -18,6 +19,7 @@ import { tryWithScriptLock } from "../util/lock.util";
 import {
   buildReceiptQuery,
   FORWARD_ADDRESS_INVALID_PREFIX,
+  getCompiledReceiptRules,
   getReceiptRulesRaw,
   getReceiptSearchQuery,
   getReceiptSenderAddresses,
@@ -119,6 +121,25 @@ function validateSubjects(value: unknown): string[] | undefined {
   return value as string[];
 }
 
+function validateForwardSubjectPrefixes(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length < 1 || value.length > 5)
+    badRequest(
+      "forwardSubjectPrefixes must be an array of 1-5 forward subject prefixes",
+    );
+  value.forEach((prefix, i) => {
+    if (
+      typeof prefix !== "string" ||
+      prefix.length > 20 ||
+      forwardPrefixToken(prefix) === undefined
+    )
+      badRequest(
+        `forwardSubjectPrefixes[${i}] must be letters or digits, optionally followed by ":" and spaces`,
+      );
+  });
+  return value as string[];
+}
+
 function cut(text: string, max: number) {
   return text.length > max
     ? { text: text.slice(0, max), truncated: true }
@@ -134,6 +155,9 @@ export function handleFetchReceiptEmails(
 ): HandlerResult<FetchReceiptEmailsResultDto> {
   const explicitSenders = validateSenders(req.senders);
   const subjects = validateSubjects(req.subjects);
+  const explicitPrefixes = validateForwardSubjectPrefixes(
+    req.forwardSubjectPrefixes,
+  );
   const includeProcessed = optionalBoolean(
     req.includeProcessed,
     "includeProcessed",
@@ -151,11 +175,17 @@ export function handleFetchReceiptEmails(
 
   const query = mapInvalidConfig(() => {
     const senders = explicitSenders ?? getReceiptSenderAddresses();
+    const forwardSubjectPrefixes =
+      explicitPrefixes ??
+      (explicitSenders
+        ? undefined
+        : getCompiledReceiptRules().config.forwarding.subjectPrefixes);
     // Request fields are validated above, so only the ForwardEmailAddress variable can fail here
     return buildReceiptQuery(senders, {
       includeProcessed,
       subjects,
       newerThanDays,
+      forwardSubjectPrefixes,
     });
   });
 

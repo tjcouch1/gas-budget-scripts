@@ -16,7 +16,7 @@ const load = () => import("../src/index");
 const KEY = "test-api-key-0123456789abcdef";
 const EXCLUSIONS =
   "NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted";
-const DEFAULT_QUERY = `from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR fwd@example.com) in:inbox ${EXCLUSIONS} `;
+const DEFAULT_QUERY = `(from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com) OR (from:fwd@example.com subject:Fwd)) in:inbox ${EXCLUSIONS} `;
 
 let env: GasEnv;
 
@@ -117,9 +117,19 @@ describe("fetchReceiptEmails", () => {
     });
     expect(res.ok).toBe(true);
     const query =
-      'from:(a@shop.example.com OR B@Other.example.com OR fwd@example.com) subject:("Your order" OR "Receipt") newer_than:30d ';
+      '(from:(a@shop.example.com OR B@Other.example.com) OR (from:fwd@example.com subject:Fwd)) subject:("Your order" OR "Receipt") newer_than:30d ';
     expect(res.data.query).toBe(query);
     expect(env.GmailApp.searches).toEqual([{ query, start: 0, max: 5 }]);
+  });
+
+  it("uses the forward subject prefixes given (the candidate rules' forwarding.subjectPrefixes)", async () => {
+    const res = await api("fetchReceiptEmails", {
+      senders: ["a@shop.example.com"],
+      forwardSubjectPrefixes: ["Fwd: ", "FW: "],
+    });
+    expect(res.data.query).toBe(
+      `(from:(a@shop.example.com) OR (from:fwd@example.com subject:(Fwd OR FW))) in:inbox ${EXCLUSIONS} `,
+    );
   });
 
   it("clamps maxThreads to the server cap of 50", async () => {
@@ -153,6 +163,14 @@ describe("fetchReceiptEmails", () => {
     ],
     [{ includeHtml: "yes" }, "includeHtml must be a boolean"],
     [{ includeProcessed: 1 }, "includeProcessed must be a boolean"],
+    [
+      { forwardSubjectPrefixes: [] },
+      "forwardSubjectPrefixes must be an array of 1-5 forward subject prefixes",
+    ],
+    [
+      { forwardSubjectPrefixes: ["Fwd: ", "[FW] "] },
+      'forwardSubjectPrefixes[1] must be letters or digits, optionally followed by ":" and spaces',
+    ],
   ])("rejects %j", async (fields, message) => {
     const res = await api("fetchReceiptEmails", fields);
     expect(res).toEqual({ ok: false, error: { code: "bad_request", message } });

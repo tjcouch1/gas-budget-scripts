@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getEnv } from "./gas-mocks";
+import { FWD, receiptThreadFixtures } from "./fixtures/receipts";
 
 const load = () => import("../dev/backend.ts");
 
@@ -158,6 +159,44 @@ describe("demo backend", () => {
     const all = fetch({ includeProcessed: true });
     expect(all.data.emails).toHaveLength(5);
     expect(all.data.emails[0].labels).toContain("Receipts/Scripted");
+  });
+
+  it("Gmail search matches any message of a thread, and the forward address only with a forward-prefix subject token", async () => {
+    const { call, backend } = await create();
+    backend.reset();
+    backend.env.GmailApp.threads = [];
+    backend.addThreads([
+      // the forwarder's plain reply: not matched by the narrowed query
+      { messages: [{ from: FWD, subject: "Re: Dinner Friday?", body: "ok" }] },
+      { messages: receiptThreadFixtures.forwardedFromUnknownSender },
+      // matched through its second message
+      {
+        messages: [...receiptThreadFixtures.receiptWithUnknownReply].reverse(),
+      },
+    ]);
+    const res = call({ action: "fetchReceiptEmails" });
+    expect(res.data.threadCount).toBe(2);
+    expect(res.data.emails.map((e: Json) => e.subject)).toEqual([
+      "Fwd: Dinner Friday?",
+      "Re: Dinner Friday?",
+      "Re: Dinner Friday?",
+      receiptThreadFixtures.receiptWithUnknownReply[0].subject,
+    ]);
+  });
+
+  it("syncReceipts ignores a forwarded non-receipt from an unknown sender with a reply", async () => {
+    const { call, backend } = await create();
+    backend.addThreads([
+      { messages: receiptThreadFixtures.forwardedFromUnknownSender },
+    ]);
+    const res = call({ action: "syncReceipts" });
+    expect(res.data.numErrors).toBe(0);
+    expect(res.data.receiptInfosAdded).toBe(4);
+    const thread = backend
+      .dumpThreads()
+      .find((t) => t.subject === "Fwd: Dinner Friday?");
+    expect(thread?.labels).toEqual(["Receipts/Scripted", "Receipts/Ignored"]);
+    expect(thread?.archived).toBe(false);
   });
 
   it("addThreads accepts html for fetchReceiptEmails with includeHtml", async () => {

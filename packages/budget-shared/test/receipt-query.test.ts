@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildReceiptSearchQuery,
+  forwardPrefixToken,
   isSafeSubjectFilter,
   isStrictEmailAddress,
   RECEIPT_LABEL_EXCLUSIONS,
@@ -15,8 +16,29 @@ const DEFAULT_SENDERS = [
 describe("buildReceiptSearchQuery", () => {
   it("matches the pinned query for the default senders", () => {
     expect(buildReceiptSearchQuery(DEFAULT_SENDERS, "fwd@example.com")).toBe(
-      "from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR fwd@example.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ",
+      "(from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com) OR (from:fwd@example.com subject:Fwd)) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ",
     );
+  });
+
+  it("matches the forward address only with a forward-prefix subject token (intentional change)", () => {
+    expect(
+      buildReceiptSearchQuery(["a@b.co"], "f@b.co", {
+        forwardSubjectPrefixes: ["Fwd: ", "FW:", "転送: "],
+      }),
+    ).toBe(
+      `(from:(a@b.co) OR (from:f@b.co subject:(Fwd OR FW OR 転送))) in:inbox ${RECEIPT_LABEL_EXCLUSIONS} `,
+    );
+    expect(buildReceiptSearchQuery([], "f@b.co")).toBe(
+      `(from:f@b.co subject:Fwd) in:inbox ${RECEIPT_LABEL_EXCLUSIONS} `,
+    );
+  });
+
+  it("throws for a forward prefix that gives an unsafe token", () => {
+    expect(() =>
+      buildReceiptSearchQuery(["a@b.co"], "f@b.co", {
+        forwardSubjectPrefixes: ["[FW] "],
+      }),
+    ).toThrow("Invalid forward subject prefix: [FW] ");
   });
 
   it("exposes the fixed label exclusions", () => {
@@ -47,7 +69,7 @@ describe("buildReceiptSearchQuery", () => {
         newerThanDays: 30,
       }),
     ).toBe(
-      `from:(a@b.co OR f@b.co) subject:("Receipt" OR "Your order") newer_than:30d in:inbox ${RECEIPT_LABEL_EXCLUSIONS} `,
+      `(from:(a@b.co) OR (from:f@b.co subject:Fwd)) subject:("Receipt" OR "Your order") newer_than:30d in:inbox ${RECEIPT_LABEL_EXCLUSIONS} `,
     );
   });
 
@@ -72,6 +94,19 @@ describe("buildReceiptSearchQuery", () => {
         buildReceiptSearchQuery(["a@b.co"], "", { newerThanDays: n }),
       ).toThrow("Invalid newerThanDays");
     }
+  });
+});
+
+describe("forwardPrefixToken", () => {
+  it("strips the trailing colon and whitespace", () => {
+    expect(forwardPrefixToken("Fwd: ")).toBe("Fwd");
+    expect(forwardPrefixToken("FW:")).toBe("FW");
+    expect(forwardPrefixToken("Fwd : ")).toBe("Fwd");
+    expect(forwardPrefixToken("転送: ")).toBe("転送");
+  });
+  it("returns undefined unless the rest is letters and digits", () => {
+    for (const bad of ["[FW] ", "Re Fwd: ", ": ", "", "a-b:", 'a"', "a)"])
+      expect(forwardPrefixToken(bad), bad).toBeUndefined();
   });
 });
 

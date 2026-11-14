@@ -125,6 +125,20 @@ describe("DEFAULT_RECEIPT_RULES", () => {
               name: "${body.name} - ${body.details}",
               cost: { source: "body", group: "cost", negate: true },
             },
+            {
+              id: "paypal-sent-you",
+              subject: {
+                pattern: "^(?<name>.+) sent you \\$(?<cost>.+)[\\s\\u00a0]USD$",
+              },
+              body: {
+                source: "plainBody",
+                pattern:
+                  "[Nn]ote from [^\\r\\n]+\\r?\\n(?:[ \\t]*\\r?\\n)*(?<details>[^\\r\\n]*\\S)",
+              },
+              name: "${subject.name} - ${body.details}",
+              nameFallback: "${subject.name}",
+              cost: { source: "subject", group: "cost", negate: true },
+            },
           ],
         },
         {
@@ -201,6 +215,8 @@ describe("DEFAULT_RECEIPT_RULES", () => {
     expect(RECEIPT_RULES_NOTE.length).toBeLessThanOrEqual(2500);
     expect(RECEIPT_RULES_NOTE).toContain("Customize variables");
     expect(RECEIPT_RULES_NOTE).toContain("subjectPrefixes");
+    expect(RECEIPT_RULES_NOTE).toContain("Reset to built-in defaults");
+    expect(RECEIPT_RULES_NOTE).toContain("unknown senders are not receipts");
   });
 });
 
@@ -454,6 +470,21 @@ describe("validateReceiptRulesConfig issues (exact paths)", () => {
     ]);
   });
 
+  it("forwarding.subjectPrefixes: each must be letters/digits plus an optional ':' and spaces (Gmail query token)", () => {
+    const c = defaults();
+    c.forwarding.subjectPrefixes = ["Fwd: ", "FW:", "転送: ", "TR"];
+    expect(issuePaths(c)).toEqual([]);
+    c.forwarding.subjectPrefixes = ["[FW] ", "Re Fwd: ", ": "];
+    const result = validateReceiptRulesConfig(c);
+    expect(result.ok ? [] : result.issues).toEqual(
+      [0, 1, 2].map((i) => ({
+        path: `forwarding.subjectPrefixes[${i}]`,
+        message:
+          'must be letters or digits, optionally followed by ":" and spaces (e.g. "Fwd: ")',
+      })),
+    );
+  });
+
   it("pattern length limit (no cascading group issues) and template length limit", () => {
     const c = defaults();
     c.senders[0].rules[0].subject.pattern = "a".repeat(501);
@@ -554,6 +585,19 @@ describe("extractEmailAddress", () => {
       "no.reply.alerts@chase.com",
     );
     expect(extractEmailAddress("venmo@venmo.com")).toBe("venmo@venmo.com");
+  });
+
+  it("prefers the address inside <...> and strips quotes", () => {
+    for (const [from, address] of [
+      ['"service@paypal.com" <service@paypal.com>', "service@paypal.com"],
+      ['"service@paypal.com"', "service@paypal.com"],
+      ["'service@paypal.com'", "service@paypal.com"],
+      ["<service@paypal.com>", "service@paypal.com"],
+      ["Pat <pat@example.com> ", "pat@example.com"],
+      ["old@example.com <new@example.com>", "new@example.com"],
+      ['"Pat Fake" <pat@example.com>', "pat@example.com"],
+    ])
+      expect(extractEmailAddress(from), from).toBe(address);
   });
 
   it("throws the pinned message", () => {

@@ -6,7 +6,7 @@ import {
   makeThread,
   AnySheet,
 } from "./gas-mocks";
-import { chasePurchaseEmail } from "./fixtures/receipts";
+import { chasePurchaseEmail, receiptThreadFixtures } from "./fixtures/receipts";
 
 const load = () => import("../src/util/budgeting.util");
 
@@ -153,7 +153,7 @@ describe("recording receipts", () => {
     expect(env.GmailApp.searches[0].start).toBe(5);
     expect(env.GmailApp.searches[0].max).toBe(20);
     expect(env.GmailApp.searches[0].query).toBe(
-      "from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR fwd@example.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ",
+      "(from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com) OR (from:fwd@example.com subject:Fwd)) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ",
     );
     expect(env.GmailApp.searches[1].start).toBeUndefined();
   });
@@ -177,7 +177,27 @@ describe("recording receipts", () => {
     const { getAndRecordReceipts } = await load();
     getAndRecordReceipts(null, null, false);
     expect(env.GmailApp.searches[0].query).toBe(
-      "from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR receipts@shop.example.com OR fwd@example.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ",
+      "(from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR receipts@shop.example.com) OR (from:fwd@example.com subject:Fwd)) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ",
+    );
+  });
+
+  it("uses the ReceiptRules forward subject prefixes in the search query", async () => {
+    const env = getEnv();
+    const { DEFAULT_RECEIPT_RULES } = await import("@budget/shared");
+    const rules = {
+      ...DEFAULT_RECEIPT_RULES,
+      forwarding: {
+        ...DEFAULT_RECEIPT_RULES.forwarding,
+        subjectPrefixes: ["Fwd: ", "FW: "],
+      },
+    };
+    env.spreadsheet
+      .getSheetByName("Variables")!
+      .seed("A8", [["ReceiptRules", JSON.stringify(rules)]]);
+    const { getAndRecordReceipts } = await load();
+    getAndRecordReceipts(null, null, false);
+    expect(env.GmailApp.searches[0].query).toContain(
+      "OR (from:fwd@example.com subject:(Fwd OR FW))) in:inbox",
     );
   });
 
@@ -303,7 +323,7 @@ describe("recording receipts", () => {
   it("notes errors in red on the name cell, does not archive errored threads, and alerts the user", async () => {
     const env = getEnv();
     const bad = makeThread({
-      from: "Weird <weird@example.org>",
+      from: "Weird <weird at example.org>",
       subject: "huh",
       body: "",
       date: new Date("2024-02-20T12:00:00Z"),
@@ -316,7 +336,7 @@ describe("recording receipts", () => {
     expect(sheet.getRange("B5").getBackgrounds()).toEqual([["#FF0000"]]);
     expect(sheet.getRange("B5").getValue()).toBe("");
     expect(sheet.getRange("B5").getNotes()[0][0]).toContain(
-      "weird@example.org",
+      "weird at example.org",
     );
     expect(sheet.getRange("C5").getBackgrounds()).toEqual([["#E8A9CA"]]);
     expect(bad.archived).toBe(false);
@@ -348,7 +368,7 @@ describe("recording receipts", () => {
           date: new Date("2024-02-20T12:00:00Z"),
         },
         {
-          from: "z@example.org",
+          from: "z at example.org",
           subject: "z",
           body: "",
           date: new Date("2024-02-20T12:00:00Z"),
@@ -358,9 +378,7 @@ describe("recording receipts", () => {
     const { getAndRecordReceipts } = await load();
     getAndRecordReceipts(null, null, false);
     const note = sheet.getRange("B5").getNotes()[0][0];
-    expect(note).toContain(
-      "No function to handle receipt message from z@example.org",
-    );
+    expect(note).toContain("Could not get email address from z at example.org");
     expect(note).toContain("\n\n>>>>>>>>>> NOTES <<<<<<<<<<\n\n");
     expect(note).toContain("Message is not a receipt:");
   });
@@ -370,7 +388,7 @@ describe("recording receipts", () => {
     env.SpreadsheetApp.uiAvailable = false;
     env.GmailApp.threads = [
       makeThread({
-        from: "a@example.org",
+        from: "a at example.org",
         subject: "s",
         body: "",
         date: new Date("2024-02-20T12:00:00Z"),
@@ -480,11 +498,48 @@ describe("recording receipts", () => {
     expect(ignored.some((t) => t.archived)).toBe(false);
   });
 
+  it("ignores a thread of only unknown-sender and forwarder replies (intentional change: previously Receipts/Error)", async () => {
+    const env = getEnv();
+    const t = makeThread(...receiptThreadFixtures.unknownSendersOnly);
+    env.GmailApp.threads = [t];
+    const { getChaseReceipts, recordReceiptsCore } = await load();
+    const result = recordReceiptsCore(getChaseReceipts(null, null), true);
+    expect(result.numErrors).toBe(0);
+    expect(result.receiptInfosAdded).toEqual({});
+    expect(t.archived).toBe(false);
+    expect(t.labels.map((l) => l.getName())).toEqual([
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ]);
+  });
+
+  it("records a receipt thread with an unknown-sender reply as valid (intentional change: previously Receipts/Error)", async () => {
+    const env = getEnv();
+    const t = makeThread(...receiptThreadFixtures.receiptWithUnknownReply);
+    env.GmailApp.threads = [t];
+    const { getChaseReceipts, recordReceiptsCore } = await load();
+    const result = recordReceiptsCore(getChaseReceipts(null, null), true);
+    expect(result.numErrors).toBe(0);
+    expect(result.receiptInfosAdded).toEqual({ [SHEET]: 1 });
+    expect(sheet.getRange("B5").getValue()).toBe(
+      "Pat Fakename - Concert tickets",
+    );
+    expect(sheet.getRange("C5").getValue()).toBe(-8.07);
+    expect(sheet.getRange("B5").getNotes()[0][0]).toContain(
+      "From: pat.friend@example.net",
+    );
+    expect(t.archived).toBe(true);
+    expect(t.labels.map((l) => l.getName())).toEqual([
+      "Receipts/Scripted",
+      "Receipts",
+    ]);
+  });
+
   it("recordReceiptsCore returns errors instead of alerting or throwing", async () => {
     const env = getEnv();
     env.SpreadsheetApp.uiAvailable = false;
     const bad = makeThread({
-      from: "Weird <weird@example.org>",
+      from: "Weird <weird at example.org>",
       subject: "huh",
       body: "",
       date: new Date("2024-02-20T12:00:00Z"),
@@ -497,7 +552,7 @@ describe("recording receipts", () => {
     expect(result.numErrors).toBe(1);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toContain(
-      "No function to handle receipt message from weird@example.org",
+      "Could not get email address from Weird <weird at example.org>",
     );
     expect(env.SpreadsheetApp.ui.alerts).toEqual([]);
     expect(good.archived).toBe(true);

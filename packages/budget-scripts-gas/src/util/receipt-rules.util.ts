@@ -76,7 +76,10 @@ export function getReceiptSenderAddresses(): string[] {
 
 /** Gmail search query for unprocessed receipt threads */
 export function getReceiptSearchQuery(): string {
-  return buildReceiptQuery(getReceiptSenderAddresses());
+  const rules = getCompiledReceiptRules();
+  return buildReceiptQuery(rules.senderAddresses, {
+    forwardSubjectPrefixes: rules.config.forwarding.subjectPrefixes,
+  });
 }
 
 /**

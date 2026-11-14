@@ -10,6 +10,7 @@ import {
   FWD,
   receiptEdgeFixtures,
   receiptFixtures,
+  receiptThreadFixtures,
   type ReceiptFixture,
 } from "./fixtures/receipts";
 
@@ -67,17 +68,42 @@ describe.each([
 });
 
 describe("ThreadList error handling and aggregation", () => {
-  it("records an error for an unknown sender", async () => {
+  it("an unknown sender is only a note, not an error (intentional change)", async () => {
+    // Previously: error "No function to handle receipt message from spam@example.org"
     const list = await parse({
       id: "m1",
-      from: "Spam <spam@example.org>",
+      from: '"Spam" <spam@example.org>',
       subject: "Hello",
       body: "b",
     });
-    expect(list.threadInfos).toHaveLength(1);
-    expect(list.threadInfos[0].errors[0]).toContain(
-      "No function to handle receipt message from spam@example.org",
+    expect(list.threadInfos).toEqual([]);
+    expect(list.ignoredThreads).toHaveLength(1);
+    expect(getEnv().logs.join("\n")).toContain(
+      "Message is not a receipt:\nFrom: spam@example.org\nSubject: Hello",
     );
+  });
+
+  it("a receipt thread with an unknown-sender reply keeps the receipt, with the reply as a note", async () => {
+    const list = await parse(...receiptThreadFixtures.receiptWithUnknownReply);
+    expect(list.threadInfos).toHaveLength(1);
+    const [info] = list.threadInfos;
+    expect(info.errors).toEqual([]);
+    expect(info.receiptInfos.map((r) => r.name)).toEqual([
+      "Pat Fakename - Concert tickets",
+    ]);
+    expect(info.notes[0]).toContain(
+      "Message is not a receipt:\nFrom: pat.friend@example.net\nSubject: Re: Dinner Friday?",
+    );
+  });
+
+  it("a thread of only unknown-sender and forwarder replies is ignored", async () => {
+    const list = await parse(...receiptThreadFixtures.unknownSendersOnly);
+    expect(list.threadInfos).toEqual([]);
+    expect(list.ignoredThreads).toHaveLength(1);
+  });
+
+  it("a forward without a recognizable original sender is still an error", async () => {
+    const list = await parse({ from: FWD, subject: "Fwd: hi", body: "x" });
     expect(list.threadInfos[0].errors[0]).toContain(
       "Skipping marking as processed",
     );
@@ -139,11 +165,11 @@ describe("ThreadList error handling and aggregation", () => {
         date: early,
       },
       { from: CHASE, subject: "Marketing", body: "buy things", date: early },
-      { from: "x@example.org", subject: "weird", body: "", date: early },
+      { from: "x at example.org", subject: "weird", body: "", date: early },
     );
     // thread with only an error -> EmptyReceipt dated at its last message
     const t3 = makeThread({
-      from: "y@example.org",
+      from: "y at example.org",
       subject: "bad",
       body: "",
       date: new Date("2024-03-03T00:00:00Z"),
@@ -157,12 +183,12 @@ describe("ThreadList error handling and aggregation", () => {
       "Late Shop",
     ]);
     expect(all[0].errorMessage).toContain(
-      "No function to handle receipt message from x@example.org",
+      "Could not get email address from x at example.org",
     );
     expect(all[0].note).toContain(
       "Message is not a receipt:\nFrom: no.reply.alerts@chase.com\nSubject: Marketing",
     );
-    expect(all[1].errorMessage).toContain("y@example.org");
+    expect(all[1].errorMessage).toContain("y at example.org");
     expect(all[1].cost).toBeUndefined();
     // cached
     expect(list.getAllReceiptInfos()).toBe(all);
@@ -189,8 +215,8 @@ describe("ThreadList error handling and aggregation", () => {
   it("joins multiple errors with a separator", async () => {
     const { ThreadList } = await import("../src/models/thread-list.model");
     const t = makeThread(
-      { from: "a@example.org", subject: "1", body: "" },
-      { from: "b@example.org", subject: "2", body: "" },
+      { from: "a at example.org", subject: "1", body: "" },
+      { from: "b at example.org", subject: "2", body: "" },
     );
     const [first] = new ThreadList([t]).getAllReceiptInfos();
     expect(first.errorMessage).toContain(

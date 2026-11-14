@@ -12,6 +12,8 @@
 
 export const CHASE = "Chase <no.reply.alerts@chase.com>";
 export const PAYPAL = "PayPal <service@paypal.com>";
+/** PayPal sometimes puts the address itself, quoted, in the display name */
+export const PAYPAL_QUOTED = '"service@paypal.com" <service@paypal.com>';
 export const VENMO = "Venmo <venmo@venmo.com>";
 /** The person who forwards receipts (ForwardEmailAddress / ForwardName in the test variables) */
 export const FWD = "Sam Example <fwd@example.com>";
@@ -54,6 +56,20 @@ const PAYPAL_PAYMENT_BODY =
 const FORWARDED_PAYPAL_EXPECTED = {
   cost: 25.5,
   name: "Jane Doe - Lunch money",
+};
+
+/** A reply from someone with no rules, in a thread the query pulled in */
+const UNKNOWN_SENDER_REPLY: EmailFixture = {
+  from: "Pat Friend <pat.friend@example.net>",
+  subject: "Re: Dinner Friday?",
+  body: "Count me in!\n",
+};
+
+/** The forwarder's own reply (no forward prefix) */
+const FORWARDER_REPLY: EmailFixture = {
+  from: FWD,
+  subject: "Re: Dinner Friday?",
+  body: "Sounds good, see you there.\n",
 };
 
 export const receiptFixtures = {
@@ -149,6 +165,52 @@ export const receiptFixtures = {
       body: "Hi\n\nAccept your $20.00 USD from Bob Smith\n\nline\nline\n\nBirthday gift\nbye\n",
     },
     expected: { cost: -20, name: "Bob Smith - Birthday gift" },
+  },
+  paypalQuotedFrom: {
+    description:
+      'finds the sender in a quoted formal From ("service@paypal.com" <service@paypal.com>)',
+    email: {
+      from: PAYPAL_QUOTED,
+      subject: "You sent a $25.50 USD payment",
+      body: PAYPAL_PAYMENT_BODY,
+    },
+    expected: { cost: 25.5, name: "Jane Doe - Lunch money", type: "TJ Paypal" },
+  },
+  paypalBareQuotedFrom: {
+    description:
+      'finds the sender in a bare quoted From ("service@paypal.com")',
+    email: {
+      from: '"service@paypal.com"',
+      subject: "You sent a $25.50 USD payment",
+      body: PAYPAL_PAYMENT_BODY,
+    },
+    expected: { cost: 25.5, name: "Jane Doe - Lunch money" },
+  },
+  // paypal-sent-you: the bodies are made up until a real sample exists (only the subject is known)
+  paypalSentYou: {
+    description:
+      "parses money sent to you (<Payer> sent you $X USD) as a negative cost with the note",
+    email: {
+      from: PAYPAL_QUOTED,
+      subject: "Pat Fakename sent you $8.07 USD",
+      body: "Hello\n\nPat Fakename sent you $8.07 USD\n\nNote from Pat Fakename:\nConcert tickets\n\nThanks\n",
+    },
+    expected: {
+      cost: -8.07,
+      name: "Pat Fakename - Concert tickets",
+      type: "TJ Paypal",
+    },
+  },
+  paypalSentYouNoNote: {
+    description:
+      "money sent to you without a note: the payer name (which may contain $ and U+00A0) from the subject",
+    email: {
+      from: PAYPAL,
+      subject: "Dee $ollar Example sent you $1,208.07 USD",
+      body: "Hello\n\nNo note here\n",
+    },
+    // parseFloat stops at the comma, like every other rule
+    expected: { cost: -1, name: "Dee $ollar Example" },
   },
   paypalUnknownSubject: {
     description:
@@ -315,6 +377,40 @@ export const receiptEdgeFixtures = {
     },
     expected: { type: "Sam Venmo" },
   },
+  edgeVenmoToForwarderQuoted: {
+    description: "venmo sent to a quoted forward address uses ForwardName",
+    email: {
+      from: VENMO,
+      to: '"fwd@example.com" <fwd@example.com>',
+      subject: "You paid Jane Doe $15.00",
+      body: "You paid\nJane Doe\n$15.00\nPizza night\nmore\n",
+    },
+    expected: { type: "Sam Venmo" },
+  },
+  edgeForwardedQuotedFrom: {
+    description: "a forwarded header with a quoted formal From still parses",
+    email: {
+      from: FWD,
+      subject: "Fwd: You sent a $25.50 USD payment",
+      body:
+        '---------- Forwarded message ---------\nFrom: "service@paypal.com" <service@paypal.com>\n' +
+        "Date: Mon\nSubject: You sent a $25.50 USD payment\nTo: Sam <fwd@example.com>\n\n" +
+        PAYPAL_PAYMENT_BODY,
+    },
+    expected: { cost: 25.5, type: "Sam Paypal" },
+  },
+  edgeUnknownSender: {
+    description:
+      "a message from an unknown sender is not a receipt (e.g. a reply in a group thread)",
+    email: UNKNOWN_SENDER_REPLY,
+    expected: null,
+  },
+  edgeForwarderReply: {
+    description:
+      "a message from the forward address without a forward prefix is not a receipt",
+    email: FORWARDER_REPLY,
+    expected: null,
+  },
   edgeVenmoToUnparsable: {
     description: "venmo with an unparsable 'to' falls back to TJ",
     email: {
@@ -369,6 +465,35 @@ export const receiptEdgeFixtures = {
 } satisfies Record<string, ReceiptFixture>;
 
 export type ReceiptFixtureName = keyof typeof receiptFixtures;
+
+/** Multi-message threads (messages in order) for the labeling tests */
+export const receiptThreadFixtures = {
+  /** Only unknown-sender and forwarder replies: ignored (Receipts/Ignored, stays in the inbox) */
+  unknownSendersOnly: [
+    { ...UNKNOWN_SENDER_REPLY, date: FIXTURE_DATE },
+    { ...FORWARDER_REPLY, date: FIXTURE_DATE },
+  ],
+  /** A receipt plus an unknown-sender reply: valid (receipt recorded, archived) */
+  receiptWithUnknownReply: [
+    { ...receiptFixtures.paypalSentYou.email, date: FIXTURE_DATE },
+    { ...UNKNOWN_SENDER_REPLY, date: FIXTURE_DATE },
+  ],
+  /**
+   * The forwarder forwards a non-receipt from someone with no rules, who then replies. The query
+   * finds it (forward address + "Fwd" subject); it is ignored
+   */
+  forwardedFromUnknownSender: [
+    {
+      from: FWD,
+      subject: "Fwd: Dinner Friday?",
+      body:
+        "See below\n\n---------- Forwarded message ---------\nFrom: Pat Friend <pat.friend@example.net>\n" +
+        "Date: Thu\nSubject: Dinner Friday?\nTo: Sam <fwd@example.com>\n\nAnyone free?\n",
+      date: FIXTURE_DATE,
+    },
+    { ...UNKNOWN_SENDER_REPLY, date: FIXTURE_DATE },
+  ],
+} satisfies Record<string, EmailFixture[]>;
 
 /** A Chase purchase email for tests that just need a receipt thread */
 export function chasePurchaseEmail(

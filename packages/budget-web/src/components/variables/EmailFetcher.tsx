@@ -29,12 +29,15 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 export function EmailFetcher({
   senders,
   forwardEmailAddress,
+  forwardSubjectPrefixes,
   onFetched,
   api,
 }: {
   /** Sender addresses from the candidate rules. */
   senders: string[];
   forwardEmailAddress: string;
+  /** The candidate rules' forwarding.subjectPrefixes (undefined = built-in default). */
+  forwardSubjectPrefixes?: string[];
   onFetched: (emails: ReceiptEmailDto[], query: string) => void;
   api: CallApi;
 }) {
@@ -101,6 +104,7 @@ export function EmailFetcher({
           includeProcessed,
           subjects,
           newerThanDays,
+          forwardSubjectPrefixes,
         }),
         error: null,
       };
@@ -122,6 +126,7 @@ export function EmailFetcher({
       maxThreads,
       ...(subjects.length > 0 ? { subjects } : {}),
       ...(newerThanDays !== undefined ? { newerThanDays } : {}),
+      ...(forwardSubjectPrefixes ? { forwardSubjectPrefixes } : {}),
     };
     try {
       const { data } = await api<FetchReceiptEmailsResultDto>(request);

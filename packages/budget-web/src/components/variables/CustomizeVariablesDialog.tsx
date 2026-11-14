@@ -263,6 +263,7 @@ export function CustomizeVariablesDialog({
                 <EmailFetcher
                   senders={candidate.senders.map((s) => s.address)}
                   forwardEmailAddress={forwardEmailAddress}
+                  forwardSubjectPrefixes={candidate.forwarding.subjectPrefixes}
                   api={api}
                   onFetched={(fetched) => setEmails(fetched)}
                 />

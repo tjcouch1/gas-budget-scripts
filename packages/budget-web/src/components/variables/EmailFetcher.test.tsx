@@ -24,7 +24,11 @@ const email: ReceiptEmailDto = {
   labels: [],
 };
 
-function setup(api?: CallApi, senders = SENDERS) {
+function setup(
+  api?: CallApi,
+  senders = SENDERS,
+  forwardSubjectPrefixes?: string[],
+) {
   const result: FetchReceiptEmailsResultDto = {
     query: "server query",
     threadCount: 1,
@@ -39,6 +43,7 @@ function setup(api?: CallApi, senders = SENDERS) {
     <EmailFetcher
       senders={senders}
       forwardEmailAddress={FWD}
+      forwardSubjectPrefixes={forwardSubjectPrefixes}
       onFetched={onFetched}
       api={callApi}
     />,
@@ -51,6 +56,17 @@ describe("EmailFetcher", () => {
     setup();
     expect(screen.getByTestId("query-preview")).toHaveTextContent(
       buildReceiptSearchQuery(SENDERS, FWD).trim(),
+    );
+  });
+
+  it("uses the candidate forward subject prefixes in the preview and the request", async () => {
+    const { api, user } = setup(undefined, SENDERS, ["Fwd: ", "FW: "]);
+    expect(screen.getByTestId("query-preview")).toHaveTextContent(
+      "OR (from:fwd@example.com subject:(Fwd OR FW)))",
+    );
+    await user.click(screen.getByRole("button", { name: "Fetch emails" }));
+    expect(api).toHaveBeenCalledWith(
+      expect.objectContaining({ forwardSubjectPrefixes: ["Fwd: ", "FW: "] }),
     );
   });
 

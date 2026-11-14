@@ -234,7 +234,9 @@ Regexes are compiled once per `compileReceiptRules` and are NOT global, so `exec
 
 ### 2.4 Worked example: `DEFAULT_RECEIPT_RULES` (`shared/src/receipt-rules-defaults.ts`)
 
-This is the exact JSON the setup helper writes (as a TS object literal `satisfies ReceiptRulesConfig`). Every current regex and branch is mapped; the comment after each entry names the old constant.
+This is the exact JSON the setup helper writes (as a TS object literal `satisfies ReceiptRulesConfig`). Every current regex and branch is mapped; the comment after each entry names the old constant. The code also has `forwarding.subjectPrefixes: ["Fwd: "]` (owner decision 11.5).
+
+Follow-up (owner decisions 12.3): `paypal-sent-you` is new (money received, "<Payer> sent you $8.07 USD", cost negated, ordered after `paypal-sent`/`paypal-received`). Only the subject format is known; its body regex for the note is a guess and optional, so the name falls back to the payer from the subject. Replace the body regex once a real sample (body and From line) is available.
 
 ```json
 {
@@ -321,6 +323,19 @@ This is the exact JSON the setup helper writes (as a TS object literal `satisfie
           },
           "name": "${body.name} - ${body.details}",
           "cost": { "source": "body", "group": "cost", "negate": true }
+        },
+        {
+          "id": "paypal-sent-you",
+          "subject": {
+            "pattern": "^(?<name>.+) sent you \\$(?<cost>.+)[\\s\\u00a0]USD$"
+          },
+          "body": {
+            "source": "plainBody",
+            "pattern": "[Nn]ote from [^\\r\\n]+\\r?\\n(?:[ \\t]*\\r?\\n)*(?<details>[^\\r\\n]*\\S)"
+          },
+          "name": "${subject.name} - ${body.details}",
+          "nameFallback": "${subject.name}",
+          "cost": { "source": "subject", "group": "cost", "negate": true }
         }
       ]
     },
@@ -797,3 +812,12 @@ Parallelism: Group 1 = up to 3 agents (A1+A2 | A3+B1 | B2). Group 2 is sequentia
 3. `includeProcessed` stays: optional, default off, clearly labeled, read-only. ALSO: the fetcher UI has a "Max emails" number input (default **10**), sent as `maxThreads`. The API default `maxThreads` is 10; the server still clamps it to its cap.
 4. Sender address comparison is case-insensitive (intentional small change; pin it with a test and call it out).
 5. Forwarded-subject prefix becomes configurable: add `forwarding.subjectPrefixes: string[]` (default `["Fwd: "]`; 1-5 entries, each 1-20 chars, literal text, regex-escaped when building the forward subject regex). A forwarded email's subject matches when it starts with any prefix followed by the rule's subject pattern without its leading `^`. The default must reproduce today's behavior exactly. The formal-address extraction regex (`Name <email>` → `email`) stays in code (it is a no-op on plain addresses).
+
+## 12. Owner decisions, follow-up (binding; override anything above that conflicts)
+
+Production import errors had two causes: group threads pulled in by a reply from ForwardEmailAddress, and PayPal's `"service@paypal.com" <service@paypal.com>` From header.
+
+1. Unknown senders are "not a receipt" (a note, no error), as are messages from ForwardEmailAddress whose subject does not start with a `forwarding.subjectPrefixes` entry. A forward-prefixed subject whose original sender no `fromPattern` finds stays an error (it catches a changed forward format). `RuleOutcome.reason` (`"unknown-sender" | "not-forwardable" | "not-a-forward" | "no-rule-matched" | "no-receipt-data"`, null for receipts) is shown in the web results ("Not a receipt: unknown sender"). The "No function to handle receipt message from" error no longer exists (section 2.2/2.3 step 3 are superseded). Labeling: a thread of only such messages is ignored (Receipts/Ignored, stays in the inbox); a thread with a receipt plus such a reply is valid (recorded, archived).
+2. `extractEmailAddress` prefers the address inside `<...>` and never includes quotes.
+3. New default rule `paypal-sent-you` (section 2.4). Saved cells keep their rules: owners reset via Customize variables > "Reset to built-in defaults" > Save, or clear the cell (README, RECEIPT_RULES_NOTE).
+4. The Gmail query matches ForwardEmailAddress only with a forward-prefix word in the subject: `(from:(a OR b) OR (from:<fwd> subject:Fwd)) in:inbox <exclusions> `; several prefixes give `subject:(Fwd OR FW)`. Each token is the prefix without its trailing ":"/whitespace and must be letters/digits (validated). Section 2.6's pinned query is superseded. `fetchReceiptEmails` takes optional `forwardSubjectPrefixes` (the candidate rules').

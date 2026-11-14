@@ -49,7 +49,7 @@ export function EmailResults({ items }: { items: PreviewItem[] }) {
 
 function ResultCard({ item }: { item: PreviewItem }) {
   const { email, outcome, error } = item;
-  const { label, tone } = formatOutcome(item);
+  const { label, tone, detail } = formatOutcome(item);
   const captures = outcome
     ? [
         ...captureEntries("subject", outcome.captures.subject),
@@ -68,7 +68,7 @@ function ResultCard({ item }: { item: PreviewItem }) {
           data-testid="outcome-badge"
           className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${TONES[tone]}`}
         >
-          {label}
+          {detail ? `${label}: ${detail}` : label}
         </span>
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-slate-600 dark:text-slate-400">
@@ -93,11 +93,7 @@ function ResultCard({ item }: { item: PreviewItem }) {
       {outcome && (
         <p className="text-xs">
           Rule:{" "}
-          {outcome.ruleId ? (
-            <code>{outcome.ruleId}</code>
-          ) : (
-            <span>no rule matched</span>
-          )}
+          {outcome.ruleId ? <code>{outcome.ruleId}</code> : <span>none</span>}
           {outcome.senderAddress && (
             <>
               {" "}

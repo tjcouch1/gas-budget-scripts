@@ -99,6 +99,22 @@ export const DEFAULT_RECEIPT_RULES: ReceiptRulesConfig = {
           name: "${body.name} - ${body.details}",
           cost: { source: "body", group: "cost", negate: true },
         },
+        // Money received ("<Payer> sent you $8.07 USD"). NEEDS A REAL SAMPLE: the body regex for the
+        // note is a guess and optional; without a match the name is the payer from the subject.
+        {
+          id: "paypal-sent-you",
+          subject: {
+            pattern: "^(?<name>.+) sent you \\$(?<cost>.+)[\\s\\u00a0]USD$",
+          },
+          body: {
+            source: "plainBody",
+            pattern:
+              "[Nn]ote from [^\\r\\n]+\\r?\\n(?:[ \\t]*\\r?\\n)*(?<details>[^\\r\\n]*\\S)",
+          },
+          name: "${subject.name} - ${body.details}",
+          nameFallback: "${subject.name}",
+          cost: { source: "subject", group: "cost", negate: true },
+        },
       ],
     },
     {
@@ -159,8 +175,8 @@ forwarding: subjectPrefixes (e.g. ["Fwd: "]), fromPatterns (regexes with a named
 senders[]: address, type ("Paid with" base), typePrefix ("fixed" or "recipient"), forwardable (true/false), rules[]
 rules[]: id, subject {pattern, flags}, optional body {source: "plainBody" or "htmlBody", pattern, flags}, name, nameFallback, cost {source: "subject" or "body", group, negate}, category
 
-Patterns are JavaScript regular expressions without slashes; flags may use i, m, s, u. Templates use \${subject.<group>} and \${body.<group>} for named groups; if any referenced group is missing, nameFallback is tried. Rules are tried in order and the first rule whose subject matches wins. Forwarded emails (from ForwardEmailAddress) must start with a subject prefix.
+Patterns are JavaScript regular expressions without slashes; flags may use i, m, s, u. Templates use \${subject.<group>} and \${body.<group>} for named groups; if any referenced group is missing, nameFallback is tried. Rules are tried in order and the first rule whose subject matches wins. Forwarded emails (from ForwardEmailAddress) must start with a subject prefix (letters or digits, then an optional ":" and spaces); other messages from that address, and unknown senders are not receipts (only a note). A forward whose original sender cannot be found is an error.
 
-The Gmail search is built from senders[].address plus ForwardEmailAddress, always with in:inbox and the processed-label exclusions. Regexes run in Apps Script, so slow patterns slow every import. An invalid value stops receipt imports with an error until it is fixed or cleared.
+The Gmail search is built from senders[].address plus ForwardEmailAddress (only with a subject prefix word such as Fwd), always with in:inbox and the processed-label exclusions. Regexes run in Apps Script, so slow patterns slow every import. An invalid value stops receipt imports with an error until it is fixed or cleared. A saved value does not pick up new built-in rules after an upgrade: use Customize variables > "Reset to built-in defaults" > Save, or clear the cell.
 
 Keep column A empty below the last variable: the web app and the setup helper only add ReceiptRules in an empty row (both columns empty) of Variables!A1:B30 below the last non-empty cell in column A.`;

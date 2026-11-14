@@ -63,10 +63,14 @@ describe("engine error messages match the old parser", () => {
   const run = (email: EmailFixture) =>
     applyReceiptRules(rules, toRuleEmail(email), context);
 
-  it("unknown sender", () => {
-    expect(() =>
-      run({ from: "Spam <spam@example.org>", subject: "Hello", body: "b" }),
-    ).toThrow("No function to handle receipt message from spam@example.org");
+  it("unknown sender is not a receipt (intentional change; previously threw)", () => {
+    const outcome = run({
+      from: "Spam <spam@example.org>",
+      subject: "Hello",
+      body: "b",
+    });
+    expect(outcome.isReceipt).toBe(false);
+    expect(outcome.reason).toBe("unknown-sender");
   });
 
   it("unparsable sender", () => {
@@ -88,7 +92,7 @@ it("the defaults' sender addresses build the pinned Gmail query", () => {
   expect(
     buildReceiptSearchQuery(rules.senderAddresses, "fwd@example.com"),
   ).toBe(
-    "from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com OR fwd@example.com) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ",
+    "(from:(no.reply.alerts@chase.com OR service@paypal.com OR venmo@venmo.com) OR (from:fwd@example.com subject:Fwd)) in:inbox NOT label:receipts NOT label:receipts-cru-reimburse NOT label:receipts-tax-deductible NOT label:receipts-scripted ",
   );
 });
 

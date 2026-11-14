@@ -20,6 +20,7 @@ const receipt: RuleOutcome = {
   senderAddress: "no.reply.alerts@chase.com",
   forwarded: false,
   ruleId: "chase-purchase",
+  reason: null,
   receipt: {
     cost: 4.5,
     name: "Demo Cafe",
@@ -34,6 +35,7 @@ const receipt: RuleOutcome = {
 const notReceipt: RuleOutcome = {
   ...receipt,
   ruleId: null,
+  reason: "no-rule-matched",
   receipt: {
     cost: undefined,
     name: undefined,
@@ -55,7 +57,17 @@ const items: PreviewItem[] = [
   {
     email: { ...email, messageId: "m3", subject: "Broken" },
     outcome: null,
-    error: "No function to handle receipt message from x@example.com",
+    error: "Could not get email address from nobody",
+  },
+  {
+    email: { ...email, messageId: "m4", subject: "Re: Dinner Friday?" },
+    outcome: {
+      ...notReceipt,
+      senderAddress: null,
+      reason: "unknown-sender",
+      receipt: { ...notReceipt.receipt, type: undefined },
+    },
+    error: null,
   },
 ];
 
@@ -80,7 +92,10 @@ describe("EmailResults", () => {
     ).toHaveTextContent("Not a receipt");
     const broken = within(card("Broken"));
     expect(broken.getByTestId("outcome-badge")).toHaveTextContent("Error");
-    expect(broken.getByText(/No function to handle/)).toBeInTheDocument();
+    expect(broken.getByText(/Could not get email address/)).toBeInTheDocument();
+    expect(
+      within(card("Re: Dinner Friday?")).getByTestId("outcome-badge"),
+    ).toHaveTextContent(/^Not a receipt: unknown sender$/);
   });
 
   it("shows captures, the receipt, rule, and warnings", () => {
