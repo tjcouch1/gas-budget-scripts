@@ -525,6 +525,8 @@ test.describe("unsaved changes and save status", () => {
     page,
     sheetName,
   }) => {
+    // Fake timers so the "Saved ✓" clear-out can be skipped instead of waited for
+    await page.clock.install();
     await connect(page);
     // Slow the write down so the pending state is observable
     await page.route("**/macros/s/demo/exec", async (route) => {
@@ -548,7 +550,8 @@ test.describe("unsaved changes and save status", () => {
       ],
     ).toBe("Household");
     // It clears itself a few seconds later
-    await expect(status).toHaveCount(0, { timeout: 8000 });
+    await page.clock.fastForward(10_000);
+    await expect(status).toHaveCount(0);
   });
 });
 

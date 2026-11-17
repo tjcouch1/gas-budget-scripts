@@ -13,19 +13,23 @@ test.describe("app shell", () => {
   test("first-run settings closes itself after a working save", async ({
     page,
   }) => {
+    // Fake timers so the 2-second auto-close can be skipped instead of waited for
+    await page.clock.install();
     await page.goto("/");
     const dialog = page.getByRole("dialog", { name: "Connection settings" });
     await dialog.getByLabel("Web app URL").fill(GAS_URL);
     await dialog.getByLabel("API key").fill(API_KEY);
     await dialog.getByRole("button", { name: "Save" }).click();
     await expect(dialog.getByRole("status")).toContainText("Connected.");
-    await expect(dialog).toBeHidden({ timeout: 6000 });
+    await page.clock.fastForward(2000);
+    await expect(dialog).toBeHidden();
     await expect(page.getByLabel("Pay period")).toBeVisible();
   });
 
   test("Settings opened manually does not close by itself", async ({
     page,
   }) => {
+    await page.clock.install();
     await connect(page);
     await page.getByRole("button", { name: "Settings" }).click();
     const dialog = page.getByRole("dialog", { name: "Connection settings" });
@@ -33,7 +37,9 @@ test.describe("app shell", () => {
     await dialog.getByLabel("API key").fill(API_KEY);
     await dialog.getByRole("button", { name: "Save" }).click();
     await expect(dialog.getByRole("status")).toContainText("Saved");
-    await page.waitForTimeout(2500);
+    await expect(syncedPill(page)).toBeVisible();
+    // Well past the 2-second auto-close a first-run save would use
+    await page.clock.fastForward(5000);
     await expect(dialog).toBeVisible();
   });
 
