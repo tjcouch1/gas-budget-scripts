@@ -891,7 +891,7 @@ describe("updateTransaction", () => {
     expect(env2.data).toMatchObject({ rowIndex: 1, envelope: "Food" });
   });
 
-  it("replaces a split parent's total with a validated plain number", async () => {
+  it("replaces a split parent's total with a plain number or validated math", async () => {
     sheet.seed("A5", [
       [D, "Store | ", "=45-R[1]C[0]-R[2]C[0]", "=BALANCE(0)", "", "Credit", ""],
       [D, "Store | milk", 2, "=BALANCE(1)", "", "Credit", ""],
@@ -904,10 +904,25 @@ describe("updateTransaction", () => {
       [2],
       [1],
     ]);
-    for (const splitTotal of ["1+1", "=5", "$5", "1,000", "", "abc"])
+    // Math is written in parentheses before the child references
+    expect((await update(0, { splitTotal: "40+5" })).ok).toBe(true);
+    expect(sheet.getRange("C5").getValue()).toBe("=(40+5)-R[1]C[0]-R[2]C[0]");
+    expect((await update(0, { splitTotal: "50.125" })).ok).toBe(true);
+    for (const splitTotal of [
+      "1+",
+      "4*",
+      "1..2",
+      "(1+2",
+      "--1",
+      "$5",
+      "1,000",
+      "",
+      "abc",
+      "=SUM(A1)",
+    ])
       expect((await update(0, { splitTotal })).error).toEqual({
         code: "bad_request",
-        message: "changes.splitTotal must be a plain number",
+        message: "changes.splitTotal must be a number or valid math",
       });
     expect((await update(1, { splitTotal: "5" })).error).toEqual({
       code: "bad_request",
@@ -2416,7 +2431,7 @@ describe("updateSplitGroup", () => {
       [{ rows, title: "=1+1" }, "title must not start with"],
       [{ rows, title: "A | B" }, "title must not contain |"],
       [{ rows, title: " " }, "title must not be empty"],
-      [{ rows, splitTotal: "1+1" }, "splitTotal must be a plain number"],
+      [{ rows, splitTotal: "1+" }, "splitTotal must be a number or valid math"],
       [
         { rows: withChange(0, { costExpression: "5" }) },
         "Cannot edit the cost of a split parent row",
@@ -2463,6 +2478,16 @@ describe("updateSplitGroup", () => {
       );
     }
     expect(snapshot(sheet)).toEqual(before);
+  });
+
+  it("writes a math split total in parentheses", async () => {
+    seedGroup();
+    const res = await updateGroup({
+      rows: await groupRows(),
+      splitTotal: "(40+10)",
+    });
+    expect(res.ok).toBe(true);
+    expect(sheet.getRange("C6").getValue()).toBe("=(40+10)-R[1]C[0]-R[2]C[0]");
   });
 
   it("rejects splitTotal when the parent's cost is not a split formula", async () => {

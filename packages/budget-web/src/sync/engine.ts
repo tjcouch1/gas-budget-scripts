@@ -180,7 +180,7 @@ export interface GroupEdit {
   rowChanges: (SplitGroupRowChanges | undefined)[];
   /** New text before " | " for every row. */
   title?: string;
-  /** The parent's new total (a plain amount). */
+  /** The parent's new total (a plain amount or math). */
   splitTotal?: string;
   /** New split items appended to the group. */
   newItems?: SplitItemInput[];

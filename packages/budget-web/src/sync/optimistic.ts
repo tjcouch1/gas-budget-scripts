@@ -1,10 +1,12 @@
 import {
   buildSplitChildName,
+  buildSplitParentFormula,
   buildSplitParentName,
+  compareFormulas,
   evaluateMathExpression,
   formatSplitCostFormula,
   getSplitGroupKey,
-  normalizePlainAmount,
+  parseAmountInput,
   splitParentFormulaParts,
   type TransactionChanges,
   type TransactionRowDto,
@@ -60,10 +62,13 @@ export function applyChangesToRow(
   if (changes.splitTotal !== undefined) {
     // The parent's remainder moves by the change of its total (`=<total>-<children>`).
     const parts = splitParentFormulaParts(row.costFormula);
-    const total = normalizePlainAmount(changes.splitTotal);
-    if (parts && parts.total !== null && total !== null && next.cost !== null) {
-      next.cost = clean(next.cost + Number(total) - parts.total);
-      next.costFormula = `=${total}${parts.refs}`;
+    const total = parseAmountInput(changes.splitTotal);
+    if (parts && parts.total !== null && total.ok && next.cost !== null) {
+      next.cost = clean(next.cost + total.value - parts.total);
+      next.costFormula = buildSplitParentFormula(
+        row.costFormula ?? "",
+        changes.splitTotal,
+      );
       next.costDisplay = "";
     }
   }
@@ -124,8 +129,8 @@ function applyGroupRow(
 /** The value of each new split item, with tax where asked. */
 function newItemValues(m: GroupMutation, taxMultiplier: number): number[] {
   return (m.payload.newItems ?? []).map((s) => {
-    const base = evaluateMathExpression(s.expression.trim().replace(/^=/, ""));
-    return (base ?? 0) * (s.preTax ? taxMultiplier : 1);
+    const amount = parseAmountInput(s.expression);
+    return (amount.ok ? amount.value : 0) * (s.preTax ? taxMultiplier : 1);
   });
 }
 
@@ -307,8 +312,8 @@ export function buildViewRows(
       } else if (m.action === "splitTransaction") {
         let total = 0;
         m.payload.splits.forEach((s, i) => {
-          const expr = s.expression.trim().replace(/^=/, "");
-          const base = evaluateMathExpression(expr) ?? 0;
+          const amount = parseAmountInput(s.expression);
+          const base = amount.ok ? amount.value : 0;
           const value = s.preTax ? base * state.taxMultiplier : base;
           total += value;
           synthetic.push({
@@ -457,23 +462,38 @@ function pendingAddRow(
 
 const sameText = (a: string, b: string) => a.trimEnd() === b.trimEnd();
 
+/** Two costs are the same number (within floating point noise). */
+const sameNumber = (a: number, b: number) =>
+  Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a));
+
 /**
- * True when two rows hold the same values in every field the user can edit (name, cost, envelope,
- * paid with, tax deductible, note). Costs compare by value when both are numbers, so `12.5` and
- * `=12.5`, or a formula in R1C1 and in A1 notation, match; otherwise by their text.
+ * True when two rows hold the same costs as typed: plain numbers compare by value (`12.5` and
+ * `12.50`); when either is a formula both must be formulas with the same text (`compareFormulas`),
+ * so `1.09` and `=1*1.09` differ. References in A1 notation on one side and R1C1 on the other
+ * (`=40-C12-C13` and `=40-R[1]C[0]-R[2]C[0]`) match when the rest of the text and the values do.
+ */
+function sameCost(a: TransactionRowDto, b: TransactionRowDto): boolean {
+  if (a.costFormula && b.costFormula) {
+    const compared = compareFormulas(a.costFormula, b.costFormula);
+    if (compared === "refNotationDiffers")
+      return a.cost !== null && b.cost !== null && sameNumber(a.cost, b.cost);
+    return compared === "same";
+  }
+  if (a.costFormula || b.costFormula) return false;
+  if (a.cost !== null && b.cost !== null) return sameNumber(a.cost, b.cost);
+  return a.cost === b.cost && sameText(a.costDisplay, b.costDisplay);
+}
+
+/**
+ * True when two rows hold the same values in every field the user can edit (name, cost as typed
+ * (see `sameCost`), envelope, paid with, tax deductible, note).
  */
 export function sameEditableValues(
   a: TransactionRowDto,
   b: TransactionRowDto,
 ): boolean {
-  const costText = (r: TransactionRowDto) =>
-    (r.costFormula ?? r.costDisplay).replace(/\s+/g, "").toUpperCase();
-  const sameCost =
-    a.cost !== null && b.cost !== null
-      ? Math.abs(a.cost - b.cost) <= 1e-9 * Math.max(1, Math.abs(a.cost))
-      : a.cost === b.cost && costText(a) === costText(b);
   return (
-    sameCost &&
+    sameCost(a, b) &&
     sameText(a.name, b.name) &&
     sameText(a.envelope, b.envelope) &&
     sameText(a.paidWith, b.paidWith) &&

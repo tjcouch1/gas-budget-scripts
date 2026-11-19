@@ -1,8 +1,9 @@
 import {
-  evaluateMathExpression,
   isUnsafeFreeText,
+  parseAmountInput,
   type SplitItemInput,
 } from "@budget/shared";
+import { AMOUNT_MESSAGE } from "./row-draft.ts";
 
 export interface SplitDraftItem {
   /** Stable key for React lists. */
@@ -38,8 +39,10 @@ export const newSplitItem = (
 });
 
 export interface EvaluatedSplitItem {
-  /** Tax-applied amount, or null when the expression is invalid. */
+  /** Tax-applied amount, or null when the expression is blank or invalid. */
   value: number | null;
+  /** Inline message for an invalid amount; null when it is valid or still blank. */
+  error: string | null;
   noteUnsafe: boolean;
 }
 
@@ -50,11 +53,11 @@ export function evaluateSplitItem(
   item: Pick<SplitDraftItem, "expression" | "preTax" | "itemNote">,
   taxMultiplier: number,
 ): EvaluatedSplitItem {
-  let expr = item.expression.trim();
-  if (expr.startsWith("=")) expr = expr.slice(1).trim();
-  const base = evaluateMathExpression(expr);
+  const amount = parseAmountInput(item.expression);
+  const base = amount.ok ? amount.value : null;
   return {
     value: base === null ? null : item.preTax ? base * taxMultiplier : base,
+    error: !amount.ok && amount.reason === "invalid" ? AMOUNT_MESSAGE : null,
     noteUnsafe: isUnsafeFreeText(item.itemNote),
   };
 }
@@ -89,14 +92,18 @@ export function summarizeSplit(
   };
 }
 
+/** The request items; each amount as `parseAmountInput` sends it (a plain number as typed). */
 export function toSplitInputs(items: SplitDraftItem[]): SplitItemInput[] {
-  return items.map((i) => ({
-    itemNote: i.itemNote.trim(),
-    expression: i.expression.trim(),
-    preTax: i.preTax,
-    envelope: i.envelope,
-    ...(i.paidWith ? { paidWith: i.paidWith } : {}),
-    ...(i.taxDeductible ? { taxDeductible: "Yes" as const } : {}),
-    ...(i.note.trim() ? { note: i.note } : {}),
-  }));
+  return items.map((i) => {
+    const amount = parseAmountInput(i.expression);
+    return {
+      itemNote: i.itemNote.trim(),
+      expression: amount.ok ? amount.expression : i.expression.trim(),
+      preTax: i.preTax,
+      envelope: i.envelope,
+      ...(i.paidWith ? { paidWith: i.paidWith } : {}),
+      ...(i.taxDeductible ? { taxDeductible: "Yes" as const } : {}),
+      ...(i.note.trim() ? { note: i.note } : {}),
+    };
+  });
 }

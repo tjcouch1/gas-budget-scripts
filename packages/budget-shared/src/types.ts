@@ -18,11 +18,15 @@ export interface TransactionChanges {
    */
   name?: string;
   /**
-   * Split parent only: the new total (a plain amount, see `isPlainAmount`) that replaces the
-   * leading value of its `=<total>-R[1]C[0]-...` cost formula (`buildSplitParentFormula`).
+   * Split parent only: the new total (a plain amount or math, see `parseAmountInput`) that
+   * replaces the total of its `=<total>-R[1]C[0]-...` cost formula (`buildSplitParentFormula`:
+   * math is written in parentheses, `=(40+5)-R[1]C[0]`).
    */
   splitTotal?: string;
-  /** Validated by the shared math parser. */
+  /**
+   * A plain number (written as a number) or math (written as a formula), validated by the shared
+   * math parser (`parseAmountInput`, `formatSplitCostFormula`).
+   */
   costExpression?: string;
   /** When true, the cost is wrapped with the sheet TaxMultiplier like a split child. Default false. */
   costPreTax?: boolean;

@@ -37,7 +37,8 @@ packages/budget-shared/       # @budget/shared: source-only pure TS (no build st
   src/receipt-rules*.ts       #   receipt rule types, validation, engine (applyReceiptRules), DEFAULT_RECEIPT_RULES
   src/receipt-query.ts        #   Gmail search query builder
   src/types.ts                #   API DTOs and request/response types
-  src/math.ts                 #   evaluateMathExpression (parser), formatSplitCostFormula
+  src/math.ts                 #   evaluateMathExpression (parser), formatSplitCostFormula, parseAmountInput (plain number vs math), split parent total parse/build
+  src/formula-compare.ts      #   compareFormulas (cost formula text, A1 vs R1C1) for conflict auto-accept
   src/fingerprint.ts          #   computeRowFingerprint (FNV-1a), shared by client and server
   src/names.ts                #   split-name helpers, isUnsafeFreeText
   test/*.test.ts

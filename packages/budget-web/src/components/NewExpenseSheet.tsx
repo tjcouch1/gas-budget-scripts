@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { isUnsafeFreeText, type NewTransactionFields } from "@budget/shared";
-import { checkPlainAmount } from "../lib/row-draft.ts";
+import { checkAmount } from "../lib/row-draft.ts";
 import { formatMoney, formatShortDate } from "../lib/format.ts";
 import type { EnvelopeRowDto } from "@budget/shared";
 import {
@@ -77,10 +77,11 @@ export function NewExpenseSheet({
   const setDraft = (patch: Partial<Draft>) =>
     setDraftState((d) => ({ ...d, ...patch }));
 
-  const costCheck = checkPlainAmount(draft.cost);
-  const expression = costCheck.amount;
-  const value = expression === null ? null : Number(expression);
-  // Blank is not flagged inline (the form just cannot be saved yet); anything else must be a number.
+  // A plain number is saved as typed; anything else must be math (saved as a formula).
+  const costCheck = checkAmount(draft.cost);
+  const expression = costCheck.amount?.expression ?? null;
+  const value = costCheck.amount?.value ?? null;
+  // Blank is not flagged inline (the form just cannot be saved yet).
   const costInvalid = draft.cost.trim() !== "" && costCheck.error !== null;
   const nameUnsafe = isUnsafeFreeText(draft.name);
   const dateValid = ISO_DATE.test(draft.date);
@@ -187,7 +188,7 @@ export function NewExpenseSheet({
             aria-label="Cost"
             aria-invalid={costInvalid}
             inputMode="decimal"
-            placeholder="Amount, e.g. 12.34"
+            placeholder="Amount, e.g. 12.34 or 4.23*2"
             value={draft.cost}
             onChange={(e) => setDraft({ cost: e.target.value })}
           />

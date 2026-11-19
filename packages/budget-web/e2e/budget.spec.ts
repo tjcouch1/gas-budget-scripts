@@ -97,16 +97,31 @@ test.describe("editing", () => {
     await expect(syncedPill(page)).toBeVisible();
   });
 
-  test("edits the cost as a plain number", async ({ page, sheetName }) => {
+  test("edits the cost with inline math", async ({ page, sheetName }) => {
     await connect(page);
     await openTransaction(page, "Imaginary Books");
     const dialog = page.getByRole("dialog");
     // Unsplit rows have no tax toggle
     await expect(dialog.getByLabel(/Add tax/)).toHaveCount(0);
-    // Only a plain number is accepted
     await dialog.getByLabel("Cost").fill("=1+3.23*2");
+    await dialog.getByRole("button", { name: "Save & close" }).click();
+
+    await expect
+      .poll(
+        async () =>
+          findRow(await backend.dump(sheetName), "Imaginary Books").formulas[
+            COL.cost
+          ],
+      )
+      .toBe("=1+3.23*2");
+    const row = findRow(await backend.dump(sheetName), "Imaginary Books");
+    expect(row.values[COL.cost]).toBeCloseTo(7.46);
+
+    // Invalid math and a blank cost are explained inline and cannot be saved
+    await openTransaction(page, "Imaginary Books");
+    await dialog.getByLabel("Cost").fill("1..2");
     await expect(dialog.getByRole("alert")).toHaveText(
-      "Enter a number, e.g. 12.34",
+      "Enter a number or math, e.g. 4.23*2+3",
     );
     await expect(
       dialog.getByRole("button", { name: "Save & close" }),
@@ -449,6 +464,32 @@ test.describe("splitting", () => {
       "Fake Market | Birthday card",
     ]);
     await expect(syncedPill(page)).toBeVisible();
+  });
+
+  test("edits a split total with math, and shows it again for editing", async ({
+    page,
+    sheetName,
+  }) => {
+    await connect(page);
+    await page.getByRole("tab", { name: /^All/ }).click();
+    await openTransaction(page, "Fake Mart | Birthday card");
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Edit total" }).click();
+    const total = dialog.getByLabel("Total", { exact: true });
+    await expect(total).toHaveAttribute("inputmode", "decimal");
+    await total.fill("90+10");
+    await expect(dialog.getByTestId("remaining")).toHaveText("$85.73");
+    await dialog.getByRole("button", { name: "Save & close" }).click();
+    await expect
+      .poll(async () => (await backend.dump(sheetName))[0].formulas[COL.cost])
+      .toBe("=(90+10)-R[1]C[0]-R[2]C[0]");
+    await expect(syncedPill(page)).toBeVisible();
+
+    await openTransaction(page, "Fake Mart | ");
+    await dialog.getByRole("button", { name: "Edit total" }).click();
+    await expect(dialog.getByLabel("Total", { exact: true })).toHaveValue(
+      "90+10",
+    );
   });
 
   test("splits with the original's note and envelope edited", async ({

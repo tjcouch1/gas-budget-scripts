@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { AMOUNT_MESSAGE } from "./row-draft.ts";
 import {
+  evaluateSplitItem,
   newSplitItem,
   summarizeSplit,
   toSplitInputs,
@@ -50,6 +52,35 @@ describe("summarizeSplit", () => {
     expect(
       summarizeSplit(20, [item({ expression: "SUM(1)" })], 1.1).canSubmit,
     ).toBe(false);
+  });
+
+  it("explains an invalid amount inline, but not a blank one", () => {
+    expect(evaluateSplitItem(item({ expression: "4+" }), 1.1)).toMatchObject({
+      value: null,
+      error: AMOUNT_MESSAGE,
+    });
+    for (const bad of ["1..2", "1.2.3", "(1+2", "--1", "12a"])
+      expect(evaluateSplitItem(item({ expression: bad }), 1).error).toBe(
+        AMOUNT_MESSAGE,
+      );
+    expect(evaluateSplitItem(item({ expression: " " }), 1.1)).toMatchObject({
+      value: null,
+      error: null,
+    });
+    expect(evaluateSplitItem(item({ expression: "=2*3" }), 1)).toMatchObject({
+      value: 6,
+      error: null,
+    });
+  });
+
+  it("sends a plain number as typed and math without its =", () => {
+    const sent = toSplitInputs([
+      item({ expression: " 7. " }),
+      item({ expression: "-4.50" }),
+      item({ expression: "=4+1" }),
+      item({ expression: "1*1.09", preTax: true }),
+    ]).map((i) => i.expression);
+    expect(sent).toEqual(["7", "-4.50", "4+1", "1*1.09"]);
   });
 
   it("blocks over-allocation but allows exactly zero remaining", () => {
