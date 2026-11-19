@@ -5,6 +5,7 @@ import {
   formatSplitCostFormula,
   isPlainAmount,
   normalizePlainAmount,
+  parseAmountInput,
   splitParentFormulaParts,
 } from "../src/index.ts";
 
@@ -21,9 +22,11 @@ describe("evaluateMathExpression", () => {
     ["10-2-3", 5],
     ["100/10/5", 2],
     ["-5", -5],
-    ["--5", 5],
     ["+5", 5],
     ["2*-3", -6],
+    ["2/-4", -0.5],
+    ["-(-5)", 5],
+    ["1-(-2)", 3],
     ["-(1+2)", -3],
     ["((1))", 1],
     [" 1 + 2 * ( 3 - 1 ) ", 5],
@@ -49,6 +52,25 @@ describe("evaluateMathExpression", () => {
     "1..2",
     "1.",
     "1.5.5",
+    "1.2.3+1",
+    "1+1..2",
+    "(1+2))",
+    "1+(2",
+    "4*",
+    "-",
+    ".",
+    "1 .5",
+    // Doubled signs (a sign directly after another sign)
+    "--5",
+    "+-5",
+    "-+5",
+    "++5",
+    "1--2",
+    "1+-2",
+    "1++2",
+    "1-+2",
+    "2*--3",
+    "2*-+3",
     "1e5",
     "0x10",
     "SUM(1)",
@@ -172,25 +194,239 @@ describe("splitParentFormulaParts / buildSplitParentFormula", () => {
   it("reads the total of R1C1 and A1 split parent formulas", () => {
     expect(splitParentFormulaParts("=45-R[1]C[0]-R[2]C[0]")).toEqual({
       totalExpression: "45",
+      totalText: "45",
       total: 45,
       refs: "-R[1]C[0]-R[2]C[0]",
     });
-    expect(splitParentFormulaParts("=45-C12-C13")?.total).toBe(45);
-    expect(splitParentFormulaParts("=10+5-R[1]C[0]")?.total).toBe(15);
+    // getFormulas (A1) and getFormulasR1C1 (`R[1]C`) as real Sheets returns them
+    expect(splitParentFormulaParts("=45-C12-C13")).toMatchObject({
+      totalText: "45",
+      total: 45,
+      refs: "-C12-C13",
+    });
+    expect(splitParentFormulaParts("=45-R[1]C-R[2]C")).toMatchObject({
+      totalText: "45",
+      refs: "-R[1]C-R[2]C",
+    });
+    expect(splitParentFormulaParts("= 45 - $C$12 - C13 ")).toMatchObject({
+      totalText: "45",
+      total: 45,
+    });
+    expect(splitParentFormulaParts("=-5-R[1]C[0]")).toMatchObject({
+      totalText: "-5",
+      total: -5,
+    });
     expect(splitParentFormulaParts("=45")).toBeNull();
     expect(splitParentFormulaParts("=-R[1]C[0]")).toBeNull();
+    expect(splitParentFormulaParts("=45-C12*2")).toBeNull();
     expect(splitParentFormulaParts(null)).toBeNull();
   });
 
-  it("replaces only the total with a validated plain amount", () => {
+  it("reads formulas the native split appended to", () => {
+    expect(splitParentFormulaParts("=10+5-R[1]C[0]")).toMatchObject({
+      totalText: "10+5",
+      total: 15,
+    });
+    expect(splitParentFormulaParts("=10-2-C12-C13")).toMatchObject({
+      totalText: "10-2",
+      total: 8,
+      refs: "-C12-C13",
+    });
+    expect(splitParentFormulaParts("=1.0825*(5)-R[1]C[0]")).toMatchObject({
+      totalText: "1.0825*(5)",
+      total: 5.4125,
+    });
+    expect(splitParentFormulaParts("=(1+2)*(3+4)-C12")).toMatchObject({
+      totalText: "(1+2)*(3+4)",
+      total: 21,
+    });
+  });
+
+  it("reads an expression total without its outer parentheses", () => {
+    expect(splitParentFormulaParts("=(40+5)-R[1]C[0]-R[2]C[0]")).toEqual({
+      totalExpression: "(40+5)",
+      totalText: "40+5",
+      total: 45,
+      refs: "-R[1]C[0]-R[2]C[0]",
+    });
+    expect(splitParentFormulaParts("=(40+5)-C12-C13")?.totalText).toBe("40+5");
+  });
+
+  it("gives no total for a formula it cannot read confidently", () => {
+    for (const formula of [
+      "=SUM(A1:A3)-R[1]C[0]",
+      "=45-C12+3-C13",
+      "=A1-C12",
+      "=1+-2-C12",
+      "=(1+2-C12",
+    ]) {
+      const parts = splitParentFormulaParts(formula);
+      expect(parts?.total ?? null).toBeNull();
+      expect(parts?.totalText ?? null).toBeNull();
+    }
+  });
+
+  it("replaces only the total: plain stays plain, math gets parentheses", () => {
     expect(buildSplitParentFormula("=45-R[1]C[0]-R[2]C[0]", "50.25")).toBe(
       "=50.25-R[1]C[0]-R[2]C[0]",
     );
     expect(buildSplitParentFormula("=10+5-R[1]C[0]", "20")).toBe(
       "=20-R[1]C[0]",
     );
-    expect(() => buildSplitParentFormula("=45-R[1]C[0]", "1+1")).toThrow();
-    expect(() => buildSplitParentFormula("=45-R[1]C[0]", "")).toThrow();
-    expect(() => buildSplitParentFormula("=45", "50")).toThrow();
+    expect(buildSplitParentFormula("=45-R[1]C[0]-R[2]C[0]", "40+5")).toBe(
+      "=(40+5)-R[1]C[0]-R[2]C[0]",
+    );
+    expect(buildSplitParentFormula("=45-R[1]C[0]", "(40+5)")).toBe(
+      "=(40+5)-R[1]C[0]",
+    );
+    expect(buildSplitParentFormula("=45-R[1]C[0]", "=40+5")).toBe(
+      "=(40+5)-R[1]C[0]",
+    );
+    expect(buildSplitParentFormula("=45-C12-C13", "7.")).toBe("=7-C12-C13");
+    expect(buildSplitParentFormula("=(40+5)-R[1]C - R[2]C", "45")).toBe(
+      "=45-R[1]C-R[2]C",
+    );
+    for (const bad of ["", "4+", "1..2", "--1", "12a", "SUM(1)"])
+      expect(() => buildSplitParentFormula("=45-R[1]C[0]", bad)).toThrow(
+        /Invalid split total/,
+      );
+    expect(() => buildSplitParentFormula("=45", "50")).toThrow(
+      /Not a split parent formula/,
+    );
+  });
+
+  it.each([
+    "=45-R[1]C[0]-R[2]C[0]",
+    "=45-R[1]C-R[2]C",
+    "=45-C12-C13",
+    "=10+5-R[1]C[0]",
+    "=1.0825*(5)-C12",
+    "=(40+5)-R[1]C[0]",
+  ])("round-trips totals through %s", (formula) => {
+    const refs = splitParentFormulaParts(formula)!.refs.replace(/\s+/g, "");
+    for (const [typed, shown] of [
+      ["50", "50"],
+      ["-3.5", "-3.5"],
+      [".5", ".5"],
+      ["40+5", "40+5"],
+      ["(40+5)", "40+5"],
+      ["(1+2)*(3+4)", "(1+2)*(3+4)"],
+      ["2*-3", "2*-3"],
+      ["10/4", "10/4"],
+    ]) {
+      const built = buildSplitParentFormula(formula, typed);
+      const parts = splitParentFormulaParts(built)!;
+      expect(parts.totalText).toBe(shown);
+      expect(parts.total).toBeCloseTo(evaluateMathExpression(typed)!, 10);
+      expect(parts.refs).toBe(refs);
+      // Saving the shown total again writes the same formula
+      expect(buildSplitParentFormula(built, parts.totalText!)).toBe(built);
+    }
+    // The existing total survives an unchanged save
+    const existing = splitParentFormulaParts(formula)!;
+    const resaved = splitParentFormulaParts(
+      buildSplitParentFormula(formula, existing.totalText!),
+    )!;
+    expect(resaved.total).toBeCloseTo(existing.total!, 10);
+    expect(resaved.totalText).toBe(existing.totalText);
+  });
+});
+
+describe("parseAmountInput", () => {
+  it("keeps a plain numeric literal exactly as typed", () => {
+    expect(parseAmountInput(" 123288.0288 ")).toEqual({
+      ok: true,
+      plain: true,
+      expression: "123288.0288",
+      value: 123288.0288,
+    });
+    expect(parseAmountInput("-4.50")).toMatchObject({
+      plain: true,
+      expression: "-4.50",
+      value: -4.5,
+    });
+    expect(parseAmountInput(".25")).toMatchObject({
+      plain: true,
+      expression: ".25",
+    });
+    // A trailing "." is dropped (the parser and the sheet do not take "7.")
+    expect(parseAmountInput("7.")).toMatchObject({
+      plain: true,
+      expression: "7",
+      value: 7,
+    });
+  });
+
+  it("detects math and returns it without a leading =", () => {
+    expect(parseAmountInput("4.25*2")).toEqual({
+      ok: true,
+      plain: false,
+      expression: "4.25*2",
+      value: 8.5,
+    });
+    expect(parseAmountInput(" =4+1 ")).toMatchObject({
+      plain: false,
+      expression: "4+1",
+      value: 5,
+    });
+    expect(parseAmountInput("1*1.09")).toMatchObject({
+      plain: false,
+      expression: "1*1.09",
+    });
+    expect(parseAmountInput("(40+5)")).toMatchObject({
+      plain: false,
+      expression: "(40+5)",
+      value: 45,
+    });
+  });
+
+  it("reports blank input as empty", () => {
+    for (const blank of ["", "   ", "=", " = "])
+      expect(parseAmountInput(blank)).toEqual({ ok: false, reason: "empty" });
+  });
+
+  it.each([
+    "4+",
+    "4*",
+    "1..2",
+    "1.2.3",
+    "1.2.3+1",
+    "(1+2",
+    "1+2)",
+    "--1",
+    "1+-2",
+    "12a",
+    "$5",
+    "1,200",
+    "A1+1",
+    "SUM(1)",
+    "2/0",
+    "-",
+    ".",
+    "==1",
+    "9".repeat(400),
+  ])("rejects %j as invalid", (text) => {
+    expect(parseAmountInput(text)).toEqual({ ok: false, reason: "invalid" });
+  });
+
+  it("gives input the formula builder accepts, with the same plain/formula choice", () => {
+    for (const text of [
+      "12",
+      "-3.5",
+      ".25",
+      "7.",
+      "4.25*2",
+      "=4+1",
+      "(1+2)*3",
+    ]) {
+      const parsed = parseAmountInput(text);
+      if (!parsed.ok) throw new Error(text);
+      const cell = formatSplitCostFormula(parsed.expression, false, 1.0825);
+      expect(typeof cell === "number").toBe(parsed.plain);
+      // With tax the value is always a formula
+      expect(formatSplitCostFormula(parsed.expression, true, 1.0825)).toBe(
+        `=1.0825*(${parsed.expression})`,
+      );
+    }
   });
 });

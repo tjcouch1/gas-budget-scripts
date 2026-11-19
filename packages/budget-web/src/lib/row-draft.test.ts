@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { makeRow } from "../test/fixtures.ts";
 import {
+  AMOUNT_MESSAGE,
+  checkAmount,
+  ENTER_VALUE_MESSAGE,
   evaluateRowDraft,
   initialRowDraft,
   parseChildCost,
@@ -36,6 +39,24 @@ describe("parseChildCost", () => {
       expression: "",
       preTax: false,
     });
+  });
+});
+
+describe("checkAmount", () => {
+  it("detects a plain number or math, and explains blank or invalid input", () => {
+    expect(checkAmount(" 12.50 ")).toEqual({
+      amount: { ok: true, plain: true, expression: "12.50", value: 12.5 },
+      error: null,
+    });
+    expect(checkAmount("4.25*2")).toEqual({
+      amount: { ok: true, plain: false, expression: "4.25*2", value: 8.5 },
+      error: null,
+    });
+    expect(checkAmount(" ")).toEqual({
+      amount: null,
+      error: ENTER_VALUE_MESSAGE,
+    });
+    expect(checkAmount("4+")).toEqual({ amount: null, error: AMOUNT_MESSAGE });
   });
 });
 
@@ -124,7 +145,7 @@ describe("row drafts", () => {
     expect(result.costInvalid).toBe(true);
     expect(result.nameUnsafe).toBe(true);
     expect(result.value).toBeNull();
-    expect(result.costError).toBe("Enter a number, e.g. 12.34");
+    expect(result.costError).toBe(AMOUNT_MESSAGE);
     // A plain cost must not be cleared: "Enter a value" blocks saving
     const cleared = evaluateRowDraft(
       r,
@@ -137,7 +158,7 @@ describe("row drafts", () => {
     expect(cleared.costError).toBe("Enter a value");
   });
 
-  it("sends a plain cost exactly as typed, and rejects anything but a plain number", () => {
+  it("sends a plain cost exactly as typed, and math as an expression", () => {
     const plain: RowDraftOptions = {
       nameMode: "name",
       costMode: "plain",
@@ -155,12 +176,63 @@ describe("row drafts", () => {
     });
     expect(typed("-.5").changes).toEqual({ costExpression: "-.5" });
     expect(typed("7.").changes).toEqual({ costExpression: "7" });
-    for (const bad of ["$5", "1,200", "1.2.3", "12a", "2*3", "=5", "--1", "-"])
+    // Anything else is math: sent without "=", written as a formula by the server
+    expect(typed("2*3")).toMatchObject({
+      changes: { costExpression: "2*3" },
+      value: 6,
+      costInvalid: false,
+    });
+    expect(typed("=4+1").changes).toEqual({ costExpression: "4+1" });
+    expect(typed("1*1.09").changes).toEqual({ costExpression: "1*1.09" });
+    for (const bad of [
+      "$5",
+      "1,200",
+      "1.2.3",
+      "1..2",
+      "12a",
+      "--1",
+      "-",
+      "4+",
+      "(1+2",
+      "1+2)",
+    ])
       expect(typed(bad)).toMatchObject({
         changes: {},
         costInvalid: true,
-        costError: "Enter a number, e.g. 12.34",
+        costError: AMOUNT_MESSAGE,
       });
+  });
+
+  it("blocks a cleared split child amount", () => {
+    const child: RowDraftOptions = {
+      nameMode: "itemNote",
+      costMode: "child",
+      taxMultiplier: 1.1,
+    };
+    const r = makeRow(1, { name: "Aldi | milk", cost: 2 });
+    const initial = initialRowDraft(r, child);
+    const cleared = evaluateRowDraft(
+      r,
+      initial,
+      { ...initial, cost: "" },
+      child,
+    );
+    expect(cleared).toMatchObject({
+      changes: {},
+      costInvalid: true,
+      costError: ENTER_VALUE_MESSAGE,
+    });
+    const bad = evaluateRowDraft(r, initial, { ...initial, cost: "2*" }, child);
+    expect(bad).toMatchObject({ costInvalid: true, costError: AMOUNT_MESSAGE });
+    // A plain number with Add tax is still a formula on the server (`=1.1*(5)`)
+    const taxed = evaluateRowDraft(
+      r,
+      initial,
+      { ...initial, cost: "5", preTax: true },
+      child,
+    );
+    expect(taxed.changes).toEqual({ costExpression: "5", costPreTax: true });
+    expect(taxed.value).toBeCloseTo(5.5);
   });
 
   it("keeps math expressions for split child amounts", () => {

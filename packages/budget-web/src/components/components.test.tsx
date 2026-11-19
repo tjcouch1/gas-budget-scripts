@@ -198,23 +198,35 @@ describe("TransactionSheet", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("blocks a cost that is not a plain number, with an inline error", async () => {
-    const { user } = setup();
+  it("detects math in the cost, and blocks invalid input with an inline error", async () => {
+    const { user, onUpdate } = setup();
     const input = screen.getByLabelText("Cost");
-    for (const bad of ["2*3+1", "$5", "1,200", "1.2.3", "12a"]) {
+    expect(input).toHaveAttribute("inputmode", "decimal");
+    for (const bad of [
+      "4+",
+      "1..2",
+      "1.2.3",
+      "(1+2",
+      "--1",
+      "$5",
+      "1,200",
+      "12a",
+    ]) {
       await user.clear(input);
       await user.type(input, bad);
       expect(saveClose()).toBeDisabled();
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "Enter a number, e.g. 12.34",
+        "Enter a number or math, e.g. 4.23*2+3",
       );
     }
     await user.clear(input);
     expect(saveClose()).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a value");
-    await user.type(input, "-4.5");
+    await user.type(input, "2*3+1");
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(saveClose()).toBeEnabled();
+    expect(screen.getByText("$7.00")).toBeInTheDocument();
+    await user.click(saveClose());
+    expect(onUpdate.mock.calls[0][1]).toEqual({ costExpression: "2*3+1" });
   });
 
   it("edits the name in the title and saves it", async () => {
@@ -559,7 +571,7 @@ describe("TransactionSheet", () => {
     expect(original.getByTestId("remaining")).toHaveTextContent("$18.00");
     await user.type(total, "4a");
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Enter a number, e.g. 12.34",
+      "Enter a number or math, e.g. 4.23*2+3",
     );
     expect(saveClose()).toBeDisabled();
     await user.clear(total);
@@ -588,6 +600,70 @@ describe("TransactionSheet", () => {
     await user.clear(screen.getByLabelText("Total"));
     await user.type(screen.getByLabelText("Total"), "30");
     expect(saveClose()).toBeEnabled();
+  });
+
+  it("edits an expression total, shown without its parentheses", async () => {
+    const rows = group();
+    rows[0] = { ...rows[0], costFormula: "=(25+5)-R[1]C[0]-R[2]C[0]" };
+    const { user, onSaveGroup } = setup({}, { rows });
+    await user.click(screen.getByRole("button", { name: "Edit total" }));
+    const total = screen.getByLabelText("Total");
+    expect(total).toHaveAttribute("inputmode", "decimal");
+    expect(total).toHaveValue("25+5");
+    await user.clear(total);
+    await user.type(total, "30+5.5");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      within(card("Remainder")).getByTestId("remaining"),
+    ).toHaveTextContent("$23.50");
+    await user.click(saveClose());
+    expect(savedGroup(onSaveGroup).edit).toMatchObject({
+      splitTotal: "30+5.5",
+    });
+  });
+
+  it("shows the total of a formula the native split appended to", async () => {
+    const rows = group();
+    rows[0] = { ...rows[0], costFormula: "=10+20-C12-C13" };
+    const { user, onSaveGroup } = setup({}, { rows });
+    await user.click(screen.getByRole("button", { name: "Edit total" }));
+    expect(screen.getByLabelText("Total")).toHaveValue("10+20");
+    // Unchanged text: nothing to save
+    await user.type(within(card("Split item 2")).getByLabelText("Amount"), "0");
+    await user.click(saveClose());
+    expect(savedGroup(onSaveGroup).edit).not.toHaveProperty("splitTotal");
+  });
+
+  it("shows a total it cannot read confidently read-only", () => {
+    const rows = group();
+    rows[0] = { ...rows[0], costFormula: "=SUM(A1:A3)-R[1]C[0]-R[2]C[0]" };
+    setup({}, { rows });
+    expect(screen.queryByRole("button", { name: "Edit total" })).toBeNull();
+    expect(screen.getByText(/Total \$30\.00/)).toBeInTheDocument();
+  });
+
+  it("explains invalid split amounts inline and uses a decimal keypad", async () => {
+    const { user } = setup({}, { rows: group() });
+    const soap = within(card("Split item 2")).getByLabelText("Amount");
+    expect(soap).toHaveAttribute("inputmode", "decimal");
+    await user.clear(soap);
+    expect(within(card("Split item 2")).getByRole("alert")).toHaveTextContent(
+      "Enter a value",
+    );
+    expect(saveClose()).toBeDisabled();
+    await user.type(soap, "1..2");
+    expect(within(card("Split item 2")).getByRole("alert")).toHaveTextContent(
+      "Enter a number or math, e.g. 4.23*2+3",
+    );
+    await user.click(addItem());
+    const added = within(card("Split item 3")).getByLabelText("Amount");
+    expect(added).toHaveAttribute("inputmode", "decimal");
+    // A blank new item is not flagged, but invalid math is
+    expect(within(card("Split item 3")).queryByRole("alert")).toBeNull();
+    await user.type(added, "4+");
+    expect(within(card("Split item 3")).getByRole("alert")).toHaveTextContent(
+      "Enter a number or math, e.g. 4.23*2+3",
+    );
   });
 
   it("blocks a total below the split items", async () => {

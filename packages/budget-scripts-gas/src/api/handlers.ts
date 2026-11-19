@@ -7,7 +7,7 @@ import {
   buildSplitParentName,
   formatSplitCostFormula,
   getSplitGroupKey,
-  isPlainAmount,
+  parseAmountInput,
   type AddTransactionResultDto,
   isUnsafeFreeText,
   MAX_SHEETS_PER_READ,
@@ -246,7 +246,7 @@ export function handleGetState(
 type ValidatedChanges = {
   name?: string;
   cost?: string | number;
-  /** Plain amount replacing a split parent's total (`buildSplitParentFormula`) */
+  /** A plain amount or math replacing a split parent's total (`buildSplitParentFormula`) */
   splitTotal?: string;
   envelope?: string;
   paidWith?: string;
@@ -299,8 +299,8 @@ function validateChanges(
 
   if (changes.splitTotal !== undefined) {
     const total = requireString(changes.splitTotal, `${field}.splitTotal`);
-    if (!isPlainAmount(total))
-      badRequest(`${field}.splitTotal must be a plain number`);
+    if (!parseAmountInput(total).ok)
+      badRequest(`${field}.splitTotal must be a number or valid math`);
     if (validated.cost !== undefined)
       badRequest(
         `${field}.splitTotal cannot be combined with ${field}.costExpression`,
@@ -707,8 +707,8 @@ export function handleUpdateSplitGroup(
   let splitTotal: string | undefined;
   if (request.splitTotal !== undefined) {
     splitTotal = requireString(request.splitTotal, "splitTotal");
-    if (!isPlainAmount(splitTotal))
-      badRequest("splitTotal must be a plain number");
+    if (!parseAmountInput(splitTotal).ok)
+      badRequest("splitTotal must be a number or valid math");
   }
   const newItems =
     request.newItems === undefined

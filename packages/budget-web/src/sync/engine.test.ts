@@ -1590,6 +1590,19 @@ describe("SyncEngine split groups", () => {
     expect(groupTotal(rows)).toBeCloseTo(40, 9);
   });
 
+  it("moves the remainder by a queued expression total", async () => {
+    const { engine } = newEngine(pendingForever);
+    await engine.init();
+    const parent = engine.getSnapshot().states[SHEET].transactions[0]!;
+    engine.enqueueUpdate(SHEET, parent, { splitTotal: "35+5" });
+    const rows = rowsOf(engine);
+    expect(rows[0]).toMatchObject({
+      cost: 28,
+      costFormula: "=(35+5)-R[1]C[0]-R[2]C[0]",
+    });
+    expect(groupTotal(rows)).toBeCloseTo(40, 9);
+  });
+
   it("shows a renamed split's new prefix on every child", async () => {
     const { engine } = newEngine(pendingForever);
     await engine.init();
@@ -1709,6 +1722,48 @@ describe("SyncEngine replayed changes", () => {
     );
     await engine.flush();
     expect(engine.getSnapshot().conflicts).toHaveLength(1);
+  });
+  /** A replayed cost change against `remote` (the sheet's row): accepted silently or a conflict. */
+  async function replayCost(
+    costExpression: string,
+    remote: Partial<TransactionRowDto>,
+  ) {
+    const current = { ...twoRows()[0], ...remote, fingerprint: "remote04" };
+    const { engine } = newEngine((req) => {
+      if (req.action === "getState") return makeState(twoRows());
+      throw new ApiError("conflict", "row changed", current);
+    });
+    await engine.init();
+    engine.enqueueUpdate(
+      SHEET,
+      engine.getSnapshot().states[SHEET].transactions[0]!,
+      { costExpression },
+    );
+    await engine.flush();
+    await flush();
+    return engine.getSnapshot().conflicts.length;
+  }
+
+  it("compares formula text, not values, when either side is a formula", async () => {
+    // Same value, but a formula is not a plain number (and the other way around)
+    expect(await replayCost("1*1.09", { cost: 1.09, costFormula: null })).toBe(
+      1,
+    );
+    expect(
+      await replayCost("1.09", { cost: 1.09, costFormula: "=1*1.09" }),
+    ).toBe(1);
+    expect(await replayCost("2+1", { cost: 3, costFormula: "=1+2" })).toBe(1);
+    // The same formula, spelled as the sheet returns it
+    expect(
+      await replayCost("1*1.09", { cost: 1.09, costFormula: "= 1 * 1.09" }),
+    ).toBe(0);
+    expect(await replayCost(".5*2", { cost: 1, costFormula: "=0.5*2" })).toBe(
+      0,
+    );
+    // Plain numbers compare by value
+    expect(await replayCost("1.090", { cost: 1.09, costFormula: null })).toBe(
+      0,
+    );
   });
 });
 
@@ -1943,6 +1998,35 @@ describe("SyncEngine split group saves (updateSplitGroup)", () => {
     expect(calls.filter((c) => c.action === "updateSplitGroup")).toHaveLength(
       1,
     );
+  });
+
+  it("compares the parent's total formula text when accepting a replayed group save", async () => {
+    const replay = async (splitTotal: string, remoteFormula: string) => {
+      const current = savedRows().map((r, i) => ({
+        ...r,
+        ...(i === 0 ? { costFormula: remoteFormula } : {}),
+        fingerprint: `x${r.rowIndex}`,
+      }));
+      const { engine } = newEngine((req) => {
+        if (req.action === "getState") return makeState(groupRows());
+        throw new ApiError("conflict", "x", current[0], undefined, current);
+      });
+      await engine.init();
+      engine.enqueueGroupUpdate(SHEET, groupOf(engine), {
+        ...edit,
+        splitTotal,
+      });
+      await engine.flush();
+      await flush();
+      return engine.getSnapshot().conflicts.length;
+    };
+    expect(await replay("35+5", "=(35+5)-R[1]C[0]-R[2]C[0]")).toBe(0);
+    // Same total value, different formula: not this save
+    expect(await replay("35+5", "=40-R[1]C[0]-R[2]C[0]")).toBe(1);
+    expect(await replay("40", "=(35+5)-R[1]C[0]-R[2]C[0]")).toBe(1);
+    // Real Sheets returns the remainder in A1 notation: same total and references by value
+    expect(await replay("40", "=40-C12-C13")).toBe(0);
+    expect(await replay("40", "=40-C12")).toBe(1);
   });
 
   it("re-bases a later queued edit of a group row onto the saved row", async () => {

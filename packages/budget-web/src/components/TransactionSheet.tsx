@@ -14,7 +14,7 @@ import {
   splitNameParts,
 } from "../lib/name-parts.ts";
 import {
-  checkPlainAmount,
+  checkAmount,
   evaluateRowDraft,
   initialRowDraft,
   type RowDraft,
@@ -134,7 +134,6 @@ function AmountField({
   display,
   invalid,
   error,
-  plain = false,
   preTax,
   onPreTax,
   taxMultiplier,
@@ -146,8 +145,6 @@ function AmountField({
   invalid: boolean;
   /** Inline message under the field while it is invalid. */
   error?: string | null;
-  /** A plain amount (a number only) rather than a math expression. */
-  plain?: boolean;
   preTax?: boolean;
   onPreTax?: (preTax: boolean) => void;
   taxMultiplier: number;
@@ -160,7 +157,7 @@ function AmountField({
           aria-label={label}
           aria-invalid={invalid}
           inputMode="decimal"
-          placeholder={plain ? "Amount, e.g. 12.34" : "Amount, e.g. 4.23*2+3"}
+          placeholder="Amount, e.g. 12.34 or 4.23*2+3"
           value={value}
           onChange={(e) => onChange(e.target.value)}
         />
@@ -381,20 +378,21 @@ export function TransactionSheet(props: TransactionSheetProps) {
     existingGroup && !splitPending
       ? splitParentFormulaParts(parent.costFormula)
       : null;
-  const totalEditable = totalParts !== null && totalParts.total !== null;
-  const totalCheck = totalDraft === null ? null : checkPlainAmount(totalDraft);
+  /** A total that is not math the parser reads (e.g. `=SUM(...)-R[1]C[0]`) is read-only. */
+  const totalEditable = totalParts?.totalText != null;
+  const totalCheck = totalDraft === null ? null : checkAmount(totalDraft);
   const totalError = totalCheck?.error ?? null;
-  /** The new total to save, when it was edited to a different valid amount. */
+  /** The new total to save, when its text was edited to a different valid amount. */
   const newTotal =
     totalCheck?.amount != null &&
-    totalParts?.total != null &&
-    Math.abs(Number(totalCheck.amount) - totalParts.total) > 1e-9
-      ? totalCheck.amount
+    totalParts?.totalText != null &&
+    totalCheck.amount.expression !== totalParts.totalText
+      ? totalCheck.amount.expression
       : null;
   const total =
     existingGroup || splitPending
       ? totalCheck?.amount != null
-        ? Number(totalCheck.amount)
+        ? totalCheck.amount.value
         : rowsTotal
       : (evals[0].value ?? 0);
   const childrenSum = evals.slice(1).reduce((s, e) => s + (e.value ?? 0), 0);
@@ -731,7 +729,7 @@ export function TransactionSheet(props: TransactionSheetProps) {
                   aria-invalid={totalError !== null}
                   inputMode="decimal"
                   autoFocus
-                  placeholder="Total, e.g. 45.67"
+                  placeholder="Total, e.g. 45.67 or 40+5"
                   value={totalDraft}
                   onChange={(e) => setTotalDraft(e.target.value)}
                 />
@@ -758,7 +756,7 @@ export function TransactionSheet(props: TransactionSheetProps) {
                   type="button"
                   aria-label="Edit total"
                   title="Edit the total before splitting"
-                  onClick={() => setTotalDraft(String(totalParts?.total ?? ""))}
+                  onClick={() => setTotalDraft(totalParts?.totalText ?? "")}
                   className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   ✎
@@ -800,7 +798,6 @@ export function TransactionSheet(props: TransactionSheetProps) {
                         display={evals[0].value}
                         invalid={evals[0].costInvalid}
                         error={evals[0].costError}
-                        plain
                         taxMultiplier={taxMultiplier}
                       />
                     )
@@ -867,7 +864,8 @@ export function TransactionSheet(props: TransactionSheetProps) {
                       updateItem(item.key, { expression })
                     }
                     display={ev.value}
-                    invalid={item.expression.trim() !== "" && ev.value === null}
+                    invalid={ev.error !== null}
+                    error={ev.error}
                     preTax={item.preTax}
                     onPreTax={(preTax) => updateItem(item.key, { preTax })}
                     taxMultiplier={taxMultiplier}

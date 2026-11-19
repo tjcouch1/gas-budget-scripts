@@ -6,3 +6,4 @@ export * from "./receipt-query.ts";
 export * from "./receipt-rules.ts";
 export * from "./receipt-rules-defaults.ts";
 export * from "./receipt-import.ts";
+export * from "./formula-compare.ts";

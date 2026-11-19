@@ -1,7 +1,7 @@
 import {
-  evaluateMathExpression,
   isUnsafeFreeText,
-  normalizePlainAmount,
+  parseAmountInput,
+  type AmountInput,
   type TransactionChanges,
   type TransactionRowDto,
 } from "@budget/shared";
@@ -10,8 +10,9 @@ import { joinNameParts, splitNameParts } from "./name-parts.ts";
 /** What a card's name field edits: the whole name, only the item note after " | ", or nothing. */
 export type NameMode = "name" | "itemNote" | "none";
 /**
- * What a card's cost field edits: a plain cost (a plain number only, no tax toggle), a split
- * child's math expression with its "Add tax" toggle, or nothing (a split parent's remainder).
+ * What a card's cost field edits: a cost (no tax toggle), a split child's amount with its "Add
+ * tax" toggle, or nothing (a split parent's remainder). Both detect a plain number or math
+ * (`checkAmount`).
  */
 export type CostMode = "plain" | "child" | "none";
 
@@ -90,20 +91,24 @@ export interface EvaluatedRowDraft {
 }
 
 export const ENTER_VALUE_MESSAGE = "Enter a value";
-export const PLAIN_NUMBER_MESSAGE = "Enter a number, e.g. 12.34";
+export const AMOUNT_MESSAGE = "Enter a number or math, e.g. 4.23*2+3";
 
 /**
- * Checks a plain amount field: blank is "Enter a value", anything but an optional "-", digits and
- * at most one "." is invalid. `amount` is the number as typed, to send as the cost expression.
+ * Checks an amount field (cost, split amount or total), detecting a plain number or math
+ * (`parseAmountInput`): blank is "Enter a value", input that is neither is `AMOUNT_MESSAGE`.
+ * `amount.expression` is what to send: a plain number exactly as typed, or the math without "=".
  */
-export function checkPlainAmount(
+export function checkAmount(
   text: string,
-): { amount: string; error: null } | { amount: null; error: string } {
-  if (text.trim() === "") return { amount: null, error: ENTER_VALUE_MESSAGE };
-  const amount = normalizePlainAmount(text);
-  return amount === null
-    ? { amount: null, error: PLAIN_NUMBER_MESSAGE }
-    : { amount, error: null };
+):
+  | { amount: AmountInput & { ok: true }; error: null }
+  | { amount: null; error: string } {
+  const amount = parseAmountInput(text);
+  if (amount.ok) return { amount, error: null };
+  return {
+    amount: null,
+    error: amount.reason === "empty" ? ENTER_VALUE_MESSAGE : AMOUNT_MESSAGE,
+  };
 }
 
 export function evaluateRowDraft(
@@ -119,28 +124,27 @@ export function evaluateRowDraft(
         ? joinNameParts(splitNameParts(row.name).prefix, draft.name)
         : draft.name;
 
-  const expr = draft.cost.trim().replace(/^=/, "").trim();
   let value = row.cost;
   let costError: string | null = null;
-  if (costMode === "plain" && draft.cost.trim() !== initial.cost.trim()) {
-    // A plain amount: exactly the number as typed, sent and stored as that number.
-    const checked = checkPlainAmount(draft.cost);
-    costError = checked.error;
-    value = checked.amount === null ? null : Number(checked.amount);
-    if (checked.amount !== null) changes.costExpression = checked.amount;
-  }
-  // A child's expression: clearing the box keeps the current cost.
   const costChanged =
-    costMode === "child" &&
-    expr !== "" &&
+    (costMode === "plain" || costMode === "child") &&
     (draft.cost.trim() !== initial.cost.trim() ||
-      draft.preTax !== initial.preTax);
+      (costMode === "child" && draft.preTax !== initial.preTax));
   if (costChanged) {
-    const base = evaluateMathExpression(expr);
-    if (base === null) costError = "Enter an amount, e.g. 4.23*2+3";
-    value = base === null ? null : draft.preTax ? base * taxMultiplier : base;
-    changes.costExpression = expr;
-    if (draft.preTax) changes.costPreTax = true;
+    // A plain number is sent exactly as typed (a number on the sheet); math as a formula.
+    const checked = checkAmount(draft.cost);
+    costError = checked.error;
+    const preTax = costMode === "child" && draft.preTax;
+    value =
+      checked.amount === null
+        ? null
+        : preTax
+          ? checked.amount.value * taxMultiplier
+          : checked.amount.value;
+    if (checked.amount !== null) {
+      changes.costExpression = checked.amount.expression;
+      if (preTax) changes.costPreTax = true;
+    }
   }
 
   if (draft.envelope !== initial.envelope) changes.envelope = draft.envelope;

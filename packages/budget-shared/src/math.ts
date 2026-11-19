@@ -7,7 +7,8 @@
 class ParseError extends Error {}
 
 /**
- * Evaluates `+ - * /`, parentheses, unary minus/plus, decimals (including `.5`)
+ * Evaluates `+ - * /`, parentheses, one unary minus/plus (not right after another sign:
+ * `--5`, `1+-2` are invalid; `2*-3` is fine), decimals (including `.5`)
  * and whitespace. Returns null on any invalid input, division by zero, or a
  * non-finite result.
  */
@@ -30,16 +31,15 @@ export function evaluateMathExpression(expr: string): number | null {
     return Number(match[0]);
   }
 
-  function parseFactor(): number {
+  /** `signAllowed`: false right after a "+" or "-", so doubled signs (`--5`, `1+-2`) fail. */
+  function parseFactor(signAllowed: boolean): number {
     skipWs();
     const ch = src[pos];
-    if (ch === "-") {
+    if (ch === "-" || ch === "+") {
+      if (!signAllowed) return fail();
       pos++;
-      return -parseFactor();
-    }
-    if (ch === "+") {
-      pos++;
-      return parseFactor();
+      const value = parseFactor(false);
+      return ch === "-" ? -value : value;
     }
     if (ch === "(") {
       pos++;
@@ -52,14 +52,14 @@ export function evaluateMathExpression(expr: string): number | null {
     return parseNumber();
   }
 
-  function parseTerm(): number {
-    let value = parseFactor();
+  function parseTerm(signAllowed: boolean): number {
+    let value = parseFactor(signAllowed);
     for (;;) {
       skipWs();
       const op = src[pos];
       if (op !== "*" && op !== "/") return value;
       pos++;
-      const rhs = parseFactor();
+      const rhs = parseFactor(true);
       if (op === "*") {
         value *= rhs;
       } else {
@@ -70,13 +70,13 @@ export function evaluateMathExpression(expr: string): number | null {
   }
 
   function parseExpression(): number {
-    let value = parseTerm();
+    let value = parseTerm(true);
     for (;;) {
       skipWs();
       const op = src[pos];
       if (op !== "+" && op !== "-") return value;
       pos++;
-      const rhs = parseTerm();
+      const rhs = parseTerm(false);
       value = op === "+" ? value + rhs : value - rhs;
     }
   }
@@ -134,45 +134,92 @@ export function normalizePlainAmount(text: string): string | null {
   return text.trim().replace(/\.$/, "");
 }
 
+/**
+ * An amount field's input, detected automatically: a plain numeric literal (`isPlainAmount`) is
+ * kept exactly as typed (a trailing "." dropped) and is written as a number; anything else must
+ * be math the parser accepts and is written as a formula (`formatSplitCostFormula`). One leading
+ * "=" is ignored. `expression` is what to send as a cost expression.
+ */
+export type AmountInput =
+  | { ok: true; plain: boolean; expression: string; value: number }
+  | { ok: false; reason: "empty" | "invalid" };
+
+export function parseAmountInput(text: string): AmountInput {
+  let expression = String(text).trim();
+  if (expression.startsWith("=")) expression = expression.slice(1).trim();
+  if (expression === "") return { ok: false, reason: "empty" };
+  const plain = normalizePlainAmount(expression);
+  if (plain !== null) expression = plain;
+  const value = evaluateMathExpression(expression);
+  if (value === null) return { ok: false, reason: "invalid" };
+  return { ok: true, plain: plain !== null, expression, value };
+}
+
 /** One subtracted child reference of a split parent formula: R1C1 `-R[n]C[0]` or A1 `-C12`. */
 const SPLIT_REFS = String.raw`((?:\s*-\s*(?:R\[[1-9]\d*\]C(?:\[0\])?|\$?[A-Za-z]{1,3}\$?\d+))+)`;
 const SPLIT_PARENT_PARTS = new RegExp(
   String.raw`^=\s*(.*?)` + SPLIT_REFS + String.raw`\s*$`,
 );
 
+/** `expr` without one pair of parentheses around all of it (`(40+5)` -> `40+5`; not `(1)*(2)`). */
+function stripOuterParens(expr: string): string {
+  const text = expr.trim();
+  if (!text.startsWith("(") || !text.endsWith(")")) return text;
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "(") depth++;
+    else if (text[i] === ")") depth--;
+    // The first "(" closes before the end: it does not wrap everything
+    if (depth === 0 && i < text.length - 1) return text;
+  }
+  return text.slice(1, -1).trim();
+}
+
 /**
- * Splits a split parent's cost formula (`=45-R[1]C[0]-R[2]C[0]`, or the A1 form `=45-C12-C13`
- * that `getFormulas` returns) into its total expression (`45`) and the subtracted child
- * references. `total` is the evaluated expression, or null when it is not plain math.
- * Returns null when the formula does not end in child references.
+ * Splits a split parent's cost formula (`=45-R[1]C[0]-R[2]C[0]`, the A1 form `=45-C12-C13` that
+ * `getFormulas` returns, or `=(40+5)-R[1]C-...`) into its total expression and the subtracted
+ * child references. The native split appends `-R[n]C[0]` to an existing formula, so the total is
+ * everything before the trailing references (`=10+5-R[1]C[0]`: `10+5`). `total` is its value and
+ * `totalText` the text to show and edit (without the parentheses `buildSplitParentFormula` adds);
+ * both are null when the total is not math the parser accepts (show it read-only). Returns null
+ * when the formula does not end in child references.
  */
-export function splitParentFormulaParts(
-  formula: string | null | undefined,
-): { totalExpression: string; total: number | null; refs: string } | null {
+export function splitParentFormulaParts(formula: string | null | undefined): {
+  totalExpression: string;
+  totalText: string | null;
+  total: number | null;
+  refs: string;
+} | null {
   if (typeof formula !== "string") return null;
   const m = SPLIT_PARENT_PARTS.exec(formula.trim());
   if (!m || m[1].trim() === "") return null;
   const totalExpression = m[1].trim();
+  const total = evaluateMathExpression(totalExpression);
   return {
     totalExpression,
-    total: evaluateMathExpression(totalExpression),
+    totalText: total === null ? null : stripOuterParens(totalExpression),
+    total,
     refs: m[2],
   };
 }
 
 /**
- * A split parent's cost formula with its total (the leading value before the child references)
- * replaced by the plain amount `total`. Throws when `total` is not a plain amount or the formula
- * is not a split parent formula (AGENTS.md section 1.4: only validated input becomes a formula).
+ * A split parent's cost formula with its total (everything before the child references)
+ * replaced by `total`, detected like `parseAmountInput`: a plain amount is written as typed
+ * (`=45-R[1]C[0]`), math in parentheses (`=(40+5)-R[1]C[0]`). Throws when `total` is invalid or
+ * the formula is not a split parent formula (AGENTS.md section 1.4: only validated input becomes
+ * a formula).
  */
 export function buildSplitParentFormula(
   formula: string,
   total: string,
 ): string {
-  const amount = normalizePlainAmount(total);
-  if (amount === null || evaluateMathExpression(amount) === null)
-    throw new Error(`Invalid split total: ${total}`);
+  const amount = parseAmountInput(total);
+  if (!amount.ok) throw new Error(`Invalid split total: ${total}`);
   const parts = splitParentFormulaParts(formula);
   if (!parts) throw new Error(`Not a split parent formula: ${formula}`);
-  return `=${amount}${parts.refs.replace(/\s+/g, "")}`;
+  const head = amount.plain
+    ? amount.expression
+    : `(${stripOuterParens(amount.expression)})`;
+  return `=${head}${parts.refs.replace(/\s+/g, "")}`;
 }

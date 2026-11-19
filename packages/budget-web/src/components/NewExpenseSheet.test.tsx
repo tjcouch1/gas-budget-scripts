@@ -43,8 +43,8 @@ describe("NewExpenseSheet", () => {
     const save = dialog.getByRole("button", { name: "Save" });
     expect(save).toBeDisabled();
     await user.type(dialog.getByLabelText("Name"), "Farmers market");
-    await user.type(dialog.getByLabelText("Cost"), "4.25");
-    expect(dialog.getByText("$4.25")).toBeInTheDocument();
+    await user.type(dialog.getByLabelText("Cost"), "4.25*2");
+    expect(dialog.getByText("$8.50")).toBeInTheDocument();
     await user.click(
       within(dialog.getByRole("group", { name: "Envelope" })).getByRole(
         "button",
@@ -63,7 +63,7 @@ describe("NewExpenseSheet", () => {
     expect(onSave).toHaveBeenCalledWith({
       date: "2026-03-07",
       name: "Farmers market",
-      costExpression: "4.25",
+      costExpression: "4.25*2",
       envelope: "Groceries",
       paidWith: "Pat Venmo",
       taxDeductible: "Yes",
@@ -83,20 +83,39 @@ describe("NewExpenseSheet", () => {
     await user.type(dialog.getByLabelText("Name"), "Cash");
     expect(save).toBeEnabled();
     await user.clear(dialog.getByLabelText("Cost"));
-    await user.type(dialog.getByLabelText("Cost"), "4+1");
     expect(dialog.getByLabelText("Cost")).toHaveAttribute(
-      "aria-invalid",
-      "true",
+      "inputmode",
+      "decimal",
     );
-    expect(dialog.getByRole("alert")).toHaveTextContent(
-      "Enter a number, e.g. 12.34",
-    );
-    expect(save).toBeDisabled();
+    for (const bad of ["4+", "1..2", "(4+1", "--4", "4a"]) {
+      await user.clear(dialog.getByLabelText("Cost"));
+      await user.type(dialog.getByLabelText("Cost"), bad);
+      expect(dialog.getByLabelText("Cost")).toHaveAttribute(
+        "aria-invalid",
+        "true",
+      );
+      expect(dialog.getByRole("alert")).toHaveTextContent(
+        "Enter a number or math, e.g. 4.23*2+3",
+      );
+      expect(save).toBeDisabled();
+    }
     await user.clear(dialog.getByLabelText("Cost"));
+    await user.type(dialog.getByLabelText("Cost"), "=4+1");
+    expect(dialog.queryByRole("alert")).toBeNull();
+    expect(dialog.getByText("$5.00")).toBeInTheDocument();
+    await user.click(save);
+    // Math is sent without its "=" (the server writes the formula =4+1)
+    expect(onSave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ name: "Cash", costExpression: "4+1" }),
+    );
+  });
+
+  it("saves a plain number exactly as typed", async () => {
+    const { onSave, dialog, user } = setup();
+    await user.type(dialog.getByLabelText("Name"), "Cash");
     await user.type(dialog.getByLabelText("Cost"), "-4.50");
     expect(dialog.queryByRole("alert")).toBeNull();
-    await user.click(save);
-    // Saved exactly as typed
+    await user.click(dialog.getByRole("button", { name: "Save" }));
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Cash", costExpression: "-4.50" }),
     );
