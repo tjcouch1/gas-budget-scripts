@@ -1364,13 +1364,17 @@ export class SyncEngine {
         if (isState(data.state)) this.acceptState(data.state);
         const errors =
           data.numErrors > 0 ? ` (${data.numErrors} with errors)` : "";
+        const withoutSheet = data.receiptsWithoutSheet ?? 0;
         this.set({
           offline: false,
           notice: {
-            kind: data.numErrors > 0 ? "error" : "info",
+            kind: data.numErrors > 0 || withoutSheet > 0 ? "error" : "info",
             message: `Imported ${data.receiptInfosAdded} receipt${data.receiptInfosAdded === 1 ? "" : "s"}${errors}.${
-              data.errors.length ? ` ${data.errors.join(" ")}` : ""
-            }`,
+              withoutSheet > 0
+                ? ` ${withoutSheet} receipt${withoutSheet === 1 ? " has" : "s have"} no sheet for ${withoutSheet === 1 ? "its" : "their"} pay period and stayed in Gmail. Add the new pay-period sheet in the spreadsheet, then sync again.`
+                : ""
+            }${data.errors.length ? ` ${data.errors.join(" ")}` : ""}`,
+            ...(withoutSheet > 0 ? { hint: "no-sheet" as const } : {}),
           },
         });
       } catch (error) {

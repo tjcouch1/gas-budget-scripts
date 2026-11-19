@@ -1941,17 +1941,26 @@ describe("syncReceipts", () => {
     ]);
   });
 
-  it("returns bad_request when a receipt fits no sheet, without creating sheets or labeling", async () => {
+  // Intended behavior change (GitHub #1): previously the whole sync was a bad_request
+  // ("Could not find transaction sheet for receipt ...") and nothing was imported
+  it("imports the receipts that fit a sheet and counts the ones that fit none, without creating sheets or labeling them", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-02-25T18:00:00Z"));
     const t = makeThread(chase("1.00", "Shop", "2030-01-01T12:00:00Z"));
-    env.GmailApp.threads = [t];
+    const good = makeThread(chase("10.50", "Kept", "2024-02-20T12:00:00Z"));
+    env.GmailApp.threads = [t, good];
     const sheetCount = env.spreadsheet.getSheets().length;
     const res = await api("syncReceipts");
-    expect(res.error.code).toBe("bad_request");
-    expect(res.error.message).toMatch(
-      /^Could not find transaction sheet for receipt/,
-    );
+    expect(res.ok).toBe(true);
+    expect(res.data.receiptInfosAdded).toBe(1);
+    expect(res.data.receiptsWithoutSheet).toBe(1);
+    expect(res.data.numErrors).toBe(0);
+    expect(res.data.errors).toEqual([]);
+    expect(res.data.state.transactions[0]).toMatchObject({ name: "Kept" });
     expect(env.spreadsheet.getSheets()).toHaveLength(sheetCount);
     expect(t.labels).toEqual([]);
+    expect(t.archived).toBe(false);
+    expect(good.archived).toBe(true);
     expect(env.LockService.scriptLock.held).toBe(false);
   });
 

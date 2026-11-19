@@ -654,6 +654,48 @@ describe("SyncEngine receipts and local data", () => {
     expect(engine.getSnapshot().states[SHEET].transactions).toHaveLength(1);
   });
 
+  it("uses the state in the sync response instead of fetching it again", async () => {
+    const { engine, calls } = newEngine((req) =>
+      req.action === "syncReceipts"
+        ? {
+            receiptInfosAdded: 1,
+            numErrors: 0,
+            errors: [],
+            state: makeState([makeRow(0, { name: "Imported" })]),
+          }
+        : makeState(twoRows()),
+    );
+    await engine.init();
+    const before = calls.length;
+    await engine.syncReceipts();
+    expect(calls.slice(before).map((c) => c.action)).toEqual(["syncReceipts"]);
+    expect(rowsOf(engine)[0].name).toBe("Imported");
+  });
+
+  it("reports receipts left in Gmail because their pay period has no sheet", async () => {
+    const { engine } = newEngine((req) =>
+      req.action === "syncReceipts"
+        ? {
+            receiptInfosAdded: 2,
+            numErrors: 0,
+            errors: [],
+            receiptsWithoutSheet: 3,
+            state: makeState([makeRow(0)]),
+          }
+        : makeState(twoRows()),
+    );
+    await engine.init();
+    await engine.syncReceipts();
+    expect(engine.getSnapshot().notice).toEqual({
+      kind: "error",
+      message:
+        "Imported 2 receipts. 3 receipts have no sheet for their pay period and stayed in Gmail. Add the new pay-period sheet in the spreadsheet, then sync again.",
+      hint: "no-sheet",
+    });
+    // The imported receipts are shown
+    expect(engine.getSnapshot().states[SHEET].transactions).toHaveLength(1);
+  });
+
   it("sends mark:false only when asked", async () => {
     const { engine, calls } = newEngine((req) =>
       req.action === "syncReceipts"

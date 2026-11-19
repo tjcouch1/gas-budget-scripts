@@ -310,6 +310,12 @@ export interface SyncReceiptsResultDto {
   receiptInfosAddedBySheet?: Record<string, number>;
   numErrors: number;
   errors: string[];
+  /**
+   * Receipts not imported because a receipt in their email thread fits no pay-period sheet. Their
+   * threads were left unmarked in Gmail, so a later sync imports them once the sheet exists.
+   * Missing from older servers (treat as 0).
+   */
+  receiptsWithoutSheet?: number;
   state: PayPeriodStateDto;
 }
 

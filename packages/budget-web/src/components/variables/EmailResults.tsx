@@ -227,8 +227,15 @@ function ImportSection({ preview }: { preview: ImportPreview }) {
             </dl>
             {row.sheet === null && (
               <p className="text-red-700 dark:text-red-300">
-                No matching transaction sheet: the import would fail for this
-                date.
+                No matching transaction sheet: the import skips this email
+                thread (it stays in the inbox) until a sheet for this date
+                exists.
+              </p>
+            )}
+            {row.skippedWithThread && (
+              <p className="text-red-700 dark:text-red-300">
+                Another receipt in this email thread has no matching transaction
+                sheet: the import skips the whole thread.
               </p>
             )}
             {hasError && (

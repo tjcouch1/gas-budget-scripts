@@ -1,6 +1,9 @@
 import type { Page } from "@playwright/test";
 import { PERIOD_RANGES } from "../src/lib/period-range.ts";
-import { receiptThreadFixtures } from "../../budget-scripts-gas/test/fixtures/receipts.ts";
+import {
+  chasePurchaseEmail,
+  receiptThreadFixtures,
+} from "../../budget-scripts-gas/test/fixtures/receipts.ts";
 import { CURRENT_PERIOD } from "../../budget-scripts-gas/test/fixtures/sheets.ts";
 import {
   API_KEY,
@@ -770,6 +773,41 @@ test.describe("receipts", () => {
     );
     expect(thread?.labels).toEqual(["Receipts/Scripted", "Receipts/Ignored"]);
     expect(thread?.archived).toBe(false);
+  });
+
+  test("a receipt with no sheet for its date stays in Gmail and is reported", async ({
+    page,
+    sheetName,
+  }) => {
+    await backend.addThreads([
+      {
+        messages: [
+          chasePurchaseEmail("7.77", "Future Shop", "2099-01-05T12:00:00Z"),
+        ],
+      },
+    ]);
+    await connect(page);
+    const before = (await backend.dump(sheetName)).length;
+    await page.getByRole("button", { name: "Sync receipts" }).click();
+    await expect(
+      page.getByText(
+        /Imported 4 receipts\. 1 receipt has no sheet for its pay period and stayed in Gmail/,
+      ),
+    ).toBeVisible();
+
+    // The other receipts import as usual; the no-sheet thread is not written or marked
+    expect((await backend.dump(sheetName)).length).toBe(before + 4);
+    const thread = (await backend.threads()).find((t) =>
+      t.subject.includes("Future Shop"),
+    );
+    expect(thread?.labels).toEqual([]);
+    expect(thread?.archived).toBe(false);
+    for (const name of await backend.sheets()) {
+      const rows = await backend.dump(name);
+      expect(
+        rows.some((r) => String(r.values[COL.name]).includes("Future Shop")),
+      ).toBe(false);
+    }
   });
 });
 

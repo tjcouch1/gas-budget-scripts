@@ -10,6 +10,7 @@ import {
   addTransactionSheet,
   addVariablesSheet,
   getEnv,
+  installGasGlobals,
   makeThreadWithId,
   MockTextOutput,
   type GasEnv,
@@ -141,7 +142,12 @@ afterEach(() => {
 describe("receipt import golden end state", () => {
   it("recordReceiptsCore with marking: sheet cells and Gmail labels/archive", async () => {
     const { getChaseReceipts, recordReceiptsCore } = await loadBudgeting();
-    const result = recordReceiptsCore(getChaseReceipts(null, null), true);
+    const { skippedReceipts, ...result } = recordReceiptsCore(
+      getChaseReceipts(null, null),
+      true,
+    );
+    // Added with GitHub #1 (no receipt here lacks a sheet); the snapshot predates the field
+    expect(skippedReceipts).toEqual([]);
     expect(result).toMatchSnapshot("result");
     expect(env.spreadsheet.dumpSheets()).toMatchSnapshot("sheets");
     expect(gmailState(threads)).toMatchSnapshot("gmail");
@@ -162,6 +168,9 @@ describe("receipt import golden end state", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-03-05T18:00:00Z"));
     const sync = await api("syncReceipts");
+    // Added with GitHub #1 (no receipt here lacks a sheet); the snapshot predates the field
+    expect(sync.data.receiptsWithoutSheet).toBe(0);
+    delete sync.data.receiptsWithoutSheet;
     expect(sync).toMatchSnapshot("syncReceipts response");
     expect(env.spreadsheet.dumpSheets()).toMatchSnapshot("sheets");
     expect(gmailState(threads)).toMatchSnapshot("gmail");
@@ -176,5 +185,212 @@ describe("receipt import golden end state", () => {
     });
     expect(res).toMatchSnapshot("fetchReceiptEmails response");
     expect(gmailState(threads).every((t) => !t.archived)).toBe(true);
+  });
+});
+
+/** Threads whose receipts fit no transaction sheet (alone or next to a receipt that does fit) */
+function buildUnmatchedThreads(): any[] {
+  const future = makeThreadWithId(
+    "u-future",
+    chasePurchaseEmail("4.00", "Future Shop", "2030-01-01T12:00:00Z"),
+  );
+  const past = makeThreadWithId(
+    "u-past-with-note",
+    chasePurchaseEmail("5.00", "Old Shop", "2023-06-01T12:00:00Z"),
+    {
+      from: "Chase <no.reply.alerts@chase.com>",
+      subject: "Promo",
+      body: "hi",
+      date: new Date("2023-06-01T13:00:00Z"),
+    },
+  );
+  // An errored thread with no receipt gets an EmptyReceipt dated at its last message
+  const erroredOutside = makeThreadWithId("u-errored-outside", {
+    from: "Weird <weird at example.org>",
+    subject: "huh",
+    body: "",
+    date: new Date("2031-05-05T12:00:00Z"),
+  });
+  // One receipt fits sheet A, the other fits nothing: the whole thread is skipped
+  const straddling = makeThreadWithId(
+    "u-straddling",
+    chasePurchaseEmail("6.00", "Fits A", "2024-02-21T12:00:00Z"),
+    chasePurchaseEmail("7.00", "Fits Nothing", "2030-02-02T12:00:00Z"),
+  );
+  return [future, past, erroredOutside, straddling];
+}
+
+/** Runs the import in a fresh environment and returns everything it changed */
+async function runFreshImport(withUnmatched: boolean, mark: boolean) {
+  vi.resetModules();
+  const fresh = installGasGlobals();
+  setupScenarioSheets(fresh);
+  const matched = buildScenarioThreads();
+  const unmatched = withUnmatched ? buildUnmatchedThreads() : [];
+  // Interleave: first, middle and last positions
+  fresh.GmailApp.threads = [
+    unmatched[0],
+    ...matched.slice(0, 10),
+    unmatched[1],
+    unmatched[2],
+    ...matched.slice(10),
+    unmatched[3],
+  ].filter(Boolean);
+  const { getChaseReceipts, recordReceiptsCore } = await loadBudgeting();
+  const result = recordReceiptsCore(getChaseReceipts(null, null), mark);
+  return {
+    result,
+    sheets: fresh.spreadsheet.dumpSheets(),
+    matchedGmail: gmailState(matched),
+    unmatched,
+    createdLabels: fresh.GmailApp.createdLabels,
+  };
+}
+
+describe("receipts that fit no transaction sheet (GitHub #1)", () => {
+  it.each([true, false])(
+    "are skipped whole-thread while the rest imports exactly as without them (mark: %s)",
+    async (mark) => {
+      const baseline = await runFreshImport(false, mark);
+      const mixed = await runFreshImport(true, mark);
+
+      // The matched receipts produce exactly what they produce alone
+      expect(mixed.sheets).toEqual(baseline.sheets);
+      expect(mixed.matchedGmail).toEqual(baseline.matchedGmail);
+      expect(mixed.createdLabels).toEqual(baseline.createdLabels);
+      expect(mixed.result.receiptInfosAdded).toEqual(
+        baseline.result.receiptInfosAdded,
+      );
+      expect(mixed.result.numErrors).toBe(baseline.result.numErrors);
+      expect(mixed.result.errors).toEqual(baseline.result.errors);
+
+      // The unmatched threads are untouched: not written, not labeled, still in the inbox
+      expect(gmailState(mixed.unmatched)).toEqual(
+        mixed.unmatched.map((t) => ({
+          id: t.getId(),
+          labels: [],
+          archived: false,
+        })),
+      );
+      // ...and reported, one message per receipt not recorded
+      expect(baseline.result.skippedReceipts).toEqual([]);
+      expect(mixed.result.skippedReceipts).toHaveLength(5);
+      expect(mixed.result.skippedReceipts.join("\n")).toContain("Future Shop");
+      expect(mixed.result.skippedReceipts.join("\n")).toContain("Fits A");
+    },
+  );
+});
+
+describe("GAS calls made by the import (end state pinned by the snapshots above)", () => {
+  /** The scenario without the thread whose messages cannot be read */
+  const readableThreads = () =>
+    threads.filter((t) => t.getId() !== "t-thread-fails");
+
+  it("reads all thread messages with one getMessagesForThreads call", async () => {
+    env.GmailApp.threads = readableThreads();
+    const { getChaseReceipts, recordReceiptsCore } = await loadBudgeting();
+    env.calls.reset();
+    recordReceiptsCore(getChaseReceipts(null, null), true);
+    expect(env.calls.get("GmailApp.getMessagesForThreads")).toBe(1);
+    expect(env.calls.get("GmailThread.getMessages")).toBe(0);
+    expect(env.calls.get("GmailMessage.getThread")).toBe(0);
+    expect(env.calls.get("Spreadsheet.getSheets")).toBe(1);
+  });
+
+  it("falls back to per-thread reads when the batch read fails, with the same result", async () => {
+    const { getChaseReceipts, recordReceiptsCore } = await loadBudgeting();
+    env.calls.reset();
+    recordReceiptsCore(getChaseReceipts(null, null), true);
+    expect(env.calls.get("GmailApp.getMessagesForThreads")).toBe(1);
+    expect(env.calls.get("GmailThread.getMessages")).toBe(threads.length);
+    // (sheet and Gmail end state: the first golden test runs this same scenario)
+  });
+
+  it("writes notes per run of consecutive rows and backgrounds per color, never per cell", async () => {
+    const bad = (id: string, hour: number) =>
+      makeThreadWithId(id, {
+        from: "Weird <weird at example.org>",
+        subject: "huh",
+        body: "",
+        date: new Date(Date.UTC(2024, 1, 21, hour)),
+      });
+    env.GmailApp.threads = [
+      makeThreadWithId(
+        "g1",
+        chasePurchaseEmail("1.00", "A", "2024-02-20T12:00:00Z"),
+      ),
+      bad("b1", 1),
+      bad("b2", 2),
+      makeThreadWithId(
+        "g2",
+        chasePurchaseEmail("2.00", "B", "2024-02-22T12:00:00Z"),
+      ),
+      bad("b3", 3),
+    ];
+    const { getChaseReceipts, recordReceiptsCore } = await loadBudgeting();
+    env.calls.reset();
+    recordReceiptsCore(getChaseReceipts(null, null), true);
+    // b1, b2, b3 sort into consecutive rows: one setNotes, one red and one pink RangeList write
+    expect(env.calls.get("Range.setNotes")).toBe(1);
+    expect(env.calls.get("RangeList.setBackground")).toBe(2);
+    expect(env.calls.get("Range.setNote")).toBe(0);
+    expect(env.calls.get("Range.setBackground")).toBe(0);
+    const a = env.spreadsheet.getSheetByName(SHEET_A);
+    expect(a.getRange("B6:C9").getBackgrounds()).toEqual([
+      // g1's row: untouched cells keep the stale fill
+      ["#00ff00", "#00ff00"],
+      ["#FF0000", "#E8A9CA"],
+      ["#FF0000", "#E8A9CA"],
+      ["#FF0000", "#E8A9CA"],
+    ]);
+    expect(
+      a
+        .getRange("B6:B10")
+        .getNotes()
+        .map(([note]: string[]) => note.slice(0, 60)),
+    ).toEqual([
+      "stale note",
+      "Error while processing message b1-m1 with subject huh from d",
+      "Error while processing message b2-m1 with subject huh from d",
+      "Error while processing message b3-m1 with subject huh from d",
+      "",
+    ]);
+  });
+
+  it("syncReceipts reads the sheet list and time zone once", async () => {
+    env.GmailApp.threads = readableThreads();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-03-05T18:00:00Z"));
+    env.calls.reset();
+    await api("syncReceipts");
+    expect(env.calls.get("Spreadsheet.getSheets")).toBe(1);
+    expect(env.calls.get("Spreadsheet.getSpreadsheetTimeZone")).toBe(1);
+    expect(env.calls.get("GmailThread.getMessages")).toBe(0);
+  });
+
+  it("getAllTransactions reads the time zone once for all sheets", async () => {
+    env.calls.reset();
+    await api("getAllTransactions");
+    expect(env.calls.get("Spreadsheet.getSpreadsheetTimeZone")).toBe(1);
+    expect(env.calls.get("Spreadsheet.getSheets")).toBe(1);
+  });
+
+  it("each API request reads the sheet list again (like a new GAS execution)", async () => {
+    await api("getAllTransactions");
+    addTransactionSheet(env, "3/17/24 - 3/30/24");
+    const all = await api("getAllTransactions");
+    expect(all.data.sheets.map((s: any) => s.name)).toContain(
+      "3/17/24 - 3/30/24",
+    );
+  });
+
+  it("fetchReceiptEmails reads messages in one batch (labels still per thread)", async () => {
+    env.GmailApp.threads = readableThreads();
+    env.calls.reset();
+    const res = await api("fetchReceiptEmails", { maxThreads: 50 });
+    expect(res.ok).toBe(true);
+    expect(env.calls.get("GmailApp.getMessagesForThreads")).toBe(1);
+    expect(env.calls.get("GmailThread.getMessages")).toBe(0);
+    expect(env.calls.get("GmailThread.getLabels")).toBe(threads.length - 1);
   });
 });

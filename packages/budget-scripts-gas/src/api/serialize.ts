@@ -89,7 +89,7 @@ export function getSortedTransactionSheetInfos(): TransactionSheetInfo[] {
 /** Gets a transaction sheet by name. Throws `not_found` if it is not a transaction sheet */
 export function getTransactionSheet(sheetName: string): Sheet {
   const info = getSortedTransactionSheetInfos().find(
-    (i) => i.sheet.getName() === sheetName,
+    (i) => i.name === sheetName,
   );
   if (!info)
     throw new ApiError(
@@ -122,8 +122,7 @@ export function readTransactionTable(sheet: Sheet): TransactionTable {
   const displayValues = range.getDisplayValues();
   const notes = range.getNotes();
   const backgrounds = range.getBackgrounds();
-  const timeZone =
-    SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  const timeZone = Budgeting.getSpreadsheetTimeZone();
 
   const hasContent = values.map((rowValues, r) =>
     rowValues.some(
@@ -316,7 +315,7 @@ export function buildPayPeriodState(sheetName?: string): {
 
   let info: TransactionSheetInfo | undefined;
   if (sheetName !== undefined) {
-    info = infos.find((i) => i.sheet.getName() === sheetName);
+    info = infos.find((i) => i.name === sheetName);
     if (!info)
       throw new ApiError(
         "not_found",
@@ -329,10 +328,10 @@ export function buildPayPeriodState(sheetName?: string): {
   }
 
   const sheets: SheetInfoDto[] = infos.map((i) => ({
-    name: i.sheet.getName(),
+    name: i.name,
     startDate: formatSheetBoundaryDate(i.startDate),
     endDate: formatSheetBoundaryDate(i.endDate),
-    isGap: i.sheet.getName().includes("(Gap)"),
+    isGap: i.name.includes("(Gap)"),
   }));
 
   const variables = Variables.getVariables();
@@ -341,7 +340,7 @@ export function buildPayPeriodState(sheetName?: string): {
   return {
     state: {
       sheets,
-      sheetName: info.sheet.getName(),
+      sheetName: info.name,
       taxMultiplier: Number(variables.TaxMultiplier),
       forwardName: toText(variables.ForwardName),
       transactions: toTransactionList(readTransactionTable(info.sheet)),
@@ -364,7 +363,7 @@ export function buildAllTransactions(
   if (allInfos.length === 0)
     throw new ApiError("not_found", "No transaction sheets found");
   if (sheetNames) {
-    const known = new Set(allInfos.map((i) => i.sheet.getName()));
+    const known = new Set(allInfos.map((i) => i.name));
     const missing = sheetNames.find((name) => !known.has(name));
     if (missing !== undefined)
       throw new ApiError(
@@ -374,18 +373,16 @@ export function buildAllTransactions(
   }
   // Only the requested tabs are read (still newest first)
   const wanted = sheetNames && new Set(sheetNames);
-  const infos = wanted
-    ? allInfos.filter((i) => wanted.has(i.sheet.getName()))
-    : allInfos;
+  const infos = wanted ? allInfos.filter((i) => wanted.has(i.name)) : allInfos;
   return {
     taxMultiplier: Number(Variables.getVariables().TaxMultiplier),
     sheets: infos.map((info) => {
       const options = readSheetOptions(info.sheet);
       return {
-        name: info.sheet.getName(),
+        name: info.name,
         startDate: formatSheetBoundaryDate(info.startDate),
         endDate: formatSheetBoundaryDate(info.endDate),
-        isGap: info.sheet.getName().includes("(Gap)"),
+        isGap: info.name.includes("(Gap)"),
         transactions: toTransactionList(readTransactionTable(info.sheet)),
         envelopeOptions: options.envelopeOptions,
         paidWithOptions: options.paidWithOptions,

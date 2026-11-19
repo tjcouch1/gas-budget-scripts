@@ -160,6 +160,7 @@ describe("import preview (what the import would write)", () => {
         errorMessage: "",
         note: "",
         sheet: "12/22/2025 - 1/4/2026",
+        skippedWithThread: false,
       },
     ]);
   });
@@ -209,6 +210,35 @@ describe("import preview (what the import would write)", () => {
       sheets,
     );
     expect(item!.import.rows[0]!.sheet).toBeNull();
+    expect(item!.import.rows[0]!.skippedWithThread).toBe(false);
+  });
+
+  it("skips the whole thread when one of its receipts fits no sheet, as the import does", () => {
+    const [inSheet, outside, otherThread] = previewReceiptRules(
+      rules,
+      [
+        dto(demoInbox.chasePurchase!),
+        dto(demoInbox.chasePurchase!, {
+          messageId: "m2",
+          date: "2030-01-01T00:00:00.000Z",
+        }),
+        dto(demoInbox.chasePurchase!, { threadId: "t2", messageId: "m3" }),
+      ],
+      context,
+      sheets,
+    );
+    expect(inSheet!.import.rows[0]).toMatchObject({
+      sheet: "12/22/2025 - 1/4/2026",
+      skippedWithThread: true,
+    });
+    expect(outside!.import.rows[0]).toMatchObject({
+      sheet: null,
+      skippedWithThread: false,
+    });
+    expect(otherThread!.import.rows[0]).toMatchObject({
+      sheet: "12/22/2025 - 1/4/2026",
+      skippedWithThread: false,
+    });
   });
 
   it("leaves the sheet undefined when sheets are unknown", () => {
@@ -218,6 +248,7 @@ describe("import preview (what the import would write)", () => {
       context,
     );
     expect(item!.import.rows[0]!.sheet).toBeUndefined();
+    expect(item!.import.rows[0]!.skippedWithThread).toBe(false);
   });
 
   it("notes emails already labeled Receipts/Scripted", () => {

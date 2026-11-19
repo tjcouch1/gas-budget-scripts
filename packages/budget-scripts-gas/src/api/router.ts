@@ -8,6 +8,7 @@ import {
   type ApiResponse,
   type ServiceInfoDto,
 } from "@budget/shared";
+import { Budgeting } from "../util/budgeting.util";
 import { ApiError, getErrorMessage } from "./api-error";
 import { isAuthorized } from "./auth";
 import {
@@ -51,6 +52,8 @@ function toFailure(e: unknown): ApiFailure {
 
 /** Parses, authenticates, and dispatches a POST body. Never throws */
 export function handleApiRequest(body: unknown): ApiResponse<unknown> {
+  // Start from a fresh sheet list like a new GAS execution (matters for tests and the demo backend)
+  Budgeting.bustSpreadsheetCaches();
   try {
     if (typeof body !== "string")
       throw new ApiError("bad_request", "Missing request body");

@@ -400,14 +400,61 @@ describe("recording receipts", () => {
     );
   });
 
-  it("throws when a receipt date fits no transaction sheet", async () => {
-    getEnv().GmailApp.threads = [
-      makeThread(chase("1.00", "Shop", "2025-01-01T12:00:00Z")),
+  // Intended behavior change (GitHub #1): previously the whole import threw "Could not find
+  // transaction sheet for receipt" and recorded nothing
+  it("records the receipts that fit a sheet, leaves the others unmarked, and alerts", async () => {
+    const env = getEnv();
+    const lost = makeThread(chase("1.00", "Lost", "2025-01-01T12:00:00Z"));
+    const kept = makeThread(chase("2.00", "Kept", "2024-02-20T12:00:00Z"));
+    env.GmailApp.threads = [lost, kept];
+    const { getAndRecordReceipts } = await load();
+    expect(getAndRecordReceipts(null, null, true)).toEqual({ [SHEET]: 1 });
+    expect(sheet.getRange("A5:C6").getValues()).toEqual([
+      [new Date("2024-02-20T12:00:00Z"), "Kept", 2],
+      ["", "", ""],
+    ]);
+    expect(kept.archived).toBe(true);
+    expect(lost.archived).toBe(false);
+    expect(lost.labels).toEqual([]);
+    expect(env.SpreadsheetApp.ui.alerts).toEqual([
+      "1 receipt could not be recorded because no transaction sheet fits its date (or the date of another receipt in the same email thread). They were left unmarked in Gmail. Add the pay-period sheet, then import again.",
+    ]);
+    expect(env.logs.join("\n")).toContain(
+      "Could not find transaction sheet for receipt",
+    );
+  });
+
+  it("alerts errors and receipts without a sheet together", async () => {
+    const env = getEnv();
+    env.GmailApp.threads = [
+      makeThread(chase("1.00", "Lost", "2025-01-01T12:00:00Z")),
+      makeThread(chase("3.00", "Lost too", "2025-01-02T12:00:00Z")),
+      makeThread({
+        from: "a at example.org",
+        subject: "s",
+        body: "",
+        date: new Date("2024-02-20T12:00:00Z"),
+      }),
     ];
     const { getAndRecordReceipts } = await load();
-    expect(() => getAndRecordReceipts(null, null, false)).toThrow(
-      /Could not find transaction sheet for receipt/,
+    getAndRecordReceipts(null, null, false);
+    expect(env.SpreadsheetApp.ui.alerts).toEqual([
+      "There were 1 errors while processing. Please review.\n\n2 receipts could not be recorded because no transaction sheet fits their date (or the date of another receipt in the same email thread). They were left unmarked in Gmail. Add the pay-period sheet, then import again.",
+    ]);
+  });
+
+  it("throws in a trigger (no UI) after recording when a receipt fits no sheet", async () => {
+    const env = getEnv();
+    env.SpreadsheetApp.uiAvailable = false;
+    env.GmailApp.threads = [
+      makeThread(chase("1.00", "Lost", "2025-01-01T12:00:00Z")),
+      makeThread(chase("2.00", "Kept", "2024-02-20T12:00:00Z")),
+    ];
+    const { getAndRecordReceipts } = await load();
+    expect(() => getAndRecordReceipts(null, null, true)).toThrow(
+      /^Error while trying to notify user via UI of 1 receipts with no transaction sheet \(left unmarked in Gmail\)! This may be running in a trigger/,
     );
+    expect(sheet.getRange("B5").getValue()).toBe("Kept");
   });
 
   it("throws when the sheet has too few empty rows", async () => {

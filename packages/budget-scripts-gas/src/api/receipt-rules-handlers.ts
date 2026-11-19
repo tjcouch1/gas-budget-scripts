@@ -16,6 +16,7 @@ import {
 } from "@budget/shared";
 import { getTransactionSheetInfos } from "../util/budgeting.util";
 import { ensureGlobalVariableRow } from "../util/global-variables-setup.util";
+import { getMessagesOfThreads } from "../util/gmail.util";
 import { tryWithScriptLock } from "../util/lock.util";
 import {
   buildReceiptQuery,
@@ -194,9 +195,11 @@ export function handleFetchReceiptEmails(
   const emails: ReceiptEmailDto[] = [];
   let totalChars = 0;
   let truncated = false;
-  outer: for (const thread of threads) {
+  // One batch read of all messages instead of one getMessages() per thread
+  const messagesOfThreads = getMessagesOfThreads(threads);
+  outer: for (const [threadIndex, thread] of threads.entries()) {
     const labels = thread.getLabels().map((label) => label.getName());
-    for (const message of thread.getMessages()) {
+    for (const message of messagesOfThreads[threadIndex]()) {
       if (emails.length >= FETCH_MAX_MESSAGES) {
         truncated = true;
         break outer;

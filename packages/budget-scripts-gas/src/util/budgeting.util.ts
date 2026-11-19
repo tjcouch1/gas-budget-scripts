@@ -1,12 +1,15 @@
-import { buildSplitChildName, findTransactionSheet } from "@budget/shared";
+import { assignRowsToSheets, buildSplitChildName } from "@budget/shared";
 import { ReceiptInfoBase } from "../models/receipt-info.model";
 import { ThreadList } from "../models/thread-list.model";
+import { toA1 } from "./a1.util";
 import { getReceiptSearchQuery } from "./receipt-rules.util";
 import { Util } from "./util";
 import { Variables } from "./variables.util";
 /** Sheet that has transactions on it and info about it */
 type TransactionSheetInfo = {
   sheet: GoogleAppsScript.Spreadsheet.Sheet;
+  /** `sheet.getName()`, read once */
+  name: string;
   startDate: Date;
   endDate: Date;
   /**
@@ -162,33 +165,65 @@ function getTransactionsRange(sheet: GoogleAppsScript.Spreadsheet.Sheet) {
 }
 
 /**
+ * The transaction sheets found by the first `getTransactionSheetInfos` call of this execution (the
+ * sheet list is read once per execution). Busted when this code inserts a sheet, and by
+ * `bustSpreadsheetCaches`
+ */
+let transactionSheetsCache:
+  Omit<TransactionSheetInfo, "receiptInfosToAdd">[] | undefined;
+
+/**
+ * Forgets the sheet list and time zone read earlier in this execution. Every real GAS execution
+ * starts with empty module caches; the web API calls this first anyway so code that runs several
+ * requests in one process (tests, the local demo backend) behaves the same
+ */
+export function bustSpreadsheetCaches() {
+  transactionSheetsCache = undefined;
+  timeZoneCache = undefined;
+}
+
+let timeZoneCache: string | undefined;
+
+/** The spreadsheet's time zone, read once per execution */
+export function getSpreadsheetTimeZone(): string {
+  timeZoneCache ??=
+    SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  return timeZoneCache;
+}
+
+/**
  * Returns an array of all sheets that have transactions on them according to the sheet name
  * along with the start and end dates for each sheet
  *
  * NOTE: each transaction sheet comes with an empty array `receiptInfosToAdd` for adding stuff into later
  */
-export function getTransactionSheetInfos() {
-  const transactionSheetInfos: TransactionSheetInfo[] = [];
-  SpreadsheetApp.getActiveSpreadsheet()
-    .getSheets()
-    .forEach((sheet) => {
-      const matches = transactionSheetNameRegex.exec(sheet.getName());
-      if (matches && matches.length === 3 && matches.groups) {
-        const startDate = new Date(
-          Date.parse(`${matches.groups.start} 00:00:00.000 GMT-06:00`),
-        );
-        const endDate = new Date(
-          Date.parse(`${matches.groups.end} 23:59:59.999 GMT-06:00`),
-        );
-        transactionSheetInfos.push({
-          sheet,
-          startDate,
-          endDate,
-          receiptInfosToAdd: [],
-        });
-      }
-    });
-  return transactionSheetInfos;
+export function getTransactionSheetInfos(): TransactionSheetInfo[] {
+  if (!transactionSheetsCache) {
+    transactionSheetsCache = [];
+    SpreadsheetApp.getActiveSpreadsheet()
+      .getSheets()
+      .forEach((sheet) => {
+        const name = sheet.getName();
+        const matches = transactionSheetNameRegex.exec(name);
+        if (matches && matches.length === 3 && matches.groups) {
+          const startDate = new Date(
+            Date.parse(`${matches.groups.start} 00:00:00.000 GMT-06:00`),
+          );
+          const endDate = new Date(
+            Date.parse(`${matches.groups.end} 23:59:59.999 GMT-06:00`),
+          );
+          transactionSheetsCache!.push({ sheet, name, startDate, endDate });
+        }
+      });
+  }
+  // Fresh objects every call: callers sort the array and fill receiptInfosToAdd
+  return transactionSheetsCache.map(({ sheet, name, startDate, endDate }) => ({
+    sheet,
+    name,
+    startDate: new Date(startDate.getTime()),
+    endDate: new Date(endDate.getTime()),
+    receiptInfosToAdd: [],
+  }));
 }
 
 /**
@@ -279,6 +314,8 @@ export function addTransactionSheet() {
       template: templateSheet,
     },
   );
+  // The sheet list changed
+  transactionSheetsCache = undefined;
 
   // Color the tab if it's a gap period to indicate it needs review
   if (isGapPeriod) newSheet.setTabColor("#E8A9CA");
@@ -382,29 +419,54 @@ function recordReceiptsOnSheet(
     receiptInfos.map((receiptInfo) => [receiptInfo.category, receiptInfo.type]),
   );
 
-  // Mark receipt errors and notes
-  receiptInfos.forEach((receiptInfo, i) => {
-    // Mark empty cost
-    if (!receiptInfo.cost) {
-      // Mark the cost cell that there was no cost
-      const costCell = range.getCell(i + 1, 3);
-      costCell.setBackground("#E8A9CA");
-    }
+  // Mark receipt errors and notes. Only the cells listed here change: other cells in the rows keep
+  // whatever note and background they had, so the writes go to exactly these cells in batches
+  // (one setNotes per run of consecutive noted rows, one RangeList.setBackground per color)
+  const firstRow = range.getRow();
+  const nameColumn = range.getColumn() + 1;
+  const costColumn = range.getColumn() + 2;
+  /** A1 notations of the cells to color, by color */
+  const cellsByBackground = new Map<string, string[]>();
+  const addBackground = (color: string, row: number, column: number) => {
+    const cells = cellsByBackground.get(color) ?? [];
+    cells.push(toA1(row, column));
+    cellsByBackground.set(color, cells);
+  };
+  /** Name cell note per receipt index; undefined when the receipt has no note */
+  const notes: (string | undefined)[] = receiptInfos.map((receiptInfo, i) => {
+    // Mark the cost cell that there was no cost
+    if (!receiptInfo.cost) addBackground("#E8A9CA", firstRow + i, costColumn);
 
-    if (!receiptInfo.errorMessage && !receiptInfo.note) return;
+    if (!receiptInfo.errorMessage && !receiptInfo.note) return undefined;
 
     const receiptHasError = !!receiptInfo.errorMessage;
-    const combinedNote = `${receiptInfo.errorMessage}${
+    // Mark the name cell with the information from the note
+    addBackground(
+      receiptHasError ? "#FF0000" : "#E8A9CA",
+      firstRow + i,
+      nameColumn,
+    );
+    return `${receiptInfo.errorMessage}${
       receiptInfo.errorMessage && receiptInfo.note
         ? "\n\n>>>>>>>>>> NOTES <<<<<<<<<<\n\n"
         : ""
     }${receiptInfo.note}`;
-
-    // Mark the name cell with the information from the note
-    const nameCell = range.getCell(i + 1, 2);
-    nameCell.setNote(combinedNote);
-    nameCell.setBackground(receiptHasError ? "#FF0000" : "#E8A9CA");
   });
+
+  // One setNotes per run of consecutive rows that have a note
+  for (let start = 0; start < notes.length; start++) {
+    if (notes[start] === undefined) continue;
+    let end = start;
+    while (end + 1 < notes.length && notes[end + 1] !== undefined) end++;
+    range
+      .offset(start, 1, end - start + 1, 1)
+      .setNotes(notes.slice(start, end + 1).map((note) => [note as string]));
+    start = end;
+  }
+
+  cellsByBackground.forEach((cells, color) =>
+    sheet.getRangeList(cells).setBackground(color),
+  );
 
   return receiptInfos.length;
 }
@@ -417,13 +479,21 @@ export type RecordReceiptsResult = {
   numErrors: number;
   /** The error messages (one per error) */
   errors: string[];
+  /**
+   * One message per receipt that was not recorded because its thread has a receipt that fits no
+   * transaction sheet. Those threads are left untouched (not written, not marked, still in the
+   * inbox) so a later import picks them up once the pay-period sheet exists
+   */
+  skippedReceipts: string[];
 };
 
 /**
  * Record receipt info in the spreadsheet and optionally mark the threads processed. Never calls
  * `SpreadsheetApp.getUi()`, so it is safe in web app and trigger executions. Errors found while
- * parsing threads are returned, not thrown. It still throws if a receipt fits no transaction sheet
- * or a sheet has too few empty rows.
+ * parsing threads are returned, not thrown. A thread with a receipt that fits no transaction sheet
+ * is skipped whole (none of its receipts are written and it is not marked) and reported in
+ * `skippedReceipts`; the other threads are recorded exactly as if it were not there. It still
+ * throws if a sheet has too few empty rows.
  *
  * @param threadList threads and receipt info for emails to record
  * @param shouldMarkProcessed set to true to mark the threads as processed by these scripts. Defaults to false
@@ -432,35 +502,44 @@ export function recordReceiptsCore(
   threadList: ThreadList,
   shouldMarkProcessed: boolean = false,
 ): RecordReceiptsResult {
-  const receiptInfos = threadList.getAllReceiptInfos();
+  const allReceiptInfos = threadList.getAllReceiptInfos();
   /** Map from transaction sheet name to number of receipts added on that sheet */
   const receiptInfosAdded: { [transactionSheetName: string]: number } = {};
+  const skippedReceipts: string[] = [];
+  /**
+   * Threads with a receipt that fits no transaction sheet. Compared by identity: every receipt's
+   * `thread` is the `ThreadInfo.thread` object it was parsed from
+   */
+  const threadsWithoutSheet = new Set<GoogleAppsScript.Gmail.GmailThread>();
 
-  if (receiptInfos.length > 0) {
+  if (allReceiptInfos.length > 0) {
     const transactionSheetInfos = getTransactionSheetInfos();
+    // Leave out whole threads, so a thread is never half recorded. Both lists keep the date order
+    const { recorded, skipped } = assignRowsToSheets(
+      allReceiptInfos,
+      transactionSheetInfos,
+      (receiptInfo) => receiptInfo.thread,
+    );
+    skipped.forEach(({ row: receiptInfo, sheet }) => {
+      threadsWithoutSheet.add(receiptInfo.thread);
+      const message = sheet
+        ? `Not recorded because another receipt in its email thread fits no transaction sheet: receipt ${JSON.stringify(receiptInfo)}`
+        : `Could not find transaction sheet for receipt ${JSON.stringify(receiptInfo)}`;
+      skippedReceipts.push(message);
+      Logger.log(message);
+    });
+
     // Group receiptInfos by transaction sheet
-    receiptInfos.forEach((receiptInfo) => {
-      const transactionSheetInfo = findTransactionSheet(
-        receiptInfo.date,
-        transactionSheetInfos,
-      );
-      if (transactionSheetInfo) {
-        transactionSheetInfo.receiptInfosToAdd.push(receiptInfo);
-      } else
-        throw new Error(
-          `Could not find transaction sheet for receipt ${JSON.stringify(
-            receiptInfo,
-          )}`,
-        );
+    recorded.forEach(({ row: receiptInfo, sheet }) => {
+      sheet.receiptInfosToAdd.push(receiptInfo);
     });
 
     transactionSheetInfos.forEach((transactionSheetInfo) => {
       if (transactionSheetInfo.receiptInfosToAdd.length > 0)
-        receiptInfosAdded[transactionSheetInfo.sheet.getName()] =
-          recordReceiptsOnSheet(
-            transactionSheetInfo.sheet,
-            transactionSheetInfo.receiptInfosToAdd,
-          );
+        receiptInfosAdded[transactionSheetInfo.name] = recordReceiptsOnSheet(
+          transactionSheetInfo.sheet,
+          transactionSheetInfo.receiptInfosToAdd,
+        );
     });
   }
 
@@ -470,6 +549,8 @@ export function recordReceiptsCore(
   const erroredThreads: GoogleAppsScript.Gmail.GmailThread[] = [];
   // Sort the receipt threads by outcome and report errors
   threadList.threadInfos.forEach((threadInfo) => {
+    // Not recorded, so not marked either: the next import retries it
+    if (threadsWithoutSheet.has(threadInfo.thread)) return;
     // Report thread error
     if (threadInfo.errors.length > 0) {
       numErrors += threadInfo.errors.length;
@@ -491,7 +572,7 @@ export function recordReceiptsCore(
       threadList.ignoredThreads,
     );
 
-  return { receiptInfosAdded, numErrors, errors };
+  return { receiptInfosAdded, numErrors, errors, skippedReceipts };
 }
 
 /**
@@ -505,18 +586,33 @@ function recordReceipts(
   threadList: ThreadList,
   shouldMarkProcessed: boolean = false,
 ) {
-  const { receiptInfosAdded, numErrors } = recordReceiptsCore(
+  const { receiptInfosAdded, numErrors, skippedReceipts } = recordReceiptsCore(
     threadList,
     shouldMarkProcessed,
   );
 
-  if (numErrors > 0) {
-    try {
-      SpreadsheetApp.getUi().alert(
+  const numSkipped = skippedReceipts.length;
+  if (numErrors > 0 || numSkipped > 0) {
+    const alerts: string[] = [];
+    const problems: string[] = [];
+    if (numErrors > 0) {
+      alerts.push(
         `There were ${numErrors} errors while processing. Please review.`,
       );
+      problems.push(`${numErrors} errors while processing`);
+    }
+    if (numSkipped > 0) {
+      alerts.push(
+        `${numSkipped} receipt${numSkipped === 1 ? "" : "s"} could not be recorded because no transaction sheet fits ${numSkipped === 1 ? "its" : "their"} date (or the date of another receipt in the same email thread). They were left unmarked in Gmail. Add the pay-period sheet, then import again.`,
+      );
+      problems.push(
+        `${numSkipped} receipts with no transaction sheet (left unmarked in Gmail)`,
+      );
+    }
+    try {
+      SpreadsheetApp.getUi().alert(alerts.join("\n\n"));
     } catch (e) {
-      throw `Error while trying to notify user via UI of ${numErrors} errors while processing! This may be running in a trigger. Please review errors. ${e}`;
+      throw `Error while trying to notify user via UI of ${problems.join(" and ")}! This may be running in a trigger. Please review errors. ${e}`;
     }
   }
 
@@ -1017,6 +1113,8 @@ export function deleteTransactionRows(
 export const Budgeting = {
   getChaseReceipts,
   getTransactionSheetInfos,
+  getSpreadsheetTimeZone,
+  bustSpreadsheetCaches,
   addTransactionSheet,
   addTransactionSheets,
   getAndRecordReceipts,

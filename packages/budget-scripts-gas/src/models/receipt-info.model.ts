@@ -58,11 +58,14 @@ export class EmptyReceipt extends ReceiptInfoBase {
 // #region ReceiptInfo
 /** Receipt information from an email */
 export class ReceiptInfo extends ReceiptInfoBase {
+  /** The message's thread when the caller already has it (saves a `getThread()` call) */
+  #thread: GoogleAppsScript.Gmail.GmailThread | undefined;
   /**
    *
    * @param message the gmail message from which this receipt is derived
    * @param cost
    * @param name
+   * @param thread the thread of `message`, if known. Otherwise `message.getThread()` is used
    */
   constructor(
     public message: GoogleAppsScript.Gmail.GmailMessage,
@@ -70,8 +73,10 @@ export class ReceiptInfo extends ReceiptInfoBase {
     name: string | undefined,
     category: string | undefined,
     type: string | undefined,
+    thread?: GoogleAppsScript.Gmail.GmailThread,
   ) {
     super();
+    this.#thread = thread;
     this.cost = cost;
     this.name = name;
     this.date = this.message.getDate();
@@ -80,7 +85,7 @@ export class ReceiptInfo extends ReceiptInfoBase {
   }
 
   public get thread() {
-    return this.message.getThread();
+    return this.#thread ?? this.message.getThread();
   }
 
   toJSON() {

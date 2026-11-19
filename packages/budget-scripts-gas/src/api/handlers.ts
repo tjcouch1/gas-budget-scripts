@@ -54,8 +54,7 @@ const SYNC_RECEIPTS_MAX_THREADS = 25;
 const SPLIT_USER_ERROR_REGEX =
   /has no content|seems to be in a transaction group already|No room on sheet|not enough empty transaction rows/;
 /** Errors thrown by receipt recording that the user must fix on the sheet */
-const SYNC_USER_ERROR_REGEX =
-  /Could not find transaction sheet|not enough empty transaction rows/;
+const SYNC_USER_ERROR_REGEX = /not enough empty transaction rows/;
 
 /**
  * A cost formula with a relative reference to a row below in the same column (e.g. `-R[1]C[0]`),
@@ -1008,8 +1007,7 @@ const ADD_REQUEST_ID_TTL_SECONDS = 6 * 60 * 60;
 function requireDate(value: unknown, field: string): Date {
   const text = requireString(value, field);
   if (!DATE_REGEX.test(text)) badRequest(`${field} must be yyyy-MM-dd`);
-  const timeZone =
-    SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  const timeZone = Budgeting.getSpreadsheetTimeZone();
   let date: Date;
   try {
     date = Utilities.parseDate(text, timeZone, "yyyy-MM-dd");
@@ -1125,7 +1123,8 @@ export function handleAddTransaction(
 /**
  * `syncReceipts`: imports and marks up to 25 receipt threads (like "Import 25 receipts and mark")
  * under the script lock. Errors in emails are returned, never shown with `getUi()`. Never creates
- * pay-period sheets: a receipt that fits no sheet is a `bad_request`
+ * pay-period sheets: threads with a receipt that fits no sheet are skipped (left unmarked) and
+ * counted in `receiptsWithoutSheet`; the rest are imported
  */
 export function handleSyncReceipts(
   req: Json,
@@ -1159,6 +1158,7 @@ export function handleSyncReceipts(
           receiptInfosAddedBySheet: result.receiptInfosAdded,
           numErrors: result.numErrors,
           errors: result.errors,
+          receiptsWithoutSheet: result.skippedReceipts.length,
           state,
         },
         warnings,

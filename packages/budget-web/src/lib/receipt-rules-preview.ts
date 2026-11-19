@@ -1,6 +1,6 @@
 import {
   applyReceiptRules,
-  findTransactionSheet,
+  assignRowsToSheets,
   planThreadImport,
   sortRowsByDate,
   type ImportMessageInput,
@@ -24,8 +24,16 @@ export interface ImportRowPreview {
   errorMessage: string;
   /** Non-empty (no error): the name cell gets this note and a pink background */
   note: string;
-  /** Name of the transaction sheet it goes on, null when none fits (the import would fail), undefined when sheets are unknown */
+  /**
+   * Name of the transaction sheet it goes on, null when none fits (the import skips the whole email
+   * thread), undefined when sheets are unknown
+   */
   sheet: string | null | undefined;
+  /**
+   * A sheet fits this row, but another row of its email thread fits none, so the import skips the
+   * whole thread (false when sheets are unknown)
+   */
+  skippedWithThread: boolean;
 }
 
 export interface ImportPreview {
@@ -107,10 +115,6 @@ export function previewReceiptRules(
     startDate: new Date(s.startDate),
     endDate: new Date(s.endDate),
   }));
-  const sheetFor = (date: Date) =>
-    sheetRanges
-      ? (findTransactionSheet(date, sheetRanges)?.name ?? null)
-      : undefined;
 
   // Plan per thread, as the import does
   const imports = new Map<ReceiptEmailDto, ImportPreview>();
@@ -141,6 +145,18 @@ export function previewReceiptRules(
       messages,
     });
     const rows = sortRowsByDate(plan.rows);
+    // Same sheet choice and whole-thread skip as the import
+    const assignment = sheetRanges
+      ? assignRowsToSheets(plan.rows, sheetRanges, () => threadId)
+      : null;
+    const sheetOf = (row: (typeof plan.rows)[number]) => {
+      if (!assignment) return { sheet: undefined, skippedWithThread: false };
+      const recorded = assignment.recorded.find((e) => e.row === row);
+      if (recorded)
+        return { sheet: recorded.sheet.name, skippedWithThread: false };
+      const sheet = assignment.skipped.find((e) => e.row === row)?.sheet;
+      return { sheet: sheet?.name ?? null, skippedWithThread: !!sheet };
+    };
     items.forEach((r, i) => {
       // The empty row of an errored thread belongs to the thread's first email
       const mine = plan.rows.filter(
@@ -171,7 +187,7 @@ export function previewReceiptRules(
           type: row.type,
           errorMessage: row.errorMessage,
           note: row.note,
-          sheet: sheetFor(new Date(row.date.getTime())),
+          ...sheetOf(row),
         })),
       });
     });

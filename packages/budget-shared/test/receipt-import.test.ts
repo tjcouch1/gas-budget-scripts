@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assignRowsToSheets,
   findTransactionSheet,
   joinThreadErrors,
   joinThreadNotes,
@@ -188,5 +189,50 @@ describe("findTransactionSheet", () => {
   it("includes the start and excludes the end", () => {
     expect(findTransactionSheet(sheets[0].startDate, sheets)).toBe(sheets[0]);
     expect(findTransactionSheet(sheets[0].endDate, sheets)).toBeUndefined();
+  });
+});
+
+describe("assignRowsToSheets", () => {
+  const sheets = [
+    {
+      name: "A",
+      startDate: new Date("2025-03-01T06:00:00Z"),
+      endDate: new Date("2025-03-15T05:59:59Z"),
+    },
+  ];
+  const inA = new Date("2025-03-05T00:00:00Z");
+  const outside = new Date("2025-04-05T00:00:00Z");
+  it("records every row of threads whose rows all fit a sheet", () => {
+    const rows = [
+      { id: 1, thread: "t1", date: inA },
+      { id: 2, thread: "t2", date: inA },
+    ];
+    const { recorded, skipped } = assignRowsToSheets(
+      rows,
+      sheets,
+      (r) => r.thread,
+    );
+    expect(recorded).toEqual([
+      { row: rows[0], sheet: sheets[0] },
+      { row: rows[1], sheet: sheets[0] },
+    ]);
+    expect(skipped).toEqual([]);
+  });
+  it("skips a whole thread with a row that fits no sheet, keeping input order", () => {
+    const rows = [
+      { id: 1, thread: "t1", date: inA },
+      { id: 2, thread: "t2", date: inA },
+      { id: 3, thread: "t1", date: outside },
+    ];
+    const { recorded, skipped } = assignRowsToSheets(
+      rows,
+      sheets,
+      (r) => r.thread,
+    );
+    expect(recorded).toEqual([{ row: rows[1], sheet: sheets[0] }]);
+    expect(skipped).toEqual([
+      { row: rows[0], sheet: sheets[0] },
+      { row: rows[2], sheet: undefined },
+    ]);
   });
 });

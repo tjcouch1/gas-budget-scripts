@@ -194,6 +194,7 @@ describe("EmailResults", () => {
       errorMessage: "",
       note: "",
       sheet: "12/22/2025 - 1/4/2026" as string | null | undefined,
+      skippedWithThread: false,
     };
     const withImport = (imp: Partial<ImportPreview>): PreviewItem => ({
       email,
@@ -250,9 +251,22 @@ describe("EmailResults", () => {
           ]}
         />,
       );
-      expect(section()).toHaveTextContent(/No matching transaction sheet/);
+      expect(section()).toHaveTextContent(
+        /No matching transaction sheet: the import skips this email thread/,
+      );
       expect(within(section()).getByTestId("import-cost")).toHaveClass(
         "bg-pink-200",
+      );
+    });
+
+    it("flags a receipt skipped because its thread has one with no sheet", () => {
+      render(
+        <EmailResults
+          items={[withImport({ rows: [{ ...row, skippedWithThread: true }] })]}
+        />,
+      );
+      expect(section()).toHaveTextContent(
+        /Another receipt in this email thread has no matching transaction sheet/,
       );
     });
 

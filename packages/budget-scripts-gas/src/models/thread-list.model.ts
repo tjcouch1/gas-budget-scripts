@@ -21,6 +21,7 @@ import {
   getRuleContext,
   toRuleEmail,
 } from "../util/receipt-rules.util";
+import { getMessagesOfThreads } from "../util/gmail.util";
 
 /** Information for threads retrieved and receipts found in those threads */
 export class ThreadList {
@@ -87,13 +88,16 @@ export class ThreadList {
     rules: CompiledReceiptRules = getCompiledReceiptRules(),
     context: RuleContext = getRuleContext(),
   ) {
+    // One batch read of every thread's messages (falls back to per-thread reads on failure)
+    const messagesOfThreads = getMessagesOfThreads(threads);
+
     // Map email info into receipt infos
     /** All receipt email info */
-    threads.forEach((thread) => {
+    threads.forEach((thread, threadIndex) => {
       const threadInfo = new ThreadInfo(thread);
 
       try {
-        const messages = thread.getMessages();
+        const messages = messagesOfThreads[threadIndex]();
         const byId = new Map<string, GoogleAppsScript.Gmail.GmailMessage>();
         const inputs = messages.map((message): ImportMessageInput => {
           byId.set(message.getId(), message);
@@ -143,6 +147,7 @@ export class ThreadList {
               row.name,
               row.category,
               row.type,
+              thread,
             ),
           );
         });

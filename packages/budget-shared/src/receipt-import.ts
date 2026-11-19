@@ -174,3 +174,42 @@ export function findTransactionSheet<T extends TransactionSheetRange>(
       date.getTime() < s.endDate.getTime(),
   );
 }
+
+export interface SheetAssignment<R, S> {
+  /** Rows the import records, each with its sheet, in input order */
+  recorded: { row: R; sheet: S }[];
+  /**
+   * Rows the import leaves out, in input order: every row of a thread that has a row no sheet fits.
+   * `sheet` is undefined for the rows that fit no sheet themselves
+   */
+  skipped: { row: R; sheet: S | undefined }[];
+}
+
+/**
+ * Picks each row's transaction sheet, as the import does. A thread with a row that fits no sheet is
+ * left out whole (none of its rows are recorded and it is not marked), so a thread is never half
+ * recorded and a later import picks it up once the pay-period sheet exists.
+ *
+ * @param threadOf the thread a row came from, compared with `===` (GAS: the GmailThread object;
+ *   preview: the thread ID)
+ */
+export function assignRowsToSheets<
+  R extends { date: DateLike },
+  S extends TransactionSheetRange,
+  K,
+>(rows: R[], sheets: S[], threadOf: (row: R) => K): SheetAssignment<R, S> {
+  const withSheet = rows.map((row) => ({
+    row,
+    sheet: findTransactionSheet(row.date, sheets),
+  }));
+  const threadsWithoutSheet = new Set<K>();
+  for (const { row, sheet } of withSheet)
+    if (!sheet) threadsWithoutSheet.add(threadOf(row));
+  const recorded: { row: R; sheet: S }[] = [];
+  const skipped: { row: R; sheet: S | undefined }[] = [];
+  for (const entry of withSheet) {
+    if (threadsWithoutSheet.has(threadOf(entry.row))) skipped.push(entry);
+    else recorded.push({ row: entry.row, sheet: entry.sheet! });
+  }
+  return { recorded, skipped };
+}
