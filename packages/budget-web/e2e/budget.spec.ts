@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { PERIOD_RANGES } from "../src/lib/period-range.ts";
 import { receiptThreadFixtures } from "../../budget-scripts-gas/test/fixtures/receipts.ts";
 import { CURRENT_PERIOD } from "../../budget-scripts-gas/test/fixtures/sheets.ts";
 import {
@@ -42,9 +43,9 @@ test.describe("connection and loading", () => {
     await expect(dialog.getByRole("status")).toContainText("Saved");
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
 
-    // Three pay-period tabs plus the "All" option
+    // Three pay-period sheets, plus "All" and the multi-period range options
     await expect(page.getByLabel("Pay period").locator("option")).toHaveCount(
-      4,
+      3 + 1 + PERIOD_RANGES.length,
     );
     await expect(
       page.getByRole("tab", { name: /^Uncategorized/ }),
@@ -80,10 +81,11 @@ test.describe("editing", () => {
   test("categorizes with an envelope chip", async ({ page, sheetName }) => {
     await connect(page);
     await openTransaction(page, "Test Hardware");
-    await page
-      .getByRole("dialog")
-      .getByRole("button", { name: /^Household/ })
-      .click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: /^Household/ }).click();
+    // The tap is staged: the drawer stays open until Save & close
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Save & close" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
 
     await expect
@@ -95,28 +97,24 @@ test.describe("editing", () => {
     await expect(syncedPill(page)).toBeVisible();
   });
 
-  test("edits the cost with inline math", async ({ page, sheetName }) => {
+  test("edits the cost as a plain number", async ({ page, sheetName }) => {
     await connect(page);
     await openTransaction(page, "Imaginary Books");
     const dialog = page.getByRole("dialog");
     // Unsplit rows have no tax toggle
     await expect(dialog.getByLabel(/Add tax/)).toHaveCount(0);
+    // Only a plain number is accepted
     await dialog.getByLabel("Cost").fill("=1+3.23*2");
-    await dialog.getByRole("button", { name: "Save & close" }).click();
+    await expect(dialog.getByRole("alert")).toHaveText(
+      "Enter a number, e.g. 12.34",
+    );
+    await expect(
+      dialog.getByRole("button", { name: "Save & close" }),
+    ).toBeDisabled();
+    await dialog.getByLabel("Cost").fill("");
+    await expect(dialog.getByRole("alert")).toHaveText("Enter a value");
 
-    await expect
-      .poll(
-        async () =>
-          findRow(await backend.dump(sheetName), "Imaginary Books").formulas[
-            COL.cost
-          ],
-      )
-      .toBe("=1+3.23*2");
-    const row = findRow(await backend.dump(sheetName), "Imaginary Books");
-    expect(row.values[COL.cost]).toBeCloseTo(7.46);
-
-    // A plain number is stored as a number, not a formula
-    await openTransaction(page, "Imaginary Books");
+    // A plain number is stored as typed, as a number, not a formula
     await page.getByRole("dialog").getByLabel("Cost").fill("20.5");
     await page.getByRole("button", { name: "Save & close" }).click();
     await expect
@@ -301,8 +299,8 @@ test.describe("splitting", () => {
     await page.getByRole("tab", { name: /^All/ }).click();
     await openTransaction(page, "Fake Mart | Paper towels");
     const dialog = page.getByRole("dialog");
-    // The merchant prefix is the static title; only the notes are inputs
-    await expect(dialog.getByTestId("name-prefix")).toHaveText("Fake Mart |");
+    // The split's title is its merchant prefix, without the " |"
+    await expect(dialog.getByLabel("Name")).toHaveValue("Fake Mart");
     const towels = dialog.getByRole("group", { name: "Split item 1" });
     await expect(towels.getByLabel("Item note")).toHaveValue("Paper towels");
     await towels.getByLabel("Item note").fill("Kitchen towels");
@@ -328,7 +326,7 @@ test.describe("splitting", () => {
     await openTransaction(page, "Fake Mart | ");
     await page
       .getByRole("dialog")
-      .getByRole("group", { name: "Original" })
+      .getByRole("group", { name: "Remainder" })
       .getByLabel("Item note")
       .fill("Cart");
     await page.getByRole("button", { name: "Save & close" }).click();
@@ -360,7 +358,7 @@ test.describe("splitting", () => {
     await openTransaction(page, "Fake Mart | Birthday card");
     const dialog = page.getByRole("dialog");
     // The whole group opens: the original's amount is the remainder of the $87.50 total
-    const original = dialog.getByRole("group", { name: "Original" });
+    const original = dialog.getByRole("group", { name: "Remainder" });
     await expect(original.getByTestId("remaining")).toHaveText("$73.23");
     await expect(original.getByLabel(/Add tax/)).toHaveCount(0);
     const towels = dialog.getByRole("group", { name: "Split item 1" });
@@ -393,6 +391,66 @@ test.describe("splitting", () => {
     await expect(syncedPill(page)).toBeVisible();
   });
 
+  test("a child's new cost moves the remainder, also after reopening", async ({
+    page,
+    sheetName,
+  }) => {
+    await connect(page);
+    await page.getByRole("tab", { name: /^All/ }).click();
+    await openTransaction(page, "Fake Mart | Birthday card");
+    const dialog = page.getByRole("dialog");
+    const card = dialog.getByRole("group", { name: "Split item 2" });
+    await card.getByLabel("Amount").fill("5");
+    await expect(dialog.getByTestId("remaining")).toHaveText("$72.22");
+    await dialog.getByRole("button", { name: "Save & close" }).click();
+    await expect
+      .poll(async () => (await backend.dump(sheetName))[2].values[COL.cost])
+      .toBe(5);
+    await expect(syncedPill(page)).toBeVisible();
+
+    await openTransaction(page, "Fake Mart | ");
+    await expect(dialog.getByTestId("remaining")).toHaveText("$72.22");
+    await expect(dialog.getByText(/Total \$87\.50/)).toBeVisible();
+  });
+
+  test("renames a split and edits its total from the drawer", async ({
+    page,
+    sheetName,
+  }) => {
+    await connect(page);
+    await page.getByRole("tab", { name: /^All/ }).click();
+    await openTransaction(page, "Fake Mart | Birthday card");
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Name", { exact: true }).fill("Fake Market");
+    await expect(
+      dialog
+        .getByRole("group", { name: "Split item 1" })
+        .getByText("Fake Market |"),
+    ).toBeVisible();
+    await dialog.getByRole("button", { name: "Edit total" }).click();
+    const total = dialog.getByLabel("Total", { exact: true });
+    await expect(total).toHaveValue("87.5");
+    await total.fill("");
+    await expect(dialog.getByRole("alert")).toHaveText("Enter a value");
+    await expect(
+      dialog.getByRole("button", { name: "Save & close" }),
+    ).toBeDisabled();
+    await total.fill("100");
+    await expect(dialog.getByTestId("remaining")).toHaveText("$85.73");
+    await dialog.getByRole("button", { name: "Save & close" }).click();
+
+    await expect
+      .poll(async () => (await backend.dump(sheetName))[0].formulas[COL.cost])
+      .toBe("=100-R[1]C[0]-R[2]C[0]");
+    const rows = await backend.dump(sheetName);
+    expect(rows.slice(0, 3).map((r) => r.values[COL.name])).toEqual([
+      "Fake Market | ",
+      "Fake Market | Paper towels",
+      "Fake Market | Birthday card",
+    ]);
+    await expect(syncedPill(page)).toBeVisible();
+  });
+
   test("splits with the original's note and envelope edited", async ({
     page,
     sheetName,
@@ -401,8 +459,12 @@ test.describe("splitting", () => {
     await openTransaction(page, "Jane Example - Lunch money");
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Add split item" }).click();
+    // The new item's amount has the focus
+    await expect(
+      dialog.getByRole("group", { name: "Split item 1" }).getByLabel("Amount"),
+    ).toBeFocused();
 
-    const original = dialog.getByRole("group", { name: "Original" });
+    const original = dialog.getByRole("group", { name: "Remainder" });
     await expect(original.getByLabel("Cost")).toHaveCount(0);
     await original.getByLabel("Item note").fill("Mine");
     await original.getByRole("button", { name: /^Dining Out/ }).click();
@@ -539,6 +601,10 @@ test.describe("unsaved changes and save status", () => {
       .getByRole("dialog")
       .getByRole("button", { name: /^Household/ })
       .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Save & close" })
+      .click();
     const status = page
       .getByRole("button", { name: /Test Hardware/ })
       .getByTestId("row-status");
@@ -564,10 +630,9 @@ test.describe("conflicts", () => {
       name: "Test Hardware Remote",
       cost: 30,
     });
-    await page
-      .getByRole("dialog")
-      .getByRole("button", { name: /^Household/ })
-      .click();
+    const drawer = page.getByRole("dialog");
+    await drawer.getByRole("button", { name: /^Household/ }).click();
+    await drawer.getByRole("button", { name: "Save & close" }).click();
     const conflict = page.getByRole("dialog", {
       name: "This row changed in the sheet",
     });
@@ -627,6 +692,10 @@ test.describe("offline", () => {
     await page
       .getByRole("dialog")
       .getByRole("button", { name: /^Entertainment/ })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Save & close" })
       .click();
     await expect(page.locator('[data-status="offline"]')).toContainText(
       "1 queued",
@@ -775,6 +844,7 @@ test.describe("all pay periods", () => {
       .click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: /Groceries/ }).click();
+    await dialog.getByRole("button", { name: "Save & close" }).click();
 
     await expect
       .poll(
@@ -970,5 +1040,42 @@ test.describe("deleting", () => {
     await expect(page.getByRole("button", { name: /Fake Mart/ })).toHaveCount(
       0,
     );
+  });
+});
+
+test.describe("list shortcuts", () => {
+  test("sets the envelope of an uncategorized row from the list", async ({
+    page,
+    sheetName,
+  }) => {
+    await connect(page);
+    await page
+      .getByLabel("Envelope for Test Hardware")
+      .selectOption("Household");
+    // Chosen without opening the transaction
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect
+      .poll(async () => {
+        const row = findRow(await backend.dump(sheetName), "Test Hardware");
+        return row.values[COL.envelope];
+      })
+      .toBe("Household");
+    await expect(syncedPill(page)).toBeVisible();
+  });
+
+  test("Show in All jumps from a filter to the row in the All list", async ({
+    page,
+  }) => {
+    await connect(page);
+    await page.getByRole("button", { name: "Show in All" }).first().click();
+    await expect(page.getByRole("tab", { name: /^All/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(page.getByRole("button", { name: "Show in All" })).toHaveCount(
+      0,
+    );
+    await expect(page.locator("[data-row-key].ring-teal-500")).toBeVisible();
+    await expect(page.locator("[data-row-key].ring-teal-500")).toBeInViewport();
   });
 });

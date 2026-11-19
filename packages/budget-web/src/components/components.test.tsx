@@ -82,20 +82,26 @@ describe("TransactionSheet", () => {
     expect(addItem()).toBeInTheDocument();
   });
 
-  it("assigns an envelope with one tap and closes", async () => {
+  it("stages an envelope tap and keeps the drawer open until Save & close", async () => {
     const { user, onUpdate, onClose } = setup();
     await user.click(screen.getByRole("button", { name: /Groceries/ }));
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByTestId("dirty-indicator")).toBeInTheDocument();
+    await user.click(saveClose());
     expect(onUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ rowIndex: 0 }),
       { envelope: "Groceries" },
     );
-    expect(onClose).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("saves staged edits together with the envelope on a chip tap", async () => {
+  it("saves staged edits together with the envelope", async () => {
     const { user, onUpdate, onClose } = setup();
     await user.type(screen.getByLabelText("Name"), " Market");
     await user.click(screen.getByRole("button", { name: /Groceries/ }));
+    expect(onClose).not.toHaveBeenCalled();
+    await user.click(saveClose());
     expect(onUpdate).toHaveBeenCalledTimes(1);
     expect(onUpdate.mock.calls[0][1]).toEqual({
       name: "Aldi Market",
@@ -168,24 +174,39 @@ describe("TransactionSheet", () => {
     expect(screen.queryByLabelText("Paid with")).toBeNull();
   });
 
-  it("stages cost edits with inline math until Save & close", async () => {
+  it("stages a plain cost exactly as typed until Save & close", async () => {
     const { user, onUpdate, onClose } = setup();
     const input = screen.getByLabelText("Cost");
     await user.clear(input);
-    await user.type(input, "2*3+1");
+    await user.type(input, "123288.0288");
+    expect(input).toHaveValue("123288.0288");
+    expect(screen.getByText("$123,288.03")).toBeInTheDocument();
     expect(onUpdate).not.toHaveBeenCalled();
     expect(screen.getByTestId("dirty-indicator")).toBeInTheDocument();
     await user.click(saveClose());
-    expect(onUpdate.mock.calls[0][1]).toEqual({ costExpression: "2*3+1" });
+    expect(onUpdate.mock.calls[0][1]).toEqual({
+      costExpression: "123288.0288",
+    });
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("blocks an invalid cost", async () => {
+  it("blocks a cost that is not a plain number, with an inline error", async () => {
     const { user } = setup();
     const input = screen.getByLabelText("Cost");
+    for (const bad of ["2*3+1", "$5", "1,200", "1.2.3", "12a"]) {
+      await user.clear(input);
+      await user.type(input, bad);
+      expect(saveClose()).toBeDisabled();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Enter a number, e.g. 12.34",
+      );
+    }
     await user.clear(input);
-    await user.type(input, "2/0");
     expect(saveClose()).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a value");
+    await user.type(input, "-4.5");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(saveClose()).toBeEnabled();
   });
 
   it("edits the name in the title and saves it", async () => {
@@ -200,8 +221,8 @@ describe("TransactionSheet", () => {
 
   it("edits only the item note of a split-named row, keeping the merchant prefix", async () => {
     const { user, onUpdate } = setup({ name: "Aldi | milk" });
-    expect(screen.getByTestId("name-prefix")).toHaveTextContent("Aldi |");
-    expect(screen.queryByLabelText("Name")).toBeNull();
+    // The title shows the prefix without the " |"
+    expect(screen.getByLabelText("Name")).toHaveValue("Aldi");
     const note = screen.getByLabelText("Item note");
     expect(note).toHaveValue("milk");
     await user.clear(note);
@@ -249,13 +270,12 @@ describe("TransactionSheet", () => {
     await user.type(name, "=cmd()");
     expect(saveClose()).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent(/cannot start/);
-    expect(screen.getByRole("button", { name: /Groceries/ })).toBeDisabled();
   });
 
   it("adds split items with Add tax checked; the original shows the live remainder", async () => {
     const { user, onUpdate, onSplit, onClose } = setup({ cost: 50 });
     await user.click(addItem());
-    const original = within(card("Original"));
+    const original = within(card("Remainder"));
     expect(screen.queryByLabelText("Cost")).toBeNull();
     expect(original.queryByLabelText(/Add tax/)).toBeNull();
     expect(original.getByTestId("remaining")).toHaveTextContent("$50.00");
@@ -431,10 +451,10 @@ describe("TransactionSheet", () => {
 
   it("shows an existing group as cards and edits its rows", async () => {
     const { user, onUpdate, onSplit } = setup({}, { rows: group() });
-    expect(screen.getByTestId("name-prefix")).toHaveTextContent("Aldi |");
-    expect(screen.queryByLabelText("Name")).toBeNull();
+    // The split's title is editable, without its trailing " |"
+    expect(screen.getByLabelText("Name")).toHaveValue("Aldi");
     expect(screen.getByText(/Total \$30\.00/)).toBeInTheDocument();
-    const original = within(card("Original"));
+    const original = within(card("Remainder"));
     expect(original.getByLabelText("Item note")).toHaveValue("cart");
     expect(original.getByTestId("remaining")).toHaveTextContent("$18.00");
     expect(original.queryByLabelText(/Add tax/)).toBeNull();
@@ -468,10 +488,99 @@ describe("TransactionSheet", () => {
         c[1] as unknown,
       ]),
     ).toEqual([
-      [4, { name: "Aldi | carts" }],
+      // The children first, then the original (whose rename would move their prefix)
       [5, { costExpression: "12", costPreTax: true, envelope: "Gas" }],
       [6, { taxDeductible: "Yes", note: "gift" }],
+      [4, { name: "Aldi | carts" }],
     ]);
+  });
+
+  it("renames a split from its title: the original gets the new prefix with its note", async () => {
+    const { user, onUpdate } = setup({}, { rows: group() });
+    const title = screen.getByLabelText("Name");
+    await user.clear(title);
+    // Clearing the title blocks saving
+    expect(saveClose()).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a name");
+    await user.type(title, "=x");
+    expect(screen.getByRole("alert")).toHaveTextContent(/cannot start/);
+    await user.clear(title);
+    await user.type(title, "A | B");
+    expect(screen.getByRole("alert")).toHaveTextContent(/cannot contain \|/);
+    await user.clear(title);
+    await user.type(title, "Aldi Süd");
+    // The children's item note fields show the new prefix live
+    expect(within(card("Split item 1")).getByText("Aldi Süd |")).toBeTruthy();
+    await user.click(saveClose());
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+    expect(onUpdate.mock.calls[0][0]).toMatchObject({ rowIndex: 4 });
+    expect(onUpdate.mock.calls[0][1]).toEqual({ name: "Aldi Süd | cart" });
+  });
+
+  it("keeps the ' | ' on a renamed split original without an item note", async () => {
+    const rows = group();
+    rows[0] = { ...rows[0], name: "Aldi | " };
+    const { user, onUpdate } = setup({}, { rows });
+    expect(screen.getByLabelText("Name")).toHaveValue("Aldi");
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Lidl");
+    await user.click(saveClose());
+    expect(onUpdate.mock.calls[0][1]).toEqual({ name: "Lidl | " });
+  });
+
+  it("edits the split total with the pencil: the remainder follows, blank or invalid blocks saving", async () => {
+    const { user, onUpdate } = setup({}, { rows: group() });
+    const original = within(card("Remainder"));
+    await user.click(screen.getByRole("button", { name: "Edit total" }));
+    const total = screen.getByLabelText("Total");
+    expect(total).toHaveValue("30");
+    await user.clear(total);
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a value");
+    expect(saveClose()).toBeDisabled();
+    // The remainder stays as it was while the total is blank
+    expect(original.getByTestId("remaining")).toHaveTextContent("$18.00");
+    await user.type(total, "4a");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Enter a number, e.g. 12.34",
+    );
+    expect(saveClose()).toBeDisabled();
+    await user.clear(total);
+    await user.type(total, "35.5");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(original.getByTestId("remaining")).toHaveTextContent("$23.50");
+    await user.click(saveClose());
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+    expect(onUpdate.mock.calls[0][0]).toMatchObject({ rowIndex: 4 });
+    expect(onUpdate.mock.calls[0][1]).toEqual({ splitTotal: "35.5" });
+  });
+
+  it("keeps Save & close disabled while the total is blank or invalid, even with other edits", async () => {
+    const { user } = setup({}, { rows: group() });
+    await user.type(within(card("Split item 2")).getByLabelText("Amount"), "0");
+    expect(saveClose()).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Edit total" }));
+    await user.clear(screen.getByLabelText("Total"));
+    expect(saveClose()).toBeDisabled();
+    await user.type(screen.getByLabelText("Total"), "4a");
+    expect(saveClose()).toBeDisabled();
+    await user.clear(screen.getByLabelText("Total"));
+    await user.type(screen.getByLabelText("Total"), "30");
+    expect(saveClose()).toBeEnabled();
+  });
+
+  it("blocks a total below the split items", async () => {
+    const { user } = setup({}, { rows: group() });
+    await user.click(screen.getByRole("button", { name: "Edit total" }));
+    await user.clear(screen.getByLabelText("Total"));
+    await user.type(screen.getByLabelText("Total"), "5");
+    expect(saveClose()).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/more than the total/);
+  });
+
+  it("focuses the new item's amount on Add split item", async () => {
+    const { user } = setup({}, { rows: group() });
+    await user.click(addItem());
+    expect(within(card("Split item 3")).getByLabelText("Amount")).toHaveFocus();
   });
 
   it("appends new split items to an existing group", async () => {
@@ -762,6 +871,7 @@ describe("ExpensesView", () => {
   const snapshot = {
     all: null,
     loadingAll: false,
+    loadAllFailed: false,
     queue: [],
     conflicts: [],
     offline: false,
@@ -838,7 +948,9 @@ describe("ExpensesView", () => {
     const { engine, user } = setup(state);
     await user.click(screen.getByRole("button", { name: /Aldi \| milk/ }));
     const dialog = within(screen.getByRole("dialog"));
-    expect(dialog.getByRole("group", { name: "Original" })).toBeInTheDocument();
+    expect(
+      dialog.getByRole("group", { name: "Remainder" }),
+    ).toBeInTheDocument();
     const child = within(dialog.getByRole("group", { name: "Split item 1" }));
     await user.click(child.getByRole("button", { name: /Groceries/ }));
     await user.click(dialog.getByRole("button", { name: "Add split item" }));
@@ -933,6 +1045,7 @@ describe("StatusPill", () => {
     states: {},
     all: null,
     loadingAll: false,
+    loadAllFailed: false,
     queue: [],
     conflicts: [],
     recentlySaved: [],

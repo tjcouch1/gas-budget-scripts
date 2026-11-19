@@ -5,7 +5,12 @@ import { Button, Dialog } from "./ui.tsx";
 
 const FIELDS: { label: string; get: (r: TransactionRowDto) => string }[] = [
   { label: "Name", get: (r) => r.name },
-  { label: "Cost", get: (r) => r.costFormula ?? r.costDisplay },
+  {
+    label: "Cost",
+    // The plain number, never a formatted "$1,234.50", so all three columns compare alike.
+    get: (r) =>
+      r.costFormula ?? (r.cost !== null ? String(r.cost) : r.costDisplay),
+  },
   { label: "Envelope", get: (r) => r.envelope },
   { label: "Paid with", get: (r) => r.paidWith },
   { label: "Tax deductible", get: (r) => r.taxDeductible },

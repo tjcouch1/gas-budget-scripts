@@ -108,20 +108,29 @@ export function isSplitParent(row: ViewRow, all: ViewRow[]): boolean {
 }
 
 /**
- * Envelope choices ordered by how often they are used in the current sheet
- * (most used first), then sheet order, so the likely choice is one tap away.
+ * Envelope choices with the recently chosen ones first (most recent first),
+ * then the rest by how often they are used in the current sheet (most used
+ * first), then sheet order, so the likely choice is one tap away.
  */
 export function orderEnvelopeOptions(
   options: string[],
   rows: TransactionRowDto[],
+  recent: string[] = [],
 ): string[] {
   const counts = new Map<string, number>();
   for (const r of rows) {
     if (r.envelope) counts.set(r.envelope, (counts.get(r.envelope) ?? 0) + 1);
   }
   return options
-    .map((name, i) => ({ name, i, n: counts.get(name) ?? 0 }))
-    .sort((a, b) => b.n - a.n || a.i - b.i)
+    .map((name, i) => ({
+      name,
+      i,
+      n: counts.get(name) ?? 0,
+      r: recent.indexOf(name) >= 0 ? recent.indexOf(name) : Infinity,
+    }))
+    .sort((a, b) =>
+      a.r !== b.r ? (a.r < b.r ? -1 : 1) : b.n - a.n || a.i - b.i,
+    )
     .map((o) => o.name);
 }
 

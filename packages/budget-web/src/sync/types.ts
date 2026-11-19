@@ -99,6 +99,8 @@ export interface EngineSnapshot {
   all: AllTransactionsDto | null;
   /** True while `getAllTransactions` is in flight. */
   loadingAll: boolean;
+  /** True when the last multi-period load stopped early (the periods that arrived are kept). */
+  loadAllFailed: boolean;
   queue: QueuedMutation[];
   conflicts: Conflict[];
   /** Rows whose changes reached the sheet in the last few seconds (not persisted). */

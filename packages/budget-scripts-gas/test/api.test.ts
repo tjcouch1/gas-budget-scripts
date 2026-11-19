@@ -493,6 +493,24 @@ describe("getAllTransactions", () => {
     );
   });
 
+  it("reads only the named sheets when sheetNames is given", async () => {
+    const res = await api("getAllTransactions", { sheetNames: [OLDER_SHEET] });
+    expect(res.ok).toBe(true);
+    expect(res.data.sheets.map((x: any) => x.name)).toEqual([OLDER_SHEET]);
+    expect(res.data.sheets[0].transactions[0].name).toBe("Old shop");
+    expect(res.data.taxMultiplier).toBe(1.0825);
+  });
+
+  it("rejects an unknown or malformed sheetNames", async () => {
+    expect(
+      (await api("getAllTransactions", { sheetNames: ["Nope"] })).error.code,
+    ).toBe("not_found");
+    for (const sheetNames of [[], "x", [1], new Array(26).fill(SHEET)])
+      expect((await api("getAllTransactions", { sheetNames })).error.code).toBe(
+        "bad_request",
+      );
+  });
+
   it("lets a row from another sheet be edited with its own sheetName and fingerprint", async () => {
     const { data } = await api("getAllTransactions");
     const row = data.sheets[1].transactions[0];
@@ -821,6 +839,92 @@ describe("updateTransaction", () => {
       (await update(1, { costExpression: "3", envelope: "Food" })).ok,
     ).toBe(true);
     expect((await update(0, { envelope: "Food" })).ok).toBe(true);
+  });
+
+  it("renames a split group from its parent: every child keeps its item note", async () => {
+    sheet.seed("A5", [
+      [
+        D,
+        "Store | ",
+        "=5.5-R[1]C[0]-R[2]C[0]",
+        "=BALANCE(0)",
+        "",
+        "Credit",
+        "",
+      ],
+      [D, "Store | milk", 2, "=BALANCE(1)", "", "Credit", ""],
+      [D, "Store | eggs", 1, "=BALANCE(2)", "", "Credit", ""],
+      [D2, "Cafe", 3, "=BALANCE(3)", "", "Credit", ""],
+    ]);
+    // The parent loses its " | ": it is added back so the children stay grouped
+    const res = await update(0, { name: "Market" });
+    expect(res.ok).toBe(true);
+    expect(sheet.getRange("B5:C8").getValues()).toEqual([
+      ["Market | ", "=5.5-R[1]C[0]-R[2]C[0]"],
+      ["Market | milk", 2],
+      ["Market | eggs", 1],
+      ["Cafe", 3],
+    ]);
+    // The whole state comes back, so the client sees the renamed children too
+    expect(res.data.transactions.map((t: any) => t.splitGroupId)).toEqual([
+      "0",
+      "0",
+      "0",
+      null,
+    ]);
+    // A parent with its own item note keeps it
+    expect((await update(0, { name: "Shop | food" })).ok).toBe(true);
+    expect(sheet.getRange("B5:B7").getValues()).toEqual([
+      ["Shop | food"],
+      ["Shop | milk"],
+      ["Shop | eggs"],
+    ]);
+    // A child still cannot rename the group
+    expect((await update(1, { name: "Other | milk" })).error?.code).toBe(
+      "bad_request",
+    );
+  });
+
+  it("returns the whole state when a split child's cost changes", async () => {
+    sheet.seed("A5", [
+      [D, "Store | ", "=5.5-R[1]C[0]", "=BALANCE(0)", "", "Credit", ""],
+      [D, "Store | milk", 2, "=BALANCE(1)", "", "Credit", ""],
+    ]);
+    const res = await update(1, { costExpression: "3" });
+    expect(res.ok).toBe(true);
+    expect(res.data.sheetName).toBe(SHEET);
+    expect(res.data.transactions[1]).toMatchObject({ rowIndex: 1, cost: 3 });
+    // Other edits of a group row still return just the row
+    const env2 = await update(1, { envelope: "Food" });
+    expect(env2.data).toMatchObject({ rowIndex: 1, envelope: "Food" });
+  });
+
+  it("replaces a split parent's total with a validated plain number", async () => {
+    sheet.seed("A5", [
+      [D, "Store | ", "=45-R[1]C[0]-R[2]C[0]", "=BALANCE(0)", "", "Credit", ""],
+      [D, "Store | milk", 2, "=BALANCE(1)", "", "Credit", ""],
+      [D, "Store | eggs", 1, "=BALANCE(2)", "", "Credit", ""],
+    ]);
+    const res = await update(0, { splitTotal: "50.125" });
+    expect(res.ok).toBe(true);
+    expect(sheet.getRange("C5:C7").getValues()).toEqual([
+      ["=50.125-R[1]C[0]-R[2]C[0]"],
+      [2],
+      [1],
+    ]);
+    for (const splitTotal of ["1+1", "=5", "$5", "1,000", "", "abc"])
+      expect((await update(0, { splitTotal })).error).toEqual({
+        code: "bad_request",
+        message: "changes.splitTotal must be a plain number",
+      });
+    expect((await update(1, { splitTotal: "5" })).error).toEqual({
+      code: "bad_request",
+      message: "changes.splitTotal is only allowed on a split parent row",
+    });
+    expect(
+      (await update(0, { splitTotal: "5", costExpression: "5" })).error?.code,
+    ).toBe("bad_request");
+    expect(sheet.getRange("C5").getValue()).toBe("=50.125-R[1]C[0]-R[2]C[0]");
   });
 
   it("returns conflict with the current row when the row changed since the client loaded it", async () => {

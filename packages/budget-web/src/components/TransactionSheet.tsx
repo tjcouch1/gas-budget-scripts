@@ -2,19 +2,25 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   getSplitNamePrefix,
   isUnsafeFreeText,
+  splitParentFormulaParts,
   type EnvelopeRowDto,
   type SplitItemInput,
   type TransactionChanges,
 } from "@budget/shared";
 import { formatMoney } from "../lib/format.ts";
-import { isGroupName, splitNameParts } from "../lib/name-parts.ts";
 import {
+  isGroupName,
+  joinNameParts,
+  splitNameParts,
+} from "../lib/name-parts.ts";
+import {
+  checkPlainAmount,
   evaluateRowDraft,
   initialRowDraft,
   type RowDraft,
   type RowDraftOptions,
 } from "../lib/row-draft.ts";
-import { envelopeRemain, type ViewRow } from "../lib/rows.ts";
+import { type ViewRow } from "../lib/rows.ts";
 import {
   newSplitItem,
   summarizeSplit,
@@ -22,12 +28,11 @@ import {
   type SplitDraftItem,
 } from "../lib/split-math.ts";
 import { ChipChooser } from "./ChipChooser.tsx";
+import { EnvelopeChipChooser } from "./EnvelopeChipChooser.tsx";
 import {
   getDetailsOpen,
-  getEnvelopeExpanded,
   getPaidWithExpanded,
   setDetailsOpen,
-  setEnvelopeExpanded,
   setPaidWithExpanded,
 } from "../lib/preferences.ts";
 import {
@@ -50,6 +55,8 @@ export interface TransactionSheetProps {
   taxMultiplier: number;
   /** Envelope choices, most used first; null when the sheet has no envelope list. */
   envelopeOptions: string[] | null;
+  /** Envelope choices in the sheet's layout order (shown when the chooser is expanded). */
+  envelopeLayoutOptions?: string[] | null;
   envelopes: EnvelopeRowDto[] | null;
   paidWithOptions: string[] | null;
   onUpdate: (row: ViewRow, changes: TransactionChanges) => void;
@@ -120,6 +127,8 @@ function AmountField({
   onChange,
   display,
   invalid,
+  error,
+  plain = false,
   preTax,
   onPreTax,
   taxMultiplier,
@@ -129,6 +138,10 @@ function AmountField({
   onChange: (value: string) => void;
   display: number | null;
   invalid: boolean;
+  /** Inline message under the field while it is invalid. */
+  error?: string | null;
+  /** A plain amount (a number only) rather than a math expression. */
+  plain?: boolean;
   preTax?: boolean;
   onPreTax?: (preTax: boolean) => void;
   taxMultiplier: number;
@@ -141,7 +154,7 @@ function AmountField({
           aria-label={label}
           aria-invalid={invalid}
           inputMode="decimal"
-          placeholder="Amount, e.g. 4.23*2+3"
+          placeholder={plain ? "Amount, e.g. 12.34" : "Amount, e.g. 4.23*2+3"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
         />
@@ -149,6 +162,11 @@ function AmountField({
           {formatMoney(display)}
         </span>
       </div>
+      {invalid && error && (
+        <p role="alert" className="mt-1 text-xs text-red-600">
+          {error}
+        </p>
+      )}
       {onPreTax && (
         <label className="flex min-h-11 items-center gap-2 text-sm">
           <input
@@ -160,52 +178,6 @@ function AmountField({
         </label>
       )}
     </div>
-  );
-}
-
-function EnvelopeChooser({
-  value,
-  options,
-  envelopes,
-  onSelect,
-  disabled,
-  follow = false,
-}: {
-  value: string;
-  options: string[];
-  envelopes: EnvelopeRowDto[] | null;
-  onSelect: (value: string) => void;
-  disabled?: boolean;
-  /** Start in, and write toggles to, the saved expanded preference. */
-  follow?: boolean;
-}) {
-  return (
-    <ChipChooser
-      label="Envelope"
-      options={options}
-      value={value}
-      onSelect={onSelect}
-      disabled={disabled}
-      defaultExpanded={follow && getEnvelopeExpanded()}
-      onExpandedChange={follow ? setEnvelopeExpanded : undefined}
-      renderExtra={(option, selected) => {
-        const remain = envelopeRemain(envelopes, option);
-        if (!remain?.display) return null;
-        return (
-          <span
-            className={`ml-2 text-xs ${
-              remain.value !== null && remain.value < 0
-                ? selected
-                  ? "text-red-200"
-                  : "text-red-600"
-                : "opacity-70"
-            }`}
-          >
-            {remain.display}
-          </span>
-        );
-      }}
-    />
   );
 }
 
@@ -350,10 +322,9 @@ function RowCard({
 
 /**
  * Drawer for one transaction, or for a whole split group as a column of
- * cards like the sheet: the original row on top, one card per split item
- * below. Edits are staged and saved together with "Save & close". While the
- * drawer is a single unsplit card, tapping an envelope is the fast path: it
- * saves the staged edits plus the envelope and closes.
+ * cards like the sheet: the original row (the remainder) on top, one card per
+ * split item below. Every edit, including an envelope tap, is staged and saved
+ * together with "Save & close".
  */
 export function TransactionSheet(props: TransactionSheetProps) {
   const { rows, taxMultiplier, onClose } = props;
@@ -383,6 +354,10 @@ export function TransactionSheet(props: TransactionSheetProps) {
   const [parentNewNote, setParentNewNote] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  /** The split's name before " | " (the title of a split-named row), as edited. */
+  const [titleDraft, setTitleDraft] = useState(prefixParts.prefix);
+  /** The split total being edited (pencil), or null while it is not being edited. */
+  const [totalDraft, setTotalDraft] = useState<string | null>(null);
   /**
    * Key of the new split item that is the focused card (the last one added), or null while the
    * focused card is an existing row. Only the focused card follows the saved settings.
@@ -394,9 +369,27 @@ export function TransactionSheet(props: TransactionSheetProps) {
   const evals = rows.map((r, i) =>
     evaluateRowDraft(r, initials[i], drafts[i], optionsFor(i)),
   );
+  const rowsTotal = rows.reduce((s, r) => s + (r.cost ?? 0), 0);
+  /** The leading total of the parent's `=<total>-R[1]C[0]-...` formula, when it has one. */
+  const totalParts =
+    existingGroup && !splitPending
+      ? splitParentFormulaParts(parent.costFormula)
+      : null;
+  const totalEditable = totalParts !== null && totalParts.total !== null;
+  const totalCheck = totalDraft === null ? null : checkPlainAmount(totalDraft);
+  const totalError = totalCheck?.error ?? null;
+  /** The new total to save, when it was edited to a different valid amount. */
+  const newTotal =
+    totalCheck?.amount != null &&
+    totalParts?.total != null &&
+    Math.abs(Number(totalCheck.amount) - totalParts.total) > 1e-9
+      ? totalCheck.amount
+      : null;
   const total =
     existingGroup || splitPending
-      ? rows.reduce((s, r) => s + (r.cost ?? 0), 0)
+      ? totalCheck?.amount != null
+        ? Number(totalCheck.amount)
+        : rowsTotal
       : (evals[0].value ?? 0);
   const childrenSum = evals.slice(1).reduce((s, e) => s + (e.value ?? 0), 0);
   const summary = summarizeSplit(total - childrenSum, items, taxMultiplier);
@@ -407,13 +400,37 @@ export function TransactionSheet(props: TransactionSheetProps) {
   const askParentNewNote = !existingGroup && !parentHasBar && items.length > 0;
   const parentNewNoteUnsafe =
     askParentNewNote && isUnsafeFreeText(parentNewNote);
+  /** A split-named row's title (the text before " | ") is edited on its own. */
+  const splitTitleEditable = optionsFor(0).nameMode === "itemNote";
+  const title = titleDraft.trim();
+  const titleChanged = splitTitleEditable && title !== prefixParts.prefix;
+  const titleError = !splitTitleEditable
+    ? null
+    : title === ""
+      ? "Enter a name"
+      : isUnsafeFreeText(title)
+        ? unsafeMessage
+        : title.includes("|")
+          ? "The name of a split cannot contain |"
+          : null;
+  /** The parent's changes: its card's edits, the split's new title, and the new total. */
+  const parentChanges: TransactionChanges = {
+    ...evals[0].changes,
+    // The new prefix with the parent's item note; " | " is kept even when the note is blank.
+    ...(titleChanged ? { name: joinNameParts(title, drafts[0].name) } : {}),
+    ...(newTotal !== null ? { splitTotal: newTotal } : {}),
+  };
   const invalid =
     evals.some((e) => e.costInvalid || e.nameUnsafe) ||
     itemsInvalid ||
     overAllocated ||
-    parentNewNoteUnsafe;
+    parentNewNoteUnsafe ||
+    titleError !== null ||
+    totalError !== null;
   const dirty =
-    evals.some((e) => Object.keys(e.changes).length > 0) || items.length > 0;
+    Object.keys(parentChanges).length > 0 ||
+    evals.slice(1).some((e) => Object.keys(e.changes).length > 0) ||
+    items.length > 0;
 
   const setDraft = (i: number, patch: Partial<RowDraft>) =>
     setDrafts((list) => list.map((d, j) => (j === i ? { ...d, ...patch } : d)));
@@ -422,14 +439,17 @@ export function TransactionSheet(props: TransactionSheetProps) {
       list.map((i) => (i.key === key ? { ...i, ...patch } : i)),
     );
 
-  function save(extra: TransactionChanges = {}) {
+  function save() {
     if (invalid) return;
-    // The original first, so a split queued after it sees its new name and envelope.
+    // The children first: their names still carry the prefix the sheet has. Then the original,
+    // whose rename moves every child to the new prefix, and last a split, so it sees the
+    // original's new name and envelope.
     rows.forEach((row, i) => {
-      const changes =
-        i === 0 ? { ...evals[0].changes, ...extra } : evals[i].changes;
-      if (Object.keys(changes).length > 0) props.onUpdate(row, changes);
+      if (i > 0 && Object.keys(evals[i].changes).length > 0)
+        props.onUpdate(row, evals[i].changes);
     });
+    if (Object.keys(parentChanges).length > 0)
+      props.onUpdate(parent, parentChanges);
     if (items.length > 0)
       props.onSplit(
         parent,
@@ -483,46 +503,71 @@ export function TransactionSheet(props: TransactionSheetProps) {
     // Only on mount.
   }, []);
 
-  // "Add split item" scrolls the new (focused) card near the top.
+  // "Add split item" scrolls the new (focused) card near the top and focuses its amount.
   useLayoutEffect(() => {
-    if (focusedItemKey !== null)
-      scrollToCard(`[data-item-key="${focusedItemKey}"]`);
+    if (focusedItemKey === null) return;
+    const selector = `[data-item-key="${focusedItemKey}"]`;
+    scrollToCard(selector);
+    body.current
+      ?.querySelector<HTMLInputElement>(
+        `${selector} input[aria-label="Amount"]`,
+      )
+      ?.focus({ preventScroll: true });
   }, [focusedItemKey]);
 
   const parentName = drafts[0].name;
-  const prefix = parentHasBar ? prefixParts.prefix : parentName;
+  const prefix = parentHasBar ? titleDraft : parentName;
   const titleEditable = optionsFor(0).nameMode === "name";
+  const titleInput = (
+    value: string,
+    onChange: (value: string) => void,
+    invalidTitle: boolean,
+  ) => (
+    <div className="flex min-w-0 items-baseline gap-1 border-b border-dashed border-slate-300 focus-within:border-teal-600 dark:border-slate-600">
+      <input
+        aria-label="Name"
+        aria-invalid={invalidTitle}
+        placeholder="Name"
+        className="min-w-0 flex-1 bg-transparent py-1 text-lg font-semibold outline-none placeholder:font-normal placeholder:text-slate-400"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <span aria-hidden="true" className="text-slate-400">
+        ✎
+      </span>
+    </div>
+  );
+  const headingError = titleEditable
+    ? evals[0].nameUnsafe
+      ? unsafeMessage
+      : null
+    : titleError;
   const heading = (
     <div className="min-w-0 flex-1">
       {titleEditable ? (
-        <div className="flex min-w-0 items-baseline gap-1 border-b border-dashed border-slate-300 focus-within:border-teal-600 dark:border-slate-600">
-          <input
-            aria-label="Name"
-            aria-invalid={evals[0].nameUnsafe}
-            placeholder="Name"
-            className="min-w-0 flex-1 bg-transparent py-1 text-lg font-semibold outline-none placeholder:font-normal placeholder:text-slate-400"
-            value={parentName}
-            onChange={(e) => setDraft(0, { name: e.target.value })}
-          />
-          <span aria-hidden="true" className="text-slate-400">
-            ✎
-          </span>
-        </div>
+        titleInput(
+          parentName,
+          (name) => setDraft(0, { name }),
+          evals[0].nameUnsafe,
+        )
+      ) : splitTitleEditable ? (
+        // The split's name without its " | " (the sheet keeps it; see AGENTS.md section 3.3).
+        titleInput(titleDraft, setTitleDraft, titleError !== null)
       ) : parentHasBar ? (
         <h2
           data-testid="name-prefix"
           className="truncate text-lg font-semibold"
         >
-          {prefixParts.prefix} |
+          {prefixParts.prefix}
         </h2>
       ) : (
         <h2 className="text-lg font-semibold">
           {parent.name || "Transaction"}
         </h2>
       )}
-      {titleEditable && evals[0].nameUnsafe && (
+      {headingError && (
         <p role="alert" className="mt-1 text-xs text-red-600">
-          {unsafeMessage}
+          {headingError}
         </p>
       )}
     </div>
@@ -535,9 +580,10 @@ export function TransactionSheet(props: TransactionSheetProps) {
     follow = false,
   ) =>
     props.envelopeOptions && (
-      <EnvelopeChooser
+      <EnvelopeChipChooser
         value={value}
         options={props.envelopeOptions}
+        layoutOptions={props.envelopeLayoutOptions}
         envelopes={props.envelopes}
         onSelect={onSelect}
         disabled={disabled}
@@ -549,10 +595,16 @@ export function TransactionSheet(props: TransactionSheetProps) {
   const nameFieldFor = (i: number) => {
     const mode = optionsFor(i).nameMode;
     const row = rows[i];
+    const rowPrefix = splitNameParts(row.name).prefix;
     if (mode === "itemNote")
       return (
         <ItemNoteField
-          prefix={splitNameParts(row.name).prefix}
+          // Rows of the split show the title as it is being edited.
+          prefix={
+            splitTitleEditable && rowPrefix === prefixParts.prefix
+              ? titleDraft
+              : rowPrefix
+          }
           value={drafts[i].name}
           onChange={(name) => setDraft(i, { name })}
           unsafe={evals[i].nameUnsafe}
@@ -601,7 +653,7 @@ export function TransactionSheet(props: TransactionSheetProps) {
         <span className="text-sm text-slate-500">Amount</span>
         <output
           data-testid="remaining"
-          aria-label="Original amount"
+          aria-label="Remainder amount"
           className={`text-lg font-semibold tabular-nums ${overAllocated ? "text-red-600" : ""}`}
         >
           {formatMoney(summary.remaining)}
@@ -640,12 +692,51 @@ export function TransactionSheet(props: TransactionSheetProps) {
         onClose={guard.requestClose}
       >
         <div ref={body}>
-          <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
-            {parent.date} ·{" "}
-            {splitMode
-              ? `Total ${formatMoney(total)}`
-              : parent.costDisplay || formatMoney(parent.cost)}
-          </p>
+          {totalDraft !== null ? (
+            <div className="mb-3">
+              <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                <span>{parent.date} · Total</span>
+                <input
+                  className={`${inputClass} max-w-40 ${totalError ? "border-red-500" : ""}`}
+                  aria-label="Total"
+                  aria-invalid={totalError !== null}
+                  inputMode="decimal"
+                  autoFocus
+                  placeholder="Total, e.g. 45.67"
+                  value={totalDraft}
+                  onChange={(e) => setTotalDraft(e.target.value)}
+                />
+                {totalCheck?.amount != null && (
+                  <span className="tabular-nums">{formatMoney(total)}</span>
+                )}
+              </div>
+              {totalError && (
+                <p role="alert" className="mt-1 text-xs text-red-600">
+                  {totalError}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="mb-3 flex items-center gap-1 text-sm text-slate-600 dark:text-slate-400">
+              <span>
+                {parent.date} ·{" "}
+                {splitMode
+                  ? `Total ${formatMoney(total)}`
+                  : parent.costDisplay || formatMoney(parent.cost)}
+              </span>
+              {totalEditable && (
+                <button
+                  type="button"
+                  aria-label="Edit total"
+                  title="Edit the total before splitting"
+                  onClick={() => setTotalDraft(String(totalParts?.total ?? ""))}
+                  className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  ✎
+                </button>
+              )}
+            </p>
+          )}
           {!props.envelopeOptions && (
             <p className="mb-3 text-sm text-slate-500">
               This sheet has no envelope list, so envelopes cannot be edited
@@ -660,7 +751,7 @@ export function TransactionSheet(props: TransactionSheetProps) {
                 label={
                   i === 0
                     ? splitMode
-                      ? "Original"
+                      ? "Remainder"
                       : "Transaction"
                     : `Split item ${i}`
                 }
@@ -679,6 +770,8 @@ export function TransactionSheet(props: TransactionSheetProps) {
                         onChange={(cost) => setDraft(0, { cost })}
                         display={evals[0].value}
                         invalid={evals[0].costInvalid}
+                        error={evals[0].costError}
+                        plain
                         taxMultiplier={taxMultiplier}
                       />
                     )
@@ -689,6 +782,7 @@ export function TransactionSheet(props: TransactionSheetProps) {
                       onChange={(cost) => setDraft(i, { cost })}
                       display={evals[i].value}
                       invalid={evals[i].costInvalid}
+                      error={evals[i].costError}
                       preTax={drafts[i].preTax}
                       onPreTax={(preTax) => setDraft(i, { preTax })}
                       taxMultiplier={taxMultiplier}
@@ -698,27 +792,12 @@ export function TransactionSheet(props: TransactionSheetProps) {
                 draft={drafts[i]}
                 hasNote={row.note !== ""}
                 setDraft={(patch) => setDraft(i, patch)}
-                envelopeChooser={
-                  i === 0 && !splitMode
-                    ? // The fast path: one tap categorizes and closes.
-                      envelopeChooserFor(
-                        drafts[0].envelope,
-                        (envelope) =>
-                          save(
-                            envelope === initials[0].envelope
-                              ? {}
-                              : { envelope },
-                          ),
-                        invalid,
-                        followsPreference(i),
-                      )
-                    : envelopeChooserFor(
-                        drafts[i].envelope,
-                        (envelope) => setDraft(i, { envelope }),
-                        false,
-                        followsPreference(i),
-                      )
-                }
+                envelopeChooser={envelopeChooserFor(
+                  drafts[i].envelope,
+                  (envelope) => setDraft(i, { envelope }),
+                  false,
+                  followsPreference(i),
+                )}
                 paidWithOptions={props.paidWithOptions}
               />
             ))}

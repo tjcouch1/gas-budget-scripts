@@ -84,11 +84,16 @@ export function SettingsDialog({
       setDiscardCount(null);
       await services.vault.save(candidate);
       // Ask the browser not to evict our storage (important on iOS Safari).
-      void navigator.storage?.persist?.();
+      if (services.vault.persistent) void navigator.storage?.persist?.();
       setUrl("");
       setApiKey("");
       setSaved(true);
-      setMessage({ kind: "ok", text: "Saved (encrypted on this device)." });
+      setMessage({
+        kind: "ok",
+        text: services.vault.persistent
+          ? "Saved (encrypted on this device)."
+          : "Connected for this session only. Nothing was saved on this device.",
+      });
       const connected = await onChanged();
       if (connected === true && autoCloseOnConnect) {
         setMessage({ kind: "ok", text: "Saved. Connected." });
@@ -107,7 +112,12 @@ export function SettingsDialog({
     await services.vault.forget();
     setDiscardCount(null);
     setSaved(false);
-    setMessage({ kind: "ok", text: "Credentials removed from this device." });
+    setMessage({
+      kind: "ok",
+      text: services.vault.persistent
+        ? "Credentials removed from this device."
+        : "Credentials removed from this session.",
+    });
     onChanged();
   }
 
@@ -125,9 +135,26 @@ export function SettingsDialog({
           void save();
         }}
       >
+        {!services.vault.persistent && (
+          <div
+            role="alert"
+            className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-200"
+          >
+            <p className="font-semibold">This page is not a secure context</p>
+            <p>
+              Browsers only allow encryption on HTTPS pages and on localhost.
+              Here your URL and API key are kept in memory for this session
+              only: they are not saved and must be entered again each time the
+              page reloads. Use the HTTPS (GitHub Pages) address or localhost
+              instead to save them encrypted.
+            </p>
+          </div>
+        )}
         <p className="text-sm text-slate-600 dark:text-slate-400">
           {saved
-            ? "Credentials are saved on this device. Enter new values to replace them."
+            ? services.vault.persistent
+              ? "Credentials are saved on this device. Enter new values to replace them."
+              : "Credentials are held in memory for this session. Enter new values to replace them."
             : "Enter the web app URL and API key from your Apps Script deployment."}
         </p>
         <label className="block text-sm font-medium">

@@ -163,6 +163,41 @@ Tests run against in-memory mocks of the Apps Script globals (`SpreadsheetApp`, 
 
 ---
 
+## Release process
+
+Releasing has two independent halves: the Apps Script backend (clasp push plus a web app deployment) and the PWA frontend (GitHub Pages). Try everything against the **test** sheet on `main` first; production uses the real sheet from `deploy-budget-sheet` (see [Branches](#branches)).
+
+### 1. Push the GAS scripts
+
+1. Once: `pnpm run login` (clasp) and make sure the gitignored `packages/budget-scripts-gas/.clasp.json` exists (see [Setup](#setup)).
+2. `pnpm run push` (builds, then `clasp push`).
+3. In the Apps Script editor, run `onOpen` once to confirm the menu loads without errors.
+4. First release only: run `setupGenerateApiKey` once. It creates the `API_KEY` script property, so copy the key it logs (it is the password for the web app; never commit it).
+5. Per-sheet variables: make sure the Template tab and every current pay-period tab have `EnvelopesStart`, `EnvelopesMax`, `PaidWithStart` and `PaidWithMax` (run `setupAddOptionalSheetVariables` to add the keys, then fill in the cells it reports; see [`web-plan.md`](web-plan.md) §0.A). Tabs without them still work but cannot edit Envelope/Paid with.
+6. If a release changes global variables (for example `ReceiptRules`), also run `setupAddOptionalGlobalVariables`; see [Receipt rules](#receipt-rules-and-customize-variables).
+
+### 2. Create or update the web app deployment
+
+- **First time:** Apps Script editor -> **Deploy -> New deployment** -> type **Web app** -> Execute as **Me**, Who has access **Anyone** -> **Deploy**, then copy the `/exec` URL (`https://script.google.com/macros/s/<deployment-id>/exec`). The URL and the API key are what you enter in the web app's Settings.
+- **Updating:** pushing does **not** change what the `/exec` URL serves. Use **Deploy -> Manage deployments -> Edit (pencil) -> Version: New version -> Deploy**. The URL stays the same; skipping this step keeps serving the old code.
+
+### 3. Test the web app
+
+- **No Google needed:** `pnpm run demo` runs the real API on in-memory mocks plus the dev server ([Local demo](#local-demo-fake-backend)).
+- **Against your test sheet:** `pnpm --filter @budget/web run dev`, open the printed URL, click the gear (Settings) and enter the `/exec` URL and API key. Over plain `http://` on a LAN IP the browser has no Web Crypto, so Settings warns that credentials are kept in memory for the session only; use `localhost` or the HTTPS Pages site to save them.
+- **Production build:** `pnpm --filter @budget/web run build` then `pnpm --filter @budget/web run preview` (served under `/gas-budget-scripts/`).
+- Before releasing run the full check set from [Type Checking, Linting, Formatting & Testing](#type-checking-linting-formatting--testing) and `pnpm run test:e2e`.
+
+### 4. Deploy the web app (GitHub Pages)
+
+One-time GitHub setup (see also [Web app (PWA)](#web-app-pwa)): **Settings -> Pages -> Source: GitHub Actions**, and allow `deploy-budget-sheet` under **Settings -> Environments -> github-pages -> Deployment branches**.
+
+Deploy: merge `main` into `deploy-budget-sheet` and push it (the workflow `.github/workflows/deploy-web.yml` runs when web or shared package files changed), or run **Deploy web app to GitHub Pages** manually (`workflow_dispatch`) on that branch. Pushes to `main` never deploy.
+
+On the phone: open the Pages URL (`https://<user>.github.io/gas-budget-scripts/`), use **Add to Home Screen**, then open the app, enter the `/exec` URL and API key in Settings. When a new version is published the app shows an "Update" banner.
+
+---
+
 ## Branches
 
 - `main` - Active development. Use with a test budget sheet.

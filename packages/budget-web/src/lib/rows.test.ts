@@ -88,3 +88,15 @@ describe("groupRows keep predicate", () => {
     ).toHaveLength(2);
   });
 });
+
+describe("orderEnvelopeOptions recency", () => {
+  it("puts recently chosen envelopes first, most recent first", () => {
+    expect(orderEnvelopeOptions(["A", "B", "C"], [], ["C", "B"])).toEqual([
+      "C",
+      "B",
+      "A",
+    ]);
+    // Unknown recents are ignored
+    expect(orderEnvelopeOptions(["A", "B"], [], ["Z"])).toEqual(["A", "B"]);
+  });
+});

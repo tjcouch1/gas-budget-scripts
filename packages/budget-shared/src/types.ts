@@ -11,7 +11,17 @@ export type TaxDeductibleValue = "Yes" | "";
 
 /** Fields of an existing transaction row that the API may change. */
 export interface TransactionChanges {
+  /**
+   * The whole new name. On a split parent (the first row of a group) a change of the text before
+   * "|" renames the group: every child keeps its text after "|" and gets the new prefix. Any
+   * other row of a group may only change the text after "|".
+   */
   name?: string;
+  /**
+   * Split parent only: the new total (a plain amount, see `isPlainAmount`) that replaces the
+   * leading value of its `=<total>-R[1]C[0]-...` cost formula (`buildSplitParentFormula`).
+   */
+  splitTotal?: string;
   /** Validated by the shared math parser. */
   costExpression?: string;
   /** When true, the cost is wrapped with the sheet TaxMultiplier like a split child. Default false. */
@@ -45,10 +55,18 @@ export interface GetStateRequest extends BaseRequest {
   sheetName?: string;
 }
 
-/** Reads every pay-period tab's transactions (the "All pay periods" view). Read only. */
+/**
+ * Reads pay-period tabs' transactions (the "All pay periods" view). Read only. Without
+ * `sheetNames` every tab is read; with it only those tabs (at most `MAX_SHEETS_PER_READ`), so
+ * the client can load many tabs in several small requests instead of one that may time out.
+ */
 export interface GetAllTransactionsRequest extends BaseRequest {
   action: "getAllTransactions";
+  sheetNames?: string[];
 }
+
+/** Most tabs one `getAllTransactions` request may name */
+export const MAX_SHEETS_PER_READ = 25;
 
 export interface UpdateTransactionRequest extends BaseRequest {
   action: "updateTransaction";

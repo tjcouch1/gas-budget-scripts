@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PayPeriodStateDto } from "@budget/shared";
@@ -43,8 +43,8 @@ describe("NewExpenseSheet", () => {
     const save = dialog.getByRole("button", { name: "Save" });
     expect(save).toBeDisabled();
     await user.type(dialog.getByLabelText("Name"), "Farmers market");
-    await user.type(dialog.getByLabelText("Cost"), "4.25*2");
-    expect(dialog.getByText("$8.50")).toBeInTheDocument();
+    await user.type(dialog.getByLabelText("Cost"), "4.25");
+    expect(dialog.getByText("$4.25")).toBeInTheDocument();
     await user.click(
       within(dialog.getByRole("group", { name: "Envelope" })).getByRole(
         "button",
@@ -63,7 +63,7 @@ describe("NewExpenseSheet", () => {
     expect(onSave).toHaveBeenCalledWith({
       date: "2026-03-07",
       name: "Farmers market",
-      costExpression: "4.25*2",
+      costExpression: "4.25",
       envelope: "Groceries",
       paidWith: "Pat Venmo",
       taxDeductible: "Yes",
@@ -83,17 +83,22 @@ describe("NewExpenseSheet", () => {
     await user.type(dialog.getByLabelText("Name"), "Cash");
     expect(save).toBeEnabled();
     await user.clear(dialog.getByLabelText("Cost"));
-    await user.type(dialog.getByLabelText("Cost"), "4+");
+    await user.type(dialog.getByLabelText("Cost"), "4+1");
     expect(dialog.getByLabelText("Cost")).toHaveAttribute(
       "aria-invalid",
       "true",
     );
+    expect(dialog.getByRole("alert")).toHaveTextContent(
+      "Enter a number, e.g. 12.34",
+    );
     expect(save).toBeDisabled();
     await user.clear(dialog.getByLabelText("Cost"));
-    await user.type(dialog.getByLabelText("Cost"), "=4+1");
+    await user.type(dialog.getByLabelText("Cost"), "-4.50");
+    expect(dialog.queryByRole("alert")).toBeNull();
     await user.click(save);
+    // Saved exactly as typed
     expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "Cash", costExpression: "4+1" }),
+      expect.objectContaining({ name: "Cash", costExpression: "-4.50" }),
     );
   });
 
@@ -158,6 +163,7 @@ describe("ExpensesView New expense button", () => {
   const snapshot = {
     all: null,
     loadingAll: false,
+    loadAllFailed: false,
     queue: [],
     conflicts: [],
     offline: false,
@@ -220,5 +226,149 @@ describe("ExpensesView New expense button", () => {
   it("is hidden while the pay period loads", () => {
     setup(undefined);
     expect(screen.queryByRole("button", { name: "New expense" })).toBeNull();
+  });
+});
+
+describe("NewExpenseSheet choosers", () => {
+  beforeEach(() => localStorage.clear());
+  const envelopes = makeState([]).envelopes;
+  const render_ = (
+    props: Partial<Parameters<typeof NewExpenseSheet>[0]> = {},
+  ) =>
+    render(
+      <NewExpenseSheet
+        period={PERIOD}
+        envelopeOptions={["Gas", "Groceries"]}
+        envelopeLayoutOptions={["Groceries", "Gas"]}
+        envelopes={envelopes}
+        paidWithOptions={["Credit", "Pat Venmo"]}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+        {...props}
+      />,
+    );
+  const names = (group: HTMLElement) =>
+    within(group)
+      .getAllByRole("button", { pressed: false })
+      .map((b) => b.textContent);
+
+  it("shows the remaining amount under each envelope name, like the transaction sheet", () => {
+    render_();
+    const gas = screen.getByRole("button", { name: /^Gas/ });
+    expect(gas).toHaveTextContent("-$30.00");
+    expect(within(gas).getByText("-$30.00")).toHaveClass("text-2xs");
+  });
+
+  it("uses recent order collapsed and layout order expanded", async () => {
+    const user = userEvent.setup();
+    render_();
+    const group = screen.getByRole("group", { name: "Envelope" });
+    expect(names(group)[0]).toMatch(/^Gas/);
+    await user.click(within(group).getByRole("button", { name: "Envelope" }));
+    expect(names(group)[0]).toMatch(/^Groceries/);
+  });
+
+  it("starts expanded from the saved preferences and saves toggles", async () => {
+    localStorage.setItem("budget.envelopeExpanded", "1");
+    localStorage.setItem("budget.paidWithExpanded", "1");
+    const user = userEvent.setup();
+    render_();
+    const env = screen.getByRole("group", { name: "Envelope" });
+    const paid = screen.getByRole("group", { name: "Paid with" });
+    expect(
+      within(env).getByRole("button", { name: "Envelope" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(paid).getByRole("button", { name: "Paid with" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    await user.click(within(paid).getByRole("button", { name: "Paid with" }));
+    expect(localStorage.getItem("budget.paidWithExpanded")).toBe("0");
+  });
+
+  it("records a chosen envelope as recently used", async () => {
+    const user = userEvent.setup();
+    render_();
+    await user.click(screen.getByRole("button", { name: /^Groceries/ }));
+    expect(localStorage.getItem("budget.recentEnvelopes")).toBe(
+      '["Groceries"]',
+    );
+  });
+});
+
+describe("ExpensesView inline envelope and Show in All", () => {
+  beforeEach(() => localStorage.clear());
+  const snapshot = {
+    all: null,
+    loadingAll: false,
+    loadAllFailed: false,
+    queue: [],
+    conflicts: [],
+    offline: false,
+    recentlySaved: [],
+  };
+  function setup() {
+    const state = makeState([
+      makeRow(0, { name: "Aldi" }),
+      makeRow(1, { name: "Shell", envelope: "Gas" }),
+      makeRow(2, { name: "Aldi | milk", splitGroupId: "0" }),
+    ]);
+    const engine = { loadAll: vi.fn(), enqueueUpdate: vi.fn() };
+    render(
+      <ExpensesView
+        engine={engine as unknown as SyncEngine}
+        sheetName={SHEET}
+        state={state}
+        rows={buildViewRows(state, [])}
+        showAll={false}
+        snapshot={snapshot}
+      />,
+    );
+    return { engine, state, user: userEvent.setup() };
+  }
+
+  it("sets the envelope of an uncategorized row from the list with the row's server copy", async () => {
+    const { engine, state, user } = setup();
+    expect(screen.getAllByLabelText(/^Envelope for/)).toHaveLength(2);
+    await user.selectOptions(screen.getByLabelText("Envelope for Aldi"), "Gas");
+    expect(engine.enqueueUpdate).toHaveBeenCalledWith(
+      SHEET,
+      state.transactions[0],
+      { envelope: "Gas" },
+    );
+    // The row was not opened
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(localStorage.getItem("budget.recentEnvelopes")).toBe('["Gas"]');
+  });
+
+  it("shows no dropdown on categorized rows", async () => {
+    const { user } = setup();
+    await user.click(screen.getByRole("tab", { name: /^All/ }));
+    expect(screen.getAllByLabelText(/^Envelope for/)).toHaveLength(2);
+    expect(screen.queryByLabelText("Envelope for Shell")).toBeNull();
+  });
+
+  it("jumps from a filter to the row in All; All has no jump buttons", async () => {
+    const { user } = setup();
+    const jumps = screen.getAllByRole("button", { name: "Show in All" });
+    expect(jumps).toHaveLength(2);
+    await user.click(jumps[0]);
+    expect(screen.getByRole("tab", { name: /^All/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.queryByRole("button", { name: "Show in All" })).toBeNull();
+    const row = screen
+      .getByText("Aldi")
+      .closest<HTMLElement>("[data-row-key]")!;
+    expect(row).toHaveClass("ring-teal-500");
+  });
+
+  it("does not indent split child rows", () => {
+    setup();
+    const child = screen
+      .getByText("Aldi | milk")
+      .closest<HTMLElement>("[data-row-key]")!;
+    expect(child.innerHTML).not.toMatch(/pl-8/);
+    expect(child.className).not.toMatch(/pl-8/);
   });
 });

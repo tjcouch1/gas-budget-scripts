@@ -357,10 +357,26 @@ export function buildPayPeriodState(sheetName?: string): {
  * Builds the `getAllTransactions` response: every transaction tab (newest first) with its
  * transactions and option lists. One batch read per kind of data per tab (no per-row I/O)
  */
-export function buildAllTransactions(): AllTransactionsDto {
-  const infos = getSortedTransactionSheetInfos();
-  if (infos.length === 0)
+export function buildAllTransactions(
+  sheetNames?: string[],
+): AllTransactionsDto {
+  const allInfos = getSortedTransactionSheetInfos();
+  if (allInfos.length === 0)
     throw new ApiError("not_found", "No transaction sheets found");
+  if (sheetNames) {
+    const known = new Set(allInfos.map((i) => i.sheet.getName()));
+    const missing = sheetNames.find((name) => !known.has(name));
+    if (missing !== undefined)
+      throw new ApiError(
+        "not_found",
+        `No transaction sheet named "${missing}"`,
+      );
+  }
+  // Only the requested tabs are read (still newest first)
+  const wanted = sheetNames && new Set(sheetNames);
+  const infos = wanted
+    ? allInfos.filter((i) => wanted.has(i.sheet.getName()))
+    : allInfos;
   return {
     taxMultiplier: Number(Variables.getVariables().TaxMultiplier),
     sheets: infos.map((info) => {

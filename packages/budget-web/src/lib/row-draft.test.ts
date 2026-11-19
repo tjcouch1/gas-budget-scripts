@@ -124,7 +124,8 @@ describe("row drafts", () => {
     expect(result.costInvalid).toBe(true);
     expect(result.nameUnsafe).toBe(true);
     expect(result.value).toBeNull();
-    // A plain cost never gets the tax multiplier; clearing the box keeps the cost
+    expect(result.costError).toBe("Enter a number, e.g. 12.34");
+    // A plain cost must not be cleared: "Enter a value" blocks saving
     const cleared = evaluateRowDraft(
       r,
       initial,
@@ -132,7 +133,52 @@ describe("row drafts", () => {
       plain,
     );
     expect(cleared.changes).toEqual({});
-    expect(cleared.value).toBe(5);
+    expect(cleared.costInvalid).toBe(true);
+    expect(cleared.costError).toBe("Enter a value");
+  });
+
+  it("sends a plain cost exactly as typed, and rejects anything but a plain number", () => {
+    const plain: RowDraftOptions = {
+      nameMode: "name",
+      costMode: "plain",
+      taxMultiplier: 1.1,
+    };
+    const r = makeRow(0, { name: "Aldi", cost: 5 });
+    const initial = initialRowDraft(r, plain);
+    const typed = (cost: string) =>
+      evaluateRowDraft(r, initial, { ...initial, cost }, plain);
+    expect(typed("123288.0288")).toMatchObject({
+      changes: { costExpression: "123288.0288" },
+      value: 123288.0288,
+      costInvalid: false,
+      costError: null,
+    });
+    expect(typed("-.5").changes).toEqual({ costExpression: "-.5" });
+    expect(typed("7.").changes).toEqual({ costExpression: "7" });
+    for (const bad of ["$5", "1,200", "1.2.3", "12a", "2*3", "=5", "--1", "-"])
+      expect(typed(bad)).toMatchObject({
+        changes: {},
+        costInvalid: true,
+        costError: "Enter a number, e.g. 12.34",
+      });
+  });
+
+  it("keeps math expressions for split child amounts", () => {
+    const child: RowDraftOptions = {
+      nameMode: "itemNote",
+      costMode: "child",
+      taxMultiplier: 1.1,
+    };
+    const r = makeRow(1, { name: "Aldi | milk", cost: 2 });
+    const initial = initialRowDraft(r, child);
+    const result = evaluateRowDraft(
+      r,
+      initial,
+      { ...initial, cost: "1+3.23*2" },
+      child,
+    );
+    expect(result.changes).toEqual({ costExpression: "1+3.23*2" });
+    expect(result.costInvalid).toBe(false);
   });
 
   it("ignores the name and cost when the card does not edit them", () => {

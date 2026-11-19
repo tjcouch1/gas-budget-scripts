@@ -151,10 +151,10 @@ describe("TransactionSheet layout and preferences", () => {
 
   it("labels split cards with a legend on the border", async () => {
     const user = setup(group());
-    const original = screen.getByRole("group", { name: "Original" });
+    const original = screen.getByRole("group", { name: "Remainder" });
     expect(original).toHaveClass("border");
     expect(original.tagName).toBe("FIELDSET");
-    expect(original.querySelector("legend")).toHaveTextContent("Original");
+    expect(original.querySelector("legend")).toHaveTextContent("Remainder");
     await user.click(screen.getByRole("button", { name: "Add split item" }));
     const item = screen.getByRole("group", { name: "Split item 3" });
     expect(item.querySelector("legend")).toHaveTextContent("Split item 3");
@@ -186,10 +186,12 @@ describe("TransactionSheet layout and preferences", () => {
       toggleOf(screen.getByRole("group", { name })).getAttribute(
         "aria-expanded",
       );
-    expect(open("Original")).toBe("false");
+    expect(open("Remainder")).toBe("false");
     expect(open("Split item 1")).toBe("true");
     expect(open("Split item 2")).toBe("false");
-    await user.click(toggleOf(screen.getByRole("group", { name: "Original" })));
+    await user.click(
+      toggleOf(screen.getByRole("group", { name: "Remainder" })),
+    );
     expect(localStorage.getItem(ENVELOPE_EXPANDED_KEY)).toBe("1");
     await user.click(
       toggleOf(screen.getByRole("group", { name: "Split item 1" })),
@@ -245,15 +247,15 @@ describe("Edit details and Paid with preferences", () => {
     const user = setup(group(), { focusRowIndex: 5 });
     expect(detailsOf("Split item 1")).toHaveAttribute("open");
     expect(paidOf("Split item 1")).toHaveAttribute("aria-expanded", "true");
-    expect(detailsOf("Original")).not.toHaveAttribute("open");
-    expect(paidOf("Original")).toHaveAttribute("aria-expanded", "false");
+    expect(detailsOf("Remainder")).not.toHaveAttribute("open");
+    expect(paidOf("Remainder")).toHaveAttribute("aria-expanded", "false");
     await user.click(screen.getByRole("button", { name: "Add split item" }));
     // The new item is the focused card: it starts in the saved state
     expect(paidOf("Split item 3")).toHaveAttribute("aria-expanded", "true");
     // The clicked card keeps its state but no longer writes the setting
     expect(paidOf("Split item 1")).toHaveAttribute("aria-expanded", "true");
     await user.click(paidOf("Split item 1"));
-    await user.click(paidOf("Original"));
+    await user.click(paidOf("Remainder"));
     expect(localStorage.getItem("budget.paidWithExpanded")).toBe("1");
     await user.click(paidOf("Split item 3"));
     expect(localStorage.getItem("budget.paidWithExpanded")).toBe("0");

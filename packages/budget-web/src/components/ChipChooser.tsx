@@ -8,6 +8,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 export function ChipChooser({
   label,
   options,
+  expandedOptions,
   value,
   onSelect,
   renderExtra,
@@ -18,6 +19,8 @@ export function ChipChooser({
   /** Header text and the accessible name of the pill group. */
   label: string;
   options: string[];
+  /** Order used while expanded (e.g. the sheet's layout); defaults to `options`. */
+  expandedOptions?: string[];
   value: string;
   /** Called with the tapped option, or "" for Clear. */
   onSelect: (value: string) => void;
@@ -32,7 +35,8 @@ export function ChipChooser({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const scroller = useRef<HTMLDivElement>(null);
   // The current value stays choosable even when it is not in the list.
-  const all = value && !options.includes(value) ? [...options, value] : options;
+  const shown = expanded && expandedOptions ? expandedOptions : options;
+  const all = value && !shown.includes(value) ? [...shown, value] : shown;
 
   useLayoutEffect(() => {
     // scrollIntoView would also scroll the drawer vertically, so set scrollLeft directly.
@@ -83,8 +87,10 @@ export function ChipChooser({
                   : "bg-white ring-slate-300 hover:bg-teal-50 dark:bg-slate-800 dark:ring-slate-600 dark:hover:bg-slate-700"
               }`}
             >
-              {option}
-              {renderExtra?.(option, selected)}
+              <span className="inline-flex flex-col items-end">
+                <span>{option}</span>
+                {renderExtra?.(option, selected)}
+              </span>
             </button>
           );
         })}

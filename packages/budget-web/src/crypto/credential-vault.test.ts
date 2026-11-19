@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CredentialVault, validateGasUrl } from "./credential-vault.ts";
 import { MemoryKeyValueStore } from "./kv-store.ts";
 
@@ -104,5 +104,47 @@ describe("CredentialVault", () => {
       false,
     );
     expect(validateGasUrl("http://localhost:8787/other/exec")).toBe(false);
+  });
+});
+
+describe("CredentialVault in an insecure context (no crypto.subtle)", () => {
+  it("keeps credentials in memory only and never writes them to storage", async () => {
+    const store = new MemoryKeyValueStore();
+    const vault = new CredentialVault(store, { persistent: false });
+    expect(vault.persistent).toBe(false);
+    expect(await vault.hasCredentials()).toBe(false);
+    await vault.save({ gasWebAppUrl: URL, apiKey: KEY });
+    expect(await vault.hasCredentials()).toBe(true);
+    expect(await vault.load()).toEqual({ gasWebAppUrl: URL, apiKey: KEY });
+    expect(store.data.size).toBe(0);
+    // A new page load (new vault) starts empty
+    const reloaded = new CredentialVault(store, { persistent: false });
+    expect(await reloaded.hasCredentials()).toBe(false);
+    expect(await reloaded.load()).toBeNull();
+    await vault.forget();
+    expect(await vault.load()).toBeNull();
+  });
+
+  it("still validates the credentials", async () => {
+    const vault = new CredentialVault(new MemoryKeyValueStore(), {
+      persistent: false,
+    });
+    await expect(
+      vault.save({ gasWebAppUrl: "http://192.168.1.5/x", apiKey: KEY }),
+    ).rejects.toThrow(/URL must look like/);
+  });
+
+  it("detects the missing Web Crypto API", async () => {
+    const { canPersistCredentials } = await import("./credential-vault.ts");
+    expect(canPersistCredentials()).toBe(true);
+    vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues });
+    try {
+      expect(canPersistCredentials()).toBe(false);
+      expect(new CredentialVault(new MemoryKeyValueStore()).persistent).toBe(
+        false,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

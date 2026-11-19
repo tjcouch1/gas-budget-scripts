@@ -52,6 +52,7 @@ export function ForwardingEditor({
               <TextField
                 className="flex-1"
                 label={`Forward subject prefix ${i + 1}`}
+                help="subjectPrefixes"
                 value={prefix}
                 mono
                 issues={at(`subjectPrefixes[${i}]`)}
@@ -82,6 +83,7 @@ export function ForwardingEditor({
             >
               <TextField
                 label={`From pattern ${i + 1}`}
+                help="fromPatterns"
                 value={spec.pattern}
                 mono
                 issues={[
@@ -152,6 +154,7 @@ export function ForwardingEditor({
             >
               <TextField
                 label={`Body marker ${i + 1}`}
+                help="bodyMarkers"
                 value={entry.marker}
                 issues={[
                   ...at(`bodyMarkers[${i}]`),

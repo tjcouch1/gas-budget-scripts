@@ -8,8 +8,10 @@ import type {
   TransactionChanges,
   TransactionRowDto,
 } from "@budget/shared";
+import { randomId } from "../lib/random-id.ts";
 import { ApiError, type CallApi } from "../api/client.ts";
 import type { KeyValueStore } from "../crypto/kv-store.ts";
+import { proposedRow, sameEditableValues } from "./optimistic.ts";
 import type {
   AddMutation,
   Conflict,
@@ -29,6 +31,8 @@ const PERSIST_KEY = "engine";
 const DEFAULT_RETRY_DELAYS_MS = [2000, 5000, 15000, 30000];
 /** How long a row shows "Saved ✓". */
 const SAVED_MARK_MS = 3000;
+/** Pay-period tabs per `getAllTransactions` request: small enough to finish well inside the timeout. */
+const LOAD_ALL_CHUNK_SIZE = 4;
 
 export interface SyncEngineOptions {
   callApi: CallApi;
@@ -93,6 +97,21 @@ function patchAll(
   };
 }
 
+/** Adds or replaces the tabs of `incoming` in the all-tabs cache, newest first. */
+function mergeAll(
+  all: AllTransactionsDto | null,
+  incoming: AllTransactionsDto,
+): AllTransactionsDto {
+  const byName = new Map((all?.sheets ?? []).map((s) => [s.name, s]));
+  for (const sheet of incoming.sheets) byName.set(sheet.name, sheet);
+  return {
+    taxMultiplier: incoming.taxMultiplier,
+    sheets: [...byName.values()].sort((a, b) =>
+      a.startDate < b.startDate ? 1 : a.startDate > b.startDate ? -1 : 0,
+    ),
+  };
+}
+
 /** The rows a mutation is based on: a delete's rows, or its one row. */
 function baseRowsOf(q: QueuedMutation): DeleteRowBase[] {
   if (q.action === "addTransaction") return [];
@@ -127,6 +146,7 @@ export class SyncEngine {
     states: {},
     all: null,
     loadingAll: false,
+    loadAllFailed: false,
     queue: [],
     conflicts: [],
     recentlySaved: [],
@@ -148,6 +168,7 @@ export class SyncEngine {
   private readonly newId: () => string;
   private readonly newRequestId: () => string;
   private idCounter = 0;
+  private loadAllGeneration = 0;
 
   constructor(private readonly options: SyncEngineOptions) {
     this.retryDelays = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
@@ -155,8 +176,7 @@ export class SyncEngine {
     this.newId =
       options.newId ??
       (() => `${this.now().toString(36)}-${(this.idCounter++).toString(36)}`);
-    this.newRequestId =
-      options.newRequestId ?? (() => globalThis.crypto.randomUUID());
+    this.newRequestId = options.newRequestId ?? randomId;
   }
 
   // ---- external store plumbing -------------------------------------------
@@ -324,21 +344,77 @@ export class SyncEngine {
    * Loads every pay-period tab's transactions (the "All pay periods" view). On demand only:
    * it reads every tab, so it is heavier than `refresh`. The cache stays visible meanwhile.
    */
-  loadAll(): Promise<void> {
-    return this.run(async () => {
-      this.set({ loadingAll: true });
+  loadAll(sheetNames?: string[]): Promise<void> {
+    const generation = ++this.loadAllGeneration;
+    const known =
+      this.snapshot.states[this.snapshot.currentSheet ?? ""]?.sheets ??
+      Object.values(this.snapshot.states)[0]?.sheets ??
+      this.snapshot.all?.sheets;
+    // Without a known tab list (nothing cached) one request reads every tab, as before.
+    const names = sheetNames ?? known?.map((s) => s.name);
+    const chunks: (string[] | undefined)[] = [];
+    if (!names) chunks.push(undefined);
+    else
+      for (let i = 0; i < names.length; i += LOAD_ALL_CHUNK_SIZE)
+        chunks.push(names.slice(i, i + LOAD_ALL_CHUNK_SIZE));
+    this.set({ loadingAll: true, loadAllFailed: false });
+    return (async () => {
+      let progressed = false;
       try {
-        const { data } = await this.options.callApi<AllTransactionsDto>({
-          action: "getAllTransactions",
-        });
-        this.set({ all: data, offline: false }, true);
-        this.retryAttempt = 0;
-      } catch (error) {
-        this.handleReadError(error);
+        for (const chunk of chunks) {
+          // A newer load (another range was chosen) replaced this one
+          if (generation !== this.loadAllGeneration) return;
+          // Each chunk is its own queue slot, so edits and syncs interleave with a long load
+          const done = await this.run(async () => {
+            if (generation !== this.loadAllGeneration) return true;
+            try {
+              const { data } = await this.options.callApi<AllTransactionsDto>({
+                action: "getAllTransactions",
+                ...(chunk ? { sheetNames: chunk } : {}),
+              });
+              this.set(
+                {
+                  all: chunk ? mergeAll(this.snapshot.all, data) : data,
+                  offline: false,
+                },
+                true,
+              );
+              this.retryAttempt = 0;
+              progressed = true;
+              return true;
+            } catch (error) {
+              // A slow tab (timeout) or a partly loaded list is not "offline": keep what arrived
+              this.set({ loadAllFailed: true });
+              const slowButAlive =
+                error instanceof ApiError &&
+                error.isTransient &&
+                (progressed || error.code !== "network");
+              if (!slowButAlive) this.handleReadError(error);
+              return false;
+            }
+          });
+          if (!done) return;
+        }
+        // A completed load of every tab drops cached tabs that no longer exist
+        if (!sheetNames && names && generation === this.loadAllGeneration) {
+          const keep = new Set(names);
+          const all = this.snapshot.all;
+          if (all && all.sheets.some((s) => !keep.has(s.name)))
+            this.set(
+              {
+                all: {
+                  ...all,
+                  sheets: all.sheets.filter((s) => keep.has(s.name)),
+                },
+              },
+              true,
+            );
+        }
       } finally {
-        this.set({ loadingAll: false });
+        if (generation === this.loadAllGeneration)
+          this.set({ loadingAll: false });
       }
-    });
+    })();
   }
 
   private acceptState(state: PayPeriodStateDto): void {
@@ -631,9 +707,30 @@ export class SyncEngine {
     }
     // Re-base later mutations that were chained on this row's previous fingerprint.
     if (newRow) {
-      const fresh = newRow;
+      /** rowIndex -> the fingerprint this change replaced, and the row now on the sheet */
+      const rebased = new Map<
+        number,
+        { before: string; fresh: TransactionRowDto }
+      >([[m.rowIndex, { before: m.baseFingerprint, fresh: newRow }]]);
+      // Renaming a split parent renamed its children too: re-base changes queued on them.
+      if (
+        isState(data) &&
+        m.payload.changes.name !== undefined &&
+        newRow.splitGroupId !== null
+      )
+        for (const t of data.transactions) {
+          const before = state?.transactions[t?.rowIndex ?? -1];
+          if (
+            t &&
+            t.rowIndex !== m.rowIndex &&
+            t.splitGroupId === newRow.splitGroupId &&
+            before &&
+            before.fingerprint !== t.fingerprint
+          )
+            rebased.set(t.rowIndex, { before: before.fingerprint, fresh: t });
+        }
       const chained = (r: DeleteRowBase) =>
-        r.rowIndex === m.rowIndex && r.baseFingerprint === m.baseFingerprint;
+        rebased.get(r.rowIndex)?.before === r.baseFingerprint;
       queue = queue.map((q) => {
         if (q.sheetName !== m.sheetName || q.action === "addTransaction")
           return q;
@@ -641,15 +738,16 @@ export class SyncEngine {
         if (!rows.some(chained)) return q;
         return withBaseRows(
           q,
-          rows.map((r) =>
-            chained(r)
+          rows.map((r) => {
+            const fresh = chained(r) ? rebased.get(r.rowIndex)?.fresh : null;
+            return fresh
               ? {
                   rowIndex: r.rowIndex,
                   baseFingerprint: fresh.fingerprint,
                   baseRow: fresh,
                 }
-              : r,
-          ),
+              : r;
+          }),
         );
       });
     }
@@ -841,6 +939,28 @@ export class SyncEngine {
     // An add has no base row, so it cannot conflict: treat it as a permanent rejection.
     if (error.code === "conflict" && m.action !== "addTransaction") {
       const current = error.conflictCurrent ?? null;
+      // The sheet already holds exactly this change (e.g. it was saved but the page closed
+      // before the response, and the queued change replayed): accept it silently.
+      const taxMultiplier =
+        this.snapshot.states[m.sheetName]?.taxMultiplier ??
+        this.snapshot.all?.taxMultiplier;
+      if (
+        m.action === "updateTransaction" &&
+        current &&
+        taxMultiplier !== undefined &&
+        sameEditableValues(proposedRow(m, m.baseRow, taxMultiplier), current)
+      ) {
+        this.onUpdateSucceeded(m, current);
+        // A cost or name change of a split row changes its group's other rows too.
+        if (
+          current.splitGroupId !== null &&
+          (m.payload.changes.costExpression !== undefined ||
+            m.payload.changes.splitTotal !== undefined ||
+            m.payload.changes.name !== undefined)
+        )
+          void this.refresh(m.sheetName);
+        return true;
+      }
       let states = this.snapshot.states;
       const state = states[m.sheetName];
       if (current && state) {

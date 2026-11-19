@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PayPeriodStateDto } from "@budget/shared";
 import { formatMoney, formatShortDate } from "../lib/format.ts";
 import {
@@ -11,6 +11,10 @@ import {
   type ViewRow,
 } from "../lib/rows.ts";
 import type { SyncEngine } from "../sync/engine.ts";
+import {
+  getRecentEnvelopes,
+  recordRecentEnvelope,
+} from "../lib/preferences.ts";
 import { buildViewRows } from "../sync/optimistic.ts";
 import type { EngineSnapshot } from "../sync/types.ts";
 import { NewExpenseSheet } from "./NewExpenseSheet.tsx";
@@ -50,16 +54,24 @@ function rowStatus(
 
 function RowButton({
   row,
-  nested,
   dim,
   status,
+  highlighted,
+  envelopeChoices,
+  onCategorize,
   onOpen,
+  onShowInAll,
 }: {
   row: ViewRow;
-  nested: boolean;
   dim: boolean;
   status: SaveStatus | null;
+  highlighted: boolean;
+  /** Envelopes an uncategorized row can be put in from the list; null hides the dropdown. */
+  envelopeChoices: string[] | null;
+  onCategorize: (row: ViewRow, envelope: string) => void;
   onOpen: (row: ViewRow) => void;
+  /** Present in the Uncategorized and Errors/Notes filters: jump to the row in All. */
+  onShowInAll: ((row: ViewRow) => void) | null;
 }) {
   const uncategorized = row.envelope.trim() === "";
   const tone = row.isError
@@ -70,53 +82,119 @@ function RowButton({
         ? // A Name-cell note without a special background: a bar in the text color
           "border-l-4 border-l-slate-700 dark:border-l-slate-200"
         : "";
-  const content = (
-    <>
-      <span className="flex min-w-0 flex-1 flex-col text-left">
-        <span className="truncate font-medium">{row.name || "(no name)"}</span>
-        <span className="truncate text-xs text-slate-500 dark:text-slate-400">
-          {formatShortDate(row.date)}
-          {row.paidWith ? ` · ${row.paidWith}` : ""}
-          {row.taxDeductible.trim() ? " · Tax deductible" : ""}
-        </span>
-        {status && (
-          <span
-            data-testid="row-status"
-            data-row-status={status}
-            className={`truncate text-xs font-medium ${STATUS_COLOR[status]}`}
-          >
-            {STATUS_LABEL[status]}
-          </span>
-        )}
+  const nameBlock = (
+    <span className="flex min-w-0 flex-1 flex-col text-left">
+      <span className="truncate font-medium">{row.name || "(no name)"}</span>
+      <span className="truncate text-xs text-slate-500 dark:text-slate-400">
+        {formatShortDate(row.date)}
+        {row.paidWith ? ` · ${row.paidWith}` : ""}
+        {row.taxDeductible.trim() ? " · Tax deductible" : ""}
       </span>
-      <span className="flex shrink-0 flex-col items-end">
-        <span className="font-medium tabular-nums">
-          {row.costDisplay || formatMoney(row.cost)}
-        </span>
+      {status && (
         <span
-          className={`max-w-32 truncate text-xs ${
-            uncategorized ? "font-semibold text-amber-600" : "text-slate-500"
-          }`}
+          data-testid="row-status"
+          data-row-status={status}
+          className={`truncate text-xs font-medium ${STATUS_COLOR[status]}`}
         >
-          {uncategorized ? "Uncategorized" : row.envelope}
+          {STATUS_LABEL[status]}
         </span>
-      </span>
-    </>
+      )}
+    </span>
   );
-  const cls = `flex min-h-14 w-full items-center gap-3 bg-white px-3 py-2 dark:bg-slate-900 ${tone} ${
-    nested ? "pl-8" : ""
-  } ${dim ? "opacity-50" : ""}`;
+  const costBlock = (
+    <span className="flex shrink-0 flex-col items-end">
+      <span className="font-medium tabular-nums">
+        {row.costDisplay || formatMoney(row.cost)}
+      </span>
+      <span
+        className={`max-w-32 truncate text-xs ${
+          uncategorized ? "font-semibold text-amber-600" : "text-slate-500"
+        }`}
+      >
+        {uncategorized ? "Uncategorized" : row.envelope}
+      </span>
+    </span>
+  );
+  const cls = `flex min-h-14 w-full items-center bg-white dark:bg-slate-900 ${tone} ${
+    dim ? "opacity-50" : ""
+  } ${highlighted ? "ring-2 ring-inset ring-teal-500" : ""}`;
   if (row.synthetic) {
-    return <div className={cls}>{content}</div>;
+    return (
+      <div className={`${cls} gap-3 px-3 py-2`} data-row-key={row.key}>
+        {nameBlock}
+        {costBlock}
+      </div>
+    );
   }
+  const open =
+    "flex items-center gap-3 self-stretch py-2 hover:bg-teal-50 dark:hover:bg-slate-800";
   return (
-    <button
-      type="button"
-      className={`${cls} hover:bg-teal-50 dark:hover:bg-slate-800`}
-      onClick={() => onOpen(row)}
-    >
-      {content}
-    </button>
+    <div className={cls} data-row-key={row.key}>
+      {uncategorized && envelopeChoices ? (
+        <>
+          <button
+            type="button"
+            className={`${open} min-w-0 flex-1 pl-3`}
+            onClick={() => onOpen(row)}
+          >
+            {nameBlock}
+          </button>
+          <select
+            aria-label={`Envelope for ${row.name || "(no name)"}`}
+            className="mx-2 max-w-32 shrink-0 rounded-lg border border-slate-300 bg-white px-1 py-1 text-xs dark:border-slate-600 dark:bg-slate-800"
+            value=""
+            onChange={(e) => {
+              if (e.target.value) onCategorize(row, e.target.value);
+            }}
+          >
+            <option value="">Envelope…</option>
+            {envelopeChoices.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+          {/* A tap target, not a second button: the name button opens the row for keyboards */}
+          <div
+            className={`${open} cursor-pointer pr-3`}
+            onClick={() => onOpen(row)}
+          >
+            {costBlock}
+          </div>
+        </>
+      ) : (
+        <button
+          type="button"
+          className={`${open} min-w-0 flex-1 px-3`}
+          onClick={() => onOpen(row)}
+        >
+          {nameBlock}
+          {costBlock}
+        </button>
+      )}
+      {onShowInAll && (
+        <button
+          type="button"
+          aria-label="Show in All"
+          title="Show in All"
+          className="mr-2 flex size-9 shrink-0 items-center justify-center rounded-full text-slate-500 ring-1 ring-slate-300 hover:bg-teal-50 dark:text-slate-300 dark:ring-slate-600 dark:hover:bg-slate-800"
+          onClick={() => onShowInAll(row)}
+        >
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            className="size-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -126,6 +204,7 @@ export function ExpensesView({
   state,
   rows: currentRows,
   showAll,
+  allSheetNames = null,
   snapshot,
 }: {
   engine: SyncEngine;
@@ -136,38 +215,58 @@ export function ExpensesView({
   rows: ViewRow[];
   /** True when the pay-period dropdown is on "All". */
   showAll: boolean;
+  /** Pay periods the multi-period view shows (a date range); null for every pay period. */
+  allSheetNames?: string[] | null;
   snapshot: Pick<
     EngineSnapshot,
-    "all" | "loadingAll" | "queue" | "conflicts" | "offline" | "recentlySaved"
+    | "all"
+    | "loadingAll"
+    | "loadAllFailed"
+    | "queue"
+    | "conflicts"
+    | "offline"
+    | "recentlySaved"
   >;
 }) {
   const [filter, setFilter] = useState<FilterId>("uncategorized");
   const [query, setQuery] = useState("");
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const { all, loadingAll, queue } = snapshot;
+  const [jumpKey, setJumpKey] = useState<string | null>(null);
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const { all, loadingAll, loadAllFailed, queue } = snapshot;
 
-  // All pay periods read every tab, so they load on demand only (cached rows show meanwhile).
+  // Multi-period views read several tabs, so they load on demand only (cached rows show
+  // meanwhile), in small batches whose rows appear as they arrive.
+  const sheetNamesKey = allSheetNames ? JSON.stringify(allSheetNames) : "";
   useEffect(() => {
-    if (showAll) void engine.loadAll();
-  }, [showAll, engine]);
+    if (showAll)
+      void engine.loadAll(
+        sheetNamesKey ? (JSON.parse(sheetNamesKey) as string[]) : undefined,
+      );
+  }, [showAll, sheetNamesKey, engine]);
 
   const allRows = useMemo(
     () =>
       showAll && all
-        ? all.sheets.flatMap((sheet) =>
-            buildViewRows(
-              {
-                sheetName: sheet.name,
-                taxMultiplier: all.taxMultiplier,
-                transactions: sheet.transactions,
-              },
-              queue,
-              true,
-            ),
-          )
+        ? all.sheets
+            .filter(
+              (sheet) => !allSheetNames || allSheetNames.includes(sheet.name),
+            )
+            .flatMap((sheet) =>
+              buildViewRows(
+                {
+                  sheetName: sheet.name,
+                  taxMultiplier: all.taxMultiplier,
+                  transactions: sheet.transactions,
+                },
+                queue,
+                true,
+              ),
+            )
         : [],
-    [showAll, all, queue],
+    [showAll, all, queue, allSheetNames],
   );
   const rows = showAll ? allRows : currentRows;
 
@@ -228,10 +327,45 @@ export function ExpensesView({
         ? orderEnvelopeOptions(
             rawEnvelopeOptions,
             rows.filter((r) => !r.synthetic && r.sheetName === openSheetName),
+            getRecentEnvelopes(),
           )
         : null,
-    [rawEnvelopeOptions, rows, openSheetName],
+    // The recent order is re-read whenever a sheet opens or closes
+    [rawEnvelopeOptions, rows, openSheetName, openKey, adding],
   );
+
+  /** The All-view tab a listed row lives in (null outside All). */
+  const sheetOf = (row: ViewRow) =>
+    showAll && all
+      ? (all.sheets.find((x) => x.name === row.sheetName) ?? null)
+      : null;
+  const inlineChoices = (row: ViewRow): string[] | null =>
+    sheetOf(row)?.envelopeOptions ?? state?.envelopeOptions ?? null;
+  const categorize = (row: ViewRow, envelope: string) => {
+    const sheet = sheetOf(row);
+    const server = (sheet?.transactions ?? state?.transactions ?? []).find(
+      (t) => t?.rowIndex === row.rowIndex,
+    );
+    if (!server) return;
+    recordRecentEnvelope(envelope);
+    engine.enqueueUpdate(sheet?.name ?? state?.sheetName ?? sheetName, server, {
+      envelope,
+    });
+  };
+
+  // "Show in All": switch the filter, then scroll to the row once the All list is rendered.
+  useEffect(() => {
+    if (!jumpKey || filter !== "all") return;
+    const el = [
+      ...(listRef.current?.querySelectorAll<HTMLElement>("[data-row-key]") ??
+        []),
+    ].find((x) => x.dataset.rowKey === jumpKey);
+    el?.scrollIntoView?.({ block: "center" });
+    setHighlightKey(jumpKey);
+    setJumpKey(null);
+    const timer = setTimeout(() => setHighlightKey(null), 2000);
+    return () => clearTimeout(timer);
+  }, [jumpKey, filter, groups]);
 
   return (
     <div>
@@ -274,11 +408,19 @@ export function ExpensesView({
         </div>
       </div>
 
+      {showAll && all && (loadingAll || loadAllFailed) && (
+        <p role="status" className="pb-2 text-center text-sm text-slate-500">
+          {loadingAll
+            ? "Loading more pay periods…"
+            : "Some pay periods could not be loaded yet. Tap Sync to try again."}
+        </p>
+      )}
+
       {showAll && !all ? (
         <p role="status" className="py-10 text-center text-slate-500">
           {loadingAll
-            ? "Loading all pay periods…"
-            : "All pay periods could not be loaded yet. Check your connection and try again."}
+            ? "Loading pay periods…"
+            : "These pay periods could not be loaded yet. Check your connection and tap Sync to try again."}
         </p>
       ) : !showAll && !state ? (
         <p role="status" className="py-10 text-center text-slate-500">
@@ -293,7 +435,7 @@ export function ExpensesView({
               : "Nothing matches."}
         </p>
       ) : (
-        <ul className="space-y-3">
+        <ul ref={listRef} className="space-y-3">
           {groups.map((g, gi) => (
             <li key={g.id} className="space-y-1">
               {showAll &&
@@ -303,16 +445,27 @@ export function ExpensesView({
                   </h3>
                 )}
               <div className="divide-y divide-slate-100 overflow-hidden rounded-xl shadow-sm ring-1 ring-slate-200 dark:divide-slate-800 dark:ring-slate-700">
-                {g.rows.map((r, i) => (
+                {g.rows.map((r) => (
                   <RowButton
                     key={r.key}
                     row={r}
-                    nested={g.rows.length > 1 && i > 0}
                     dim={
                       !statuses.has(r.key) &&
                       !(matchesFilter(r, filter) && matchesSearch(r, query))
                     }
                     status={statuses.get(r.key) ?? null}
+                    highlighted={highlightKey === r.key}
+                    envelopeChoices={inlineChoices(r)}
+                    onCategorize={categorize}
+                    onShowInAll={
+                      filter === "all"
+                        ? null
+                        : (row) => {
+                            setQuery("");
+                            setFilter("all");
+                            setJumpKey(row.key);
+                          }
+                    }
                     onOpen={(row) => setOpenKey(row.key)}
                   />
                 ))}
@@ -337,6 +490,8 @@ export function ExpensesView({
         <NewExpenseSheet
           period={state.sheets.find((x) => x.name === state.sheetName) ?? null}
           envelopeOptions={options}
+          envelopeLayoutOptions={state.envelopeOptions}
+          envelopes={state.envelopes}
           paidWithOptions={state.paidWithOptions}
           onSave={(fields) => engine.enqueueAdd(state.sheetName, fields)}
           onClose={() => setAdding(false)}
@@ -354,6 +509,7 @@ export function ExpensesView({
               : (state?.taxMultiplier ?? 1)
           }
           envelopeOptions={options}
+          envelopeLayoutOptions={rawEnvelopeOptions}
           envelopes={
             state && openSheetName === state.sheetName ? state.envelopes : null
           }

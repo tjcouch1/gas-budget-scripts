@@ -271,3 +271,39 @@ describe("SettingsDialog auto close", () => {
     expect(manual).not.toHaveBeenCalled();
   });
 });
+
+describe("SettingsDialog in an insecure context", () => {
+  it("warns, keeps the connection in memory only, and never stores it", async () => {
+    vi.stubGlobal("crypto", {
+      getRandomValues: globalThis.crypto.getRandomValues.bind(
+        globalThis.crypto,
+      ),
+    });
+    try {
+      const { user, vaultStore, onChanged, services } = await setup();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /not a secure context/i,
+      );
+      expect(screen.getByRole("alert")).toHaveTextContent(/HTTPS/);
+      await user.type(screen.getByLabelText("Web app URL"), URL);
+      await user.type(screen.getByLabelText("API key"), "sekrit-key");
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(
+        await screen.findByText(/Connected for this session only/),
+      ).toBeInTheDocument();
+      expect(onChanged).toHaveBeenCalled();
+      expect(vaultStore.data.size).toBe(0);
+      expect(await services.vault.load()).toEqual({
+        gasWebAppUrl: URL,
+        apiKey: "sekrit-key",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows no warning in a secure context", async () => {
+    await setup();
+    expect(screen.queryByText(/not a secure context/i)).toBeNull();
+  });
+});

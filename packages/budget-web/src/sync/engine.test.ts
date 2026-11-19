@@ -1235,7 +1235,8 @@ describe("SyncEngine adds", () => {
       name: "Farmers market",
       date: "2026-03-07",
       cost: 8.5,
-      costDisplay: "$8.50",
+      // A plain number; the UI formats `cost` for display
+      costDisplay: "",
       envelope: "Groceries",
       paidWith: "Pat Venmo",
       note: "cash",
@@ -1376,5 +1377,295 @@ describe("SyncEngine adds", () => {
     expect(engine.getSnapshot().conflicts).toEqual([]);
     expect(calls.map((c) => c.action)).toContain("addTransaction");
     expect(engine.getSnapshot().queue).toEqual([]);
+  });
+});
+
+describe("SyncEngine batched multi-period loading", () => {
+  /** Ten pay-period tabs, newest first. */
+  const sheetInfos = Array.from({ length: 10 }, (_, i) => {
+    const day = String(28 - i * 2).padStart(2, "0");
+    return {
+      name: `tab ${i}`,
+      startDate: `2026-01-${day}`,
+      endDate: `2026-01-${day}`,
+      isGap: false,
+    };
+  });
+  const dataFor = (names: string[]): AllTransactionsDto => ({
+    taxMultiplier: 1.0825,
+    sheets: sheetInfos
+      .filter((s) => names.includes(s.name))
+      .map((s) => ({
+        ...s,
+        transactions: [makeRow(0, { name: `row of ${s.name}` })],
+        envelopeOptions: null,
+        paidWithOptions: null,
+      })),
+  });
+  const handlerFor =
+    (onAll: (names: string[]) => unknown = dataFor) =>
+    (req: ApiRequestBody) =>
+      req.action === "getAllTransactions"
+        ? onAll((req as { sheetNames?: string[] }).sheetNames ?? [])
+        : makeState([makeRow(0)], { sheets: sheetInfos });
+
+  it("loads the tabs in small requests, showing each batch as it arrives", async () => {
+    const seen: number[] = [];
+    const { engine, calls } = newEngine(handlerFor());
+    await engine.init();
+    engine.subscribe(() =>
+      seen.push(engine.getSnapshot().all?.sheets.length ?? 0),
+    );
+    await engine.loadAll();
+    const loads = calls.filter((c) => c.action === "getAllTransactions");
+    expect(
+      loads.map((c) => (c as { sheetNames: string[] }).sheetNames.length),
+    ).toEqual([4, 4, 2]);
+    const all = engine.getSnapshot().all!;
+    expect(all.sheets.map((s) => s.name)).toEqual(
+      sheetInfos.map((s) => s.name),
+    );
+    // Rows showed up batch by batch, not all at once at the end
+    expect(seen).toContain(4);
+    expect(seen).toContain(8);
+    expect(engine.getSnapshot()).toMatchObject({
+      loadingAll: false,
+      loadAllFailed: false,
+      offline: false,
+    });
+  });
+
+  it("loads only the requested tabs", async () => {
+    const { engine, calls } = newEngine(handlerFor());
+    await engine.init();
+    await engine.loadAll(["tab 1", "tab 2"]);
+    const loads = calls.filter((c) => c.action === "getAllTransactions");
+    expect(loads).toHaveLength(1);
+    expect(loads[0]).toMatchObject({ sheetNames: ["tab 1", "tab 2"] });
+    expect(engine.getSnapshot().all!.sheets.map((s) => s.name)).toEqual([
+      "tab 1",
+      "tab 2",
+    ]);
+  });
+
+  it("keeps the batches that arrived and does not go offline on a timeout after progress", async () => {
+    let n = 0;
+    const { engine } = newEngine(
+      handlerFor((names) => {
+        if (++n === 2) throw new ApiError("timeout", "The request timed out.");
+        return dataFor(names);
+      }),
+    );
+    await engine.init();
+    await engine.loadAll();
+    const snap = engine.getSnapshot();
+    expect(snap.all!.sheets).toHaveLength(4);
+    expect(snap.loadAllFailed).toBe(true);
+    expect(snap.loadingAll).toBe(false);
+    expect(snap.offline).toBe(false);
+  });
+
+  it("does not mark offline for a timeout of the first batch either, but does for no network", async () => {
+    const timeout = newEngine(
+      handlerFor(() => {
+        throw new ApiError("timeout", "The request timed out.");
+      }),
+    );
+    await timeout.engine.init();
+    await timeout.engine.loadAll();
+    expect(timeout.engine.getSnapshot()).toMatchObject({
+      loadAllFailed: true,
+      offline: false,
+    });
+
+    const network = newEngine(
+      handlerFor(() => {
+        throw new ApiError("network", "Network error.");
+      }),
+    );
+    await network.engine.init();
+    await network.engine.loadAll();
+    expect(network.engine.getSnapshot()).toMatchObject({
+      loadAllFailed: true,
+      offline: true,
+    });
+  });
+
+  it("lets a newer load replace an older one", async () => {
+    const { engine, calls } = newEngine(handlerFor());
+    await engine.init();
+    const first = engine.loadAll();
+    const second = engine.loadAll(["tab 0"]);
+    await Promise.all([first, second]);
+    const loads = calls.filter((c) => c.action === "getAllTransactions");
+    // The first load stopped before its first request ran; only the second one read anything
+    expect(loads).toHaveLength(1);
+    expect(loads[0]).toMatchObject({ sheetNames: ["tab 0"] });
+  });
+});
+
+describe("SyncEngine split groups", () => {
+  /** Aldi, $30 in total, split into milk and soap. */
+  const groupRows = () => [
+    makeRow(0, {
+      name: "Aldi | ",
+      cost: 18,
+      costFormula: "=30-R[1]C[0]-R[2]C[0]",
+      splitGroupId: "0",
+    }),
+    makeRow(1, { name: "Aldi | milk", cost: 10.83, splitGroupId: "0" }),
+    makeRow(2, { name: "Aldi | soap", cost: 1.17, splitGroupId: "0" }),
+    makeRow(3, { name: "Shell", cost: 30 }),
+  ];
+  const pendingForever = (req: ApiRequestBody) =>
+    req.action === "getState" ? makeState(groupRows()) : new Promise(() => {});
+  const groupTotal = (rows: { cost: number | null }[]) =>
+    rows.slice(0, 3).reduce((s, r) => s + (r.cost ?? 0), 0);
+
+  it("keeps the parent's remainder up to date when a child's cost is edited", async () => {
+    const { engine } = newEngine(pendingForever);
+    await engine.init();
+    const soap = engine.getSnapshot().states[SHEET].transactions[2]!;
+    engine.enqueueUpdate(SHEET, soap, { costExpression: "5" });
+    const rows = rowsOf(engine);
+    expect(rows[2].cost).toBe(5);
+    expect(rows[0]).toMatchObject({ cost: 14.17, pending: true });
+    expect(groupTotal(rows)).toBeCloseTo(30, 9);
+    // Other rows are untouched
+    expect(rows[3].cost).toBe(30);
+  });
+
+  it("moves the remainder by a queued change of the split total", async () => {
+    const { engine } = newEngine(pendingForever);
+    await engine.init();
+    const parent = engine.getSnapshot().states[SHEET].transactions[0]!;
+    engine.enqueueUpdate(SHEET, parent, { splitTotal: "40" });
+    const rows = rowsOf(engine);
+    expect(rows[0]).toMatchObject({
+      cost: 28,
+      costFormula: "=40-R[1]C[0]-R[2]C[0]",
+    });
+    expect(groupTotal(rows)).toBeCloseTo(40, 9);
+  });
+
+  it("shows a renamed split's new prefix on every child", async () => {
+    const { engine } = newEngine(pendingForever);
+    await engine.init();
+    const parent = engine.getSnapshot().states[SHEET].transactions[0]!;
+    engine.enqueueUpdate(SHEET, parent, { name: "Lidl | " });
+    expect(rowsOf(engine).map((r) => r.name)).toEqual([
+      "Lidl | ",
+      "Lidl | milk",
+      "Lidl | soap",
+      "Shell",
+    ]);
+  });
+
+  it("takes the whole state back from a child's cost edit, so the parent is fresh after sync", async () => {
+    const after = groupRows();
+    after[0] = { ...after[0], cost: 14.17, fingerprint: after[0].fingerprint };
+    after[2] = makeRow(2, { name: "Aldi | soap", cost: 5, splitGroupId: "0" });
+    const { engine } = newEngine((req) =>
+      req.action === "getState" ? makeState(groupRows()) : makeState(after),
+    );
+    await engine.init();
+    const soap = engine.getSnapshot().states[SHEET].transactions[2]!;
+    engine.enqueueUpdate(SHEET, soap, { costExpression: "5" });
+    await engine.flush();
+    expect(engine.getSnapshot().queue).toHaveLength(0);
+    const rows = rowsOf(engine);
+    expect(rows[0].cost).toBe(14.17);
+    expect(rows[0].pending).toBeUndefined();
+    expect(groupTotal(rows)).toBeCloseTo(30, 9);
+  });
+
+  it("re-bases a queued child change after the parent's rename renamed it", async () => {
+    const renamed = groupRows().map((r) =>
+      r.splitGroupId === "0"
+        ? {
+            ...r,
+            name: r.name.replace("Aldi", "Lidl"),
+            fingerprint: `new${r.rowIndex}`,
+          }
+        : r,
+    );
+    const { engine, calls } = newEngine((req) => {
+      if (req.action !== "updateTransaction") return makeState(groupRows());
+      if (req.rowIndex === 0) return makeState(renamed);
+      if (req.baseFingerprint !== "new1")
+        throw new ApiError("conflict", "row changed", renamed[1]);
+      return { ...renamed[1], envelope: "Gas", fingerprint: "after1" };
+    });
+    await engine.init();
+    const [parent, milk] = engine.getSnapshot().states[SHEET].transactions;
+    engine.enqueueUpdate(SHEET, parent!, { name: "Lidl | " });
+    engine.enqueueUpdate(SHEET, milk!, { envelope: "Gas" });
+    await engine.flush();
+    await flush();
+    expect(engine.getSnapshot().conflicts).toHaveLength(0);
+    expect(engine.getSnapshot().queue).toHaveLength(0);
+    expect(
+      calls.filter((c) => c.action === "updateTransaction").at(-1),
+    ).toMatchObject({
+      rowIndex: 1,
+      baseFingerprint: "new1",
+    });
+  });
+});
+
+describe("SyncEngine replayed changes", () => {
+  it("accepts a conflict silently when the sheet already has the change", async () => {
+    const base = twoRows()[0];
+    const current = {
+      ...base,
+      envelope: "Groceries",
+      cost: 12.5,
+      costFormula: null,
+      costDisplay: "$12.50",
+      fingerprint: "remote02",
+    };
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getState") return makeState(twoRows());
+      throw new ApiError("conflict", "row changed", current);
+    });
+    await engine.init();
+    engine.enqueueUpdate(
+      SHEET,
+      engine.getSnapshot().states[SHEET].transactions[0]!,
+      {
+        envelope: "Groceries",
+        costExpression: "12.50",
+      },
+    );
+    await engine.flush();
+    await flush();
+    expect(engine.getSnapshot().conflicts).toHaveLength(0);
+    expect(engine.getSnapshot().queue).toHaveLength(0);
+    expect(engine.getSnapshot().states[SHEET].transactions[0]).toEqual(current);
+    expect(calls.filter((c) => c.action === "updateTransaction")).toHaveLength(
+      1,
+    );
+  });
+
+  it("still asks when the remote value differs from the local change", async () => {
+    const current = {
+      ...twoRows()[0],
+      envelope: "Gas",
+      fingerprint: "remote03",
+    };
+    const { engine } = newEngine((req) => {
+      if (req.action === "getState") return makeState(twoRows());
+      throw new ApiError("conflict", "row changed", current);
+    });
+    await engine.init();
+    engine.enqueueUpdate(
+      SHEET,
+      engine.getSnapshot().states[SHEET].transactions[0]!,
+      {
+        envelope: "Groceries",
+      },
+    );
+    await engine.flush();
+    expect(engine.getSnapshot().conflicts).toHaveLength(1);
   });
 });

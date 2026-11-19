@@ -45,6 +45,7 @@ export function RuleCard({
         <TextField
           className="flex-1"
           label="Rule id"
+          help="ruleId"
           value={rule.id}
           issues={at("id")}
           mono
@@ -64,6 +65,7 @@ export function RuleCard({
       <div className="grid gap-3 sm:grid-cols-[1fr_6rem]">
         <TextField
           label="Subject pattern"
+          help="subjectPattern"
           value={rule.subject.pattern}
           issues={[...at("subject"), ...at("subject.pattern")]}
           mono
@@ -73,6 +75,7 @@ export function RuleCard({
         />
         <TextField
           label="Subject flags"
+          help="subjectFlags"
           value={rule.subject.flags ?? ""}
           issues={at("subject.flags")}
           mono
@@ -88,6 +91,7 @@ export function RuleCard({
 
       <CheckboxField
         label="Also match the body"
+        help="bodyEnabled"
         checked={body !== undefined}
         onChange={(checked) =>
           onChange(
@@ -103,6 +107,7 @@ export function RuleCard({
         <div className="grid gap-3 sm:grid-cols-[10rem_1fr_6rem]">
           <SelectField
             label="Body source"
+            help="bodySource"
             value={body.source}
             options={BODY_SOURCES}
             issues={at("body.source")}
@@ -112,6 +117,7 @@ export function RuleCard({
           />
           <TextField
             label="Body pattern"
+            help="bodyPattern"
             value={body.pattern}
             issues={[...at("body"), ...at("body.pattern")]}
             mono
@@ -121,6 +127,7 @@ export function RuleCard({
           />
           <TextField
             label="Body flags"
+            help="bodyFlags"
             value={body.flags ?? ""}
             issues={at("body.flags")}
             mono
@@ -134,6 +141,7 @@ export function RuleCard({
       <div className="grid gap-3 sm:grid-cols-2">
         <TextField
           label="Name"
+          help="name"
           value={rule.name ?? ""}
           issues={at("name")}
           mono
@@ -142,6 +150,7 @@ export function RuleCard({
         />
         <TextField
           label="Name fallback"
+          help="nameFallback"
           value={rule.nameFallback ?? ""}
           issues={at("nameFallback")}
           mono
@@ -153,6 +162,7 @@ export function RuleCard({
 
       <CheckboxField
         label="Has a cost"
+        help="costEnabled"
         checked={cost !== undefined}
         onChange={(checked) =>
           onChange(
@@ -168,6 +178,7 @@ export function RuleCard({
         <div className="grid gap-3 sm:grid-cols-[10rem_1fr_auto] sm:items-end">
           <SelectField
             label="Cost source"
+            help="costSource"
             value={cost.source}
             options={COST_SOURCES}
             issues={at("cost.source")}
@@ -177,6 +188,7 @@ export function RuleCard({
           />
           <TextField
             label="Cost group"
+            help="costGroup"
             value={cost.group}
             issues={[...at("cost"), ...at("cost.group")]}
             mono
@@ -186,6 +198,7 @@ export function RuleCard({
           />
           <CheckboxField
             label="Negate (refund)"
+            help="costNegate"
             checked={cost.negate === true}
             onChange={(negate) =>
               onChange({
@@ -199,6 +212,7 @@ export function RuleCard({
 
       <TextField
         label="Category"
+        help="category"
         value={rule.category ?? ""}
         issues={at("category")}
         onChange={(category) =>

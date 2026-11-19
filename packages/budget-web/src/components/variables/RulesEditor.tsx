@@ -143,6 +143,7 @@ export function RulesEditor({
         </p>
         <TextField
           label="Default type prefix"
+          help="defaultTypePrefix"
           value={config.defaultTypePrefix}
           issues={issuesFor(issues, "defaultTypePrefix")}
           hint='Used for "Prefix by recipient" senders when the email was not for the forwarder.'

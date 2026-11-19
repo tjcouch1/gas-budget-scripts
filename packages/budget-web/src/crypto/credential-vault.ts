@@ -8,6 +8,10 @@ import type { KeyValueStore } from "./kv-store.ts";
  * exists only in the scope of whoever calls `load()` (the API client's request
  * function); it is never held in module state. This protects copied storage
  * dumps, not script running in the page.
+ *
+ * Exception: crypto.subtle exists only in secure contexts (HTTPS or localhost). Where it is
+ * missing (e.g. plain http on a LAN IP) nothing can be encrypted, so the credentials are kept in
+ * memory for the page session only and are never written to storage in plaintext.
  */
 
 export interface Credentials {
@@ -52,8 +56,26 @@ export function validateCredentials(credentials: Credentials): void {
   if (!credentials.apiKey.trim()) throw new Error("The API key is required.");
 }
 
+/** Whether encrypted persistence is possible here (Web Crypto is secure-context only). */
+export function canPersistCredentials(): boolean {
+  return (
+    typeof globalThis.crypto !== "undefined" &&
+    typeof globalThis.crypto.subtle !== "undefined" &&
+    typeof globalThis.crypto.subtle.generateKey === "function"
+  );
+}
+
 export class CredentialVault implements CredentialSource {
-  constructor(private readonly store: KeyValueStore) {}
+  /** False in an insecure context: credentials then live in memory for this session only. */
+  readonly persistent: boolean;
+  private sessionCredentials: Credentials | null = null;
+
+  constructor(
+    private readonly store: KeyValueStore,
+    options?: { persistent?: boolean },
+  ) {
+    this.persistent = options?.persistent ?? canPersistCredentials();
+  }
 
   private async getOrCreateKey(): Promise<CryptoKey> {
     const existing = await this.store.get<CryptoKey>(KEY_ID);
@@ -69,6 +91,13 @@ export class CredentialVault implements CredentialSource {
 
   async save(credentials: Credentials): Promise<void> {
     validateCredentials(credentials);
+    if (!this.persistent) {
+      this.sessionCredentials = {
+        gasWebAppUrl: credentials.gasWebAppUrl.trim(),
+        apiKey: credentials.apiKey.trim(),
+      };
+      return;
+    }
     const key = await this.getOrCreateKey();
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const plaintext = new TextEncoder().encode(
@@ -87,11 +116,14 @@ export class CredentialVault implements CredentialSource {
   }
 
   async hasCredentials(): Promise<boolean> {
+    if (!this.persistent) return this.sessionCredentials !== null;
     return (await this.store.get(BLOB_ID)) !== undefined;
   }
 
   /** Decrypts in memory. Callers must not retain the result beyond their request. */
   async load(): Promise<Credentials | null> {
+    if (!this.persistent)
+      return this.sessionCredentials && { ...this.sessionCredentials };
     const blob = await this.store.get<EncryptedBlob>(BLOB_ID);
     const key = await this.store.get<CryptoKey>(KEY_ID);
     if (!blob || !key) return null;
@@ -117,6 +149,8 @@ export class CredentialVault implements CredentialSource {
   }
 
   async forget(): Promise<void> {
+    this.sessionCredentials = null;
+    if (!this.persistent) return;
     await this.store.delete(BLOB_ID);
     await this.store.delete(KEY_ID);
   }

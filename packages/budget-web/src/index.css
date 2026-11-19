@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+@theme {
+  --text-2xs: 0.65rem;
+}
+
 :root {
   color-scheme: light dark;
 }

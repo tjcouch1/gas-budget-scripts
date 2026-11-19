@@ -83,7 +83,7 @@ export function handleApiRequest(body: unknown): ApiResponse<unknown> {
         result = handleGetState(req);
         break;
       case "getAllTransactions":
-        result = handleGetAllTransactions();
+        result = handleGetAllTransactions(req);
         break;
       case "updateTransaction":
         result = handleUpdateTransaction(req);

@@ -1,6 +1,8 @@
 import { useId, type ReactNode } from "react";
 import type { RuleIssue } from "@budget/shared";
 import { inputClass } from "../ui.tsx";
+import type { FieldHelpKey } from "./help.ts";
+import { HelpTip } from "./HelpTip.tsx";
 
 /** Issues whose path is `path` itself or something inside it ("a.b" matches "a.b", "a.b.c", "a.b[0]"). */
 export function issuesAt(issues: RuleIssue[], path: string): RuleIssue[] {
@@ -39,6 +41,7 @@ export function TextField({
   hint,
   type = "text",
   className = "",
+  help,
 }: {
   label: string;
   value: string;
@@ -49,14 +52,18 @@ export function TextField({
   hint?: ReactNode;
   type?: "text" | "number" | "email";
   className?: string;
+  help?: FieldHelpKey;
 }) {
   const id = useId();
   const issueId = `${id}-issues`;
   return (
     <div className={className}>
-      <label htmlFor={id} className="block text-sm font-medium">
-        {label}
-      </label>
+      <div className="flex flex-wrap items-center">
+        <label htmlFor={id} className="text-sm font-medium">
+          {label}
+        </label>
+        {help && <HelpTip help={help} label={label} />}
+      </div>
       <input
         id={id}
         type={type}
@@ -83,12 +90,14 @@ export function CheckboxField({
   label,
   checked,
   onChange,
+  help,
 }: {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  help?: FieldHelpKey;
 }) {
-  return (
+  const box = (
     <label className="flex min-h-11 items-center gap-2 text-sm">
       <input
         type="checkbox"
@@ -99,6 +108,13 @@ export function CheckboxField({
       {label}
     </label>
   );
+  if (!help) return box;
+  return (
+    <div className="flex flex-wrap items-center">
+      {box}
+      <HelpTip help={help} label={label} />
+    </div>
+  );
 }
 
 export function SelectField<T extends string>({
@@ -107,7 +123,9 @@ export function SelectField<T extends string>({
   options,
   onChange,
   issues,
+  help,
 }: {
+  help?: FieldHelpKey;
   label: string;
   value: T;
   options: { value: T; label: string }[];
@@ -118,9 +136,12 @@ export function SelectField<T extends string>({
   const issueId = `${id}-issues`;
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-medium">
-        {label}
-      </label>
+      <div className="flex flex-wrap items-center">
+        <label htmlFor={id} className="text-sm font-medium">
+          {label}
+        </label>
+        {help && <HelpTip help={help} label={label} />}
+      </div>
       <select
         id={id}
         value={value}

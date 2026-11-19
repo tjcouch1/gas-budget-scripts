@@ -3,10 +3,14 @@
  * the request first; handlers validate every field server-side.
  */
 import {
+  buildSplitParentFormula,
+  buildSplitParentName,
   formatSplitCostFormula,
   getSplitGroupKey,
+  isPlainAmount,
   type AddTransactionResultDto,
   isUnsafeFreeText,
+  MAX_SHEETS_PER_READ,
   type AllTransactionsDto,
   type PayPeriodStateDto,
   type SyncReceiptsResultDto,
@@ -204,9 +208,27 @@ function mutateUnderLock<T>(
   );
 }
 
-/** `getAllTransactions`: the transactions of every pay-period sheet (read only, no lock) */
-export function handleGetAllTransactions(): HandlerResult<AllTransactionsDto> {
-  return { data: buildAllTransactions() };
+/**
+ * `getAllTransactions`: the transactions of every pay-period sheet, or only the named ones when
+ * `sheetNames` is given (read only, no lock)
+ */
+export function handleGetAllTransactions(
+  request: Json = {},
+): HandlerResult<AllTransactionsDto> {
+  let sheetNames: string[] | undefined;
+  if (request.sheetNames !== undefined) {
+    if (
+      !Array.isArray(request.sheetNames) ||
+      request.sheetNames.length === 0 ||
+      request.sheetNames.length > MAX_SHEETS_PER_READ ||
+      request.sheetNames.some((name) => typeof name !== "string")
+    )
+      badRequest(
+        `sheetNames must be an array of 1 to ${MAX_SHEETS_PER_READ} strings`,
+      );
+    sheetNames = request.sheetNames as string[];
+  }
+  return { data: buildAllTransactions(sheetNames) };
 }
 
 /** `getState`: the state of one pay-period sheet (read only, no lock) */
@@ -224,6 +246,8 @@ export function handleGetState(
 type ValidatedChanges = {
   name?: string;
   cost?: string | number;
+  /** Plain amount replacing a split parent's total (`buildSplitParentFormula`) */
+  splitTotal?: string;
   envelope?: string;
   paidWith?: string;
   taxDeductible?: TaxDeductibleValue;
@@ -234,6 +258,7 @@ const MAX_NOTE_LENGTH = 5000;
 
 const CHANGE_KEYS = new Set([
   "name",
+  "splitTotal",
   "costExpression",
   "costPreTax",
   "envelope",
@@ -267,6 +292,17 @@ function validateChanges(
   else if (costPreTax !== undefined)
     badRequest("changes.costPreTax requires changes.costExpression");
 
+  if (changes.splitTotal !== undefined) {
+    const total = requireString(changes.splitTotal, "changes.splitTotal");
+    if (!isPlainAmount(total))
+      badRequest("changes.splitTotal must be a plain number");
+    if (validated.cost !== undefined)
+      badRequest(
+        "changes.splitTotal cannot be combined with changes.costExpression",
+      );
+    validated.splitTotal = total;
+  }
+
   if (changes.envelope !== undefined)
     validated.envelope = requireOption(
       changes.envelope,
@@ -299,20 +335,26 @@ function validateChanges(
 }
 
 /**
- * `updateTransaction`: edits Name, Cost, Envelope, Paid with, and/or Tax deductible of one row.
- * Never writes Date (col 0) or Current Balance (col 3)
+ * `updateTransaction`: edits Name, Cost, Envelope, Paid with, and/or Tax deductible of one row,
+ * or a split parent's total. Renaming a split parent renames its children's prefix too.
+ * Never writes Date (col 0) or Current Balance (col 3).
+ *
+ * Returns the row, or the whole pay-period state when the row is in a split group and its name,
+ * cost, or total changed: other rows of the group changed with it (the parent's remainder, or
+ * the children's names)
  */
 export function handleUpdateTransaction(
   request: Json,
-): HandlerResult<TransactionRowDto> {
-  const { sheet, rowIndex, baseFingerprint, force } = getTarget(request);
+): HandlerResult<TransactionRowDto | PayPeriodStateDto> {
+  const { sheetName, sheet, rowIndex, baseFingerprint, force } =
+    getTarget(request);
   const changes = validateChanges(request.changes, sheetOptionsGetter(sheet));
   const baseNote =
     changes.note === undefined
       ? undefined
       : requireString(request.baseNote, "baseNote");
 
-  const data = mutateUnderLock(
+  const { row, grouped } = mutateUnderLock(
     sheet,
     rowIndex,
     baseFingerprint,
@@ -323,19 +365,59 @@ export function handleUpdateTransaction(
       /** Unchanged cells are written back as read: formula if there is one, else value */
       const asRead = (col: number) => rowFormulas[col] || rowValues[col];
 
-      // A row in a split group may only change the item note after its "|": the text before
-      // it must stay the same, or the row would fall out of its group.
+      const groupId = current.splitGroupId;
+      /** The first row of its group, or a row in no group */
+      const isGroupHead = groupId === null || groupId === String(rowIndex);
+      /** Rows of the group below a split parent (contiguous) */
+      const childIndexes =
+        groupId === String(rowIndex)
+          ? table.rows
+              .filter(
+                (r) => r.rowIndex > rowIndex && r.splitGroupId === groupId,
+              )
+              .map((r) => r.rowIndex)
+          : [];
+
+      let name = changes.name;
+      const renamesGroup =
+        name !== undefined &&
+        getSplitGroupKey(name) !== getSplitGroupKey(current.name);
+      // A child row of a split group may only change the item note after its "|": the text
+      // before it must stay the same, or the row would fall out of its group. A split parent
+      // renames the whole group instead (its children get the new prefix below).
       if (
-        changes.name !== undefined &&
+        name !== undefined &&
         current.name.includes("|") &&
-        !(
-          changes.name.includes("|") &&
-          getSplitGroupKey(changes.name) === getSplitGroupKey(current.name)
-        )
+        !isGroupHead &&
+        !(name.includes("|") && !renamesGroup)
       )
         badRequest(
           "Cannot rename a row in a split group (its name contains |) because that could break the group",
         );
+      // A split parent keeps " | " so its children stay grouped (AGENTS.md section 3.3).
+      if (name !== undefined && renamesGroup && childIndexes.length > 0)
+        name = buildSplitParentName(name);
+
+      let cost = changes.cost;
+      if (changes.splitTotal !== undefined) {
+        const costFormulaR1C1 = table.range
+          .offset(rowIndex, COL.cost, 1, 1)
+          .getFormulasR1C1()[0][0];
+        if (!SPLIT_PARENT_FORMULA_REGEX.test(costFormulaR1C1 ?? ""))
+          badRequest(
+            "changes.splitTotal is only allowed on a split parent row",
+          );
+        try {
+          cost = buildSplitParentFormula(
+            costFormulaR1C1 ?? "",
+            changes.splitTotal,
+          );
+        } catch {
+          badRequest(
+            "changes.splitTotal cannot be applied: the cost formula does not start with a total",
+          );
+        }
+      }
 
       if (changes.cost !== undefined) {
         const costFormulaR1C1 = table.range
@@ -347,15 +429,26 @@ export function handleUpdateTransaction(
           );
       }
 
-      if (changes.name !== undefined || changes.cost !== undefined)
+      if (name !== undefined || cost !== undefined)
         table.range
           .offset(rowIndex, COL.name, 1, 2)
-          .setValues([
-            [
-              changes.name ?? asRead(COL.name),
-              changes.cost ?? asRead(COL.cost),
-            ],
-          ]);
+          .setValues([[name ?? asRead(COL.name), cost ?? asRead(COL.cost)]]);
+
+      // Renaming a split parent: each child keeps its text after "|" and gets the new prefix.
+      if (name !== undefined && renamesGroup && childIndexes.length > 0) {
+        const prefix = getSplitGroupKey(name);
+        table.range
+          .offset(childIndexes[0], COL.name, childIndexes.length, 1)
+          .setValues(
+            childIndexes.map((r) => {
+              const childName = table.rows[r].name;
+              const bar = childName.indexOf("|");
+              return [
+                bar < 0 ? childName : `${prefix} |${childName.slice(bar + 1)}`,
+              ];
+            }),
+          );
+      }
 
       if (
         changes.envelope !== undefined ||
@@ -375,12 +468,20 @@ export function handleUpdateTransaction(
       if (changes.note !== undefined)
         table.range.offset(rowIndex, COL.name, 1, 1).setNote(changes.note);
 
-      return readTransactionTable(sheet).rows[rowIndex];
+      const updated = readTransactionTable(sheet).rows[rowIndex];
+      return {
+        row: updated,
+        grouped:
+          (groupId !== null || updated.splitGroupId !== null) &&
+          (name !== undefined || cost !== undefined),
+      };
     },
     baseNote,
   );
 
-  return { data };
+  if (!grouped) return { data: row };
+  const { state, warnings } = buildPayPeriodState(sheetName);
+  return { data: state, warnings };
 }
 
 /** Per-item fields written after the native split: Tax Deductible (col 6) and the Name note */

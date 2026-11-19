@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSplitParentFormula,
   evaluateMathExpression,
   formatSplitCostFormula,
+  isPlainAmount,
+  normalizePlainAmount,
+  splitParentFormulaParts,
 } from "../src/index.ts";
 
 describe("evaluateMathExpression", () => {
@@ -131,5 +135,62 @@ describe("formatSplitCostFormula", () => {
     expect(() => formatSplitCostFormula(expr, true, 1.0825)).toThrow(
       /Invalid cost expression/,
     );
+  });
+});
+
+describe("isPlainAmount / normalizePlainAmount", () => {
+  it("accepts plain numbers with an optional leading minus and one dot", () => {
+    for (const ok of ["12", "-3.5", ".25", "7.", "123288.0288", " 4 ", "-.5"])
+      expect(isPlainAmount(ok)).toBe(true);
+  });
+
+  it("rejects letters, operators, currency, commas, and extra dots", () => {
+    for (const bad of [
+      "",
+      "-",
+      ".",
+      "1.2.3",
+      "$12",
+      "1,200",
+      "12a",
+      "1+2",
+      "--1",
+      "1-",
+      "e5",
+    ])
+      expect(isPlainAmount(bad)).toBe(false);
+  });
+
+  it("keeps the number as typed, dropping only a trailing dot", () => {
+    expect(normalizePlainAmount(" 123288.0288 ")).toBe("123288.0288");
+    expect(normalizePlainAmount("7.")).toBe("7");
+    expect(normalizePlainAmount("1,200")).toBeNull();
+  });
+});
+
+describe("splitParentFormulaParts / buildSplitParentFormula", () => {
+  it("reads the total of R1C1 and A1 split parent formulas", () => {
+    expect(splitParentFormulaParts("=45-R[1]C[0]-R[2]C[0]")).toEqual({
+      totalExpression: "45",
+      total: 45,
+      refs: "-R[1]C[0]-R[2]C[0]",
+    });
+    expect(splitParentFormulaParts("=45-C12-C13")?.total).toBe(45);
+    expect(splitParentFormulaParts("=10+5-R[1]C[0]")?.total).toBe(15);
+    expect(splitParentFormulaParts("=45")).toBeNull();
+    expect(splitParentFormulaParts("=-R[1]C[0]")).toBeNull();
+    expect(splitParentFormulaParts(null)).toBeNull();
+  });
+
+  it("replaces only the total with a validated plain amount", () => {
+    expect(buildSplitParentFormula("=45-R[1]C[0]-R[2]C[0]", "50.25")).toBe(
+      "=50.25-R[1]C[0]-R[2]C[0]",
+    );
+    expect(buildSplitParentFormula("=10+5-R[1]C[0]", "20")).toBe(
+      "=20-R[1]C[0]",
+    );
+    expect(() => buildSplitParentFormula("=45-R[1]C[0]", "1+1")).toThrow();
+    expect(() => buildSplitParentFormula("=45-R[1]C[0]", "")).toThrow();
+    expect(() => buildSplitParentFormula("=45", "50")).toThrow();
   });
 });

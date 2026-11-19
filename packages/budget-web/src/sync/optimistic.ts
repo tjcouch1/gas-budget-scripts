@@ -3,10 +3,12 @@ import {
   buildSplitParentName,
   evaluateMathExpression,
   formatSplitCostFormula,
+  getSplitGroupKey,
+  normalizePlainAmount,
+  splitParentFormulaParts,
   type TransactionChanges,
   type TransactionRowDto,
 } from "@budget/shared";
-import { formatMoney } from "../lib/format.ts";
 import type { ViewRow } from "../lib/rows.ts";
 import type {
   AddMutation,
@@ -16,7 +18,15 @@ import type {
   SplitMutation,
 } from "./types.ts";
 
-/** Applies an update's changes to a row the way the sheet will show them. */
+const roundCents = (n: number) => Math.round(n * 100) / 100;
+/** Drops floating point noise (e.g. 39.599999999999994 -> 39.6) without rounding to cents. */
+const clean = (n: number) => Number(n.toPrecision(12));
+
+/**
+ * Applies an update's changes to a row the way the sheet will show them. Costs are kept as plain
+ * numbers; `costDisplay` is cleared (the sheet's display text comes back with the next pull), so
+ * the UI formats `cost` for display.
+ */
 export function applyChangesToRow(
   row: TransactionRowDto,
   changes: TransactionChanges,
@@ -41,9 +51,19 @@ export function applyChangesToRow(
       );
       next.cost = value;
       next.costFormula = typeof formula === "string" ? formula : null;
-      next.costDisplay = formatMoney(value);
+      next.costDisplay = "";
     } catch {
       // Invalid expressions never reach the queue; ignore defensively.
+    }
+  }
+  if (changes.splitTotal !== undefined) {
+    // The parent's remainder moves by the change of its total (`=<total>-<children>`).
+    const parts = splitParentFormulaParts(row.costFormula);
+    const total = normalizePlainAmount(changes.splitTotal);
+    if (parts && parts.total !== null && total !== null && next.cost !== null) {
+      next.cost = clean(next.cost + Number(total) - parts.total);
+      next.costFormula = `=${total}${parts.refs}`;
+      next.costDisplay = "";
     }
   }
   return next;
@@ -64,8 +84,8 @@ export function applySplitToParent(
   };
   if (parent.envelope !== undefined) next.envelope = parent.envelope;
   if (next.cost !== null) {
-    next.cost = Math.round((next.cost - splitTotal) * 100) / 100;
-    next.costDisplay = formatMoney(next.cost);
+    next.cost = roundCents(next.cost - splitTotal);
+    next.costDisplay = "";
   }
   return next;
 }
@@ -168,7 +188,7 @@ export function buildViewRows(
             name: buildSplitChildName(t.name, s.itemNote),
             cost: value,
             costFormula: null,
-            costDisplay: formatMoney(value),
+            costDisplay: "",
             envelope: s.envelope,
             paidWith: s.paidWith ?? t.paidWith,
             taxDeductible: s.taxDeductible ?? "",
@@ -194,9 +214,59 @@ export function buildViewRows(
     }
     rows.push(row, ...synthetic);
   }
+  applyGroupEdits(rows, state.transactions);
   // Queued new rows go at the end, where the server will write them.
   adds.forEach((m, i) => rows.push(pendingAddRow(m, i, state, prefix)));
   return rows;
+}
+
+/**
+ * Keeps each split group consistent with queued edits of its rows, like the sheet's formulas do:
+ * the parent's remainder (`=<total>-R[1]C[0]-...`) drops by however much its children's costs
+ * went up, and a renamed parent's new prefix (before "|") is shown on every child. Changes `rows`
+ * in place.
+ */
+function applyGroupEdits(
+  rows: ViewRow[],
+  server: (TransactionRowDto | null)[],
+): void {
+  const groups = new Map<string, ViewRow[]>();
+  for (const row of rows) {
+    if (row.splitGroupId === null) continue;
+    const list = groups.get(row.splitGroupId) ?? [];
+    list.push(row);
+    groups.set(row.splitGroupId, list);
+  }
+  for (const list of groups.values()) {
+    const head = list[0];
+    const serverHead = server[head.rowIndex];
+    if (list.length < 2 || head.synthetic || !serverHead) continue;
+    const children = list.slice(1);
+    let delta = 0;
+    for (const child of children) {
+      const before = child.synthetic ? null : server[child.rowIndex];
+      if (before && before.cost !== null && child.cost !== null)
+        delta += child.cost - before.cost;
+    }
+    const index = rows.indexOf(head);
+    if (delta !== 0 && head.cost !== null)
+      rows[index] = {
+        ...rows[index],
+        cost: clean(head.cost - delta),
+        costDisplay: "",
+        pending: true,
+      };
+    const prefix = getSplitGroupKey(head.name);
+    if (prefix !== getSplitGroupKey(serverHead.name))
+      for (const child of children) {
+        const bar = child.name.indexOf("|");
+        if (bar < 0 || getSplitGroupKey(child.name) === prefix) continue;
+        rows[rows.indexOf(child)] = {
+          ...child,
+          name: `${prefix} |${child.name.slice(bar + 1)}`,
+        };
+      }
+  }
 }
 
 /** The placeholder row of a queued `addTransaction`, as the sheet will show it. */
@@ -241,4 +311,31 @@ function pendingAddRow(
     pending: true,
     synthetic: true,
   };
+}
+
+const sameText = (a: string, b: string) => a.trimEnd() === b.trimEnd();
+
+/**
+ * True when two rows hold the same values in every field the user can edit (name, cost, envelope,
+ * paid with, tax deductible, note). Costs compare by value when both are numbers, so `12.5` and
+ * `=12.5`, or a formula in R1C1 and in A1 notation, match; otherwise by their text.
+ */
+export function sameEditableValues(
+  a: TransactionRowDto,
+  b: TransactionRowDto,
+): boolean {
+  const costText = (r: TransactionRowDto) =>
+    (r.costFormula ?? r.costDisplay).replace(/\s+/g, "").toUpperCase();
+  const sameCost =
+    a.cost !== null && b.cost !== null
+      ? Math.abs(a.cost - b.cost) <= 1e-9 * Math.max(1, Math.abs(a.cost))
+      : a.cost === b.cost && costText(a) === costText(b);
+  return (
+    sameCost &&
+    sameText(a.name, b.name) &&
+    sameText(a.envelope, b.envelope) &&
+    sameText(a.paidWith, b.paidWith) &&
+    sameText(a.taxDeductible, b.taxDeductible) &&
+    a.note === b.note
+  );
 }

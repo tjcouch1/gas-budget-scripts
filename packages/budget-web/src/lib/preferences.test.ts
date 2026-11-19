@@ -32,3 +32,24 @@ describe("envelope expanded preference", () => {
     vi.restoreAllMocks();
   });
 });
+
+describe("recent envelopes", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("keeps the most recent choice first without duplicates", async () => {
+    const { getRecentEnvelopes, recordRecentEnvelope } =
+      await import("./preferences.ts");
+    expect(getRecentEnvelopes()).toEqual([]);
+    recordRecentEnvelope("Gas");
+    recordRecentEnvelope("Groceries");
+    recordRecentEnvelope("Gas");
+    recordRecentEnvelope("");
+    expect(getRecentEnvelopes()).toEqual(["Gas", "Groceries"]);
+  });
+
+  it("ignores corrupt storage", async () => {
+    const { getRecentEnvelopes } = await import("./preferences.ts");
+    localStorage.setItem("budget.recentEnvelopes", "{oops");
+    expect(getRecentEnvelopes()).toEqual([]);
+  });
+});

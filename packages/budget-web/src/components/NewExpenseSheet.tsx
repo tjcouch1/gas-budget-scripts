@@ -1,11 +1,14 @@
 import { useRef, useState } from "react";
-import {
-  evaluateMathExpression,
-  isUnsafeFreeText,
-  type NewTransactionFields,
-} from "@budget/shared";
+import { isUnsafeFreeText, type NewTransactionFields } from "@budget/shared";
+import { checkPlainAmount } from "../lib/row-draft.ts";
 import { formatMoney, formatShortDate } from "../lib/format.ts";
+import type { EnvelopeRowDto } from "@budget/shared";
+import {
+  getPaidWithExpanded,
+  setPaidWithExpanded,
+} from "../lib/preferences.ts";
 import { ChipChooser } from "./ChipChooser.tsx";
+import { EnvelopeChipChooser } from "./EnvelopeChipChooser.tsx";
 import {
   Button,
   Dialog,
@@ -39,6 +42,8 @@ interface Draft {
 export function NewExpenseSheet({
   period,
   envelopeOptions,
+  envelopeLayoutOptions,
+  envelopes = null,
   paidWithOptions,
   today = todayLocalIso(),
   onSave,
@@ -47,6 +52,10 @@ export function NewExpenseSheet({
   /** The selected pay period's first and last day (yyyy-MM-dd); null when unknown. */
   period: { startDate: string; endDate: string } | null;
   envelopeOptions: string[] | null;
+  /** Envelope choices in the sheet's layout order (shown when expanded). */
+  envelopeLayoutOptions?: string[] | null;
+  /** Envelope table rows, for the remaining amount on each pill. */
+  envelopes?: EnvelopeRowDto[] | null;
   paidWithOptions: string[] | null;
   /** The default date (yyyy-MM-dd). */
   today?: string;
@@ -68,9 +77,11 @@ export function NewExpenseSheet({
   const setDraft = (patch: Partial<Draft>) =>
     setDraftState((d) => ({ ...d, ...patch }));
 
-  const expression = draft.cost.trim().replace(/^=/, "").trim();
-  const value = expression ? evaluateMathExpression(expression) : null;
-  const costInvalid = expression !== "" && value === null;
+  const costCheck = checkPlainAmount(draft.cost);
+  const expression = costCheck.amount;
+  const value = expression === null ? null : Number(expression);
+  // Blank is not flagged inline (the form just cannot be saved yet); anything else must be a number.
+  const costInvalid = draft.cost.trim() !== "" && costCheck.error !== null;
   const nameUnsafe = isUnsafeFreeText(draft.name);
   const dateValid = ISO_DATE.test(draft.date);
   const outsidePeriod =
@@ -94,7 +105,7 @@ export function NewExpenseSheet({
     onSave({
       date: draft.date,
       name: draft.name,
-      costExpression: expression,
+      costExpression: expression ?? "",
       envelope: draft.envelope,
       paidWith: draft.paidWith,
       taxDeductible: draft.taxDeductible ? "Yes" : "",
@@ -176,7 +187,7 @@ export function NewExpenseSheet({
             aria-label="Cost"
             aria-invalid={costInvalid}
             inputMode="decimal"
-            placeholder="Amount, e.g. 4.23*2+3"
+            placeholder="Amount, e.g. 12.34"
             value={draft.cost}
             onChange={(e) => setDraft({ cost: e.target.value })}
           />
@@ -184,12 +195,19 @@ export function NewExpenseSheet({
             {formatMoney(value)}
           </span>
         </div>
+        {costInvalid && costCheck.error && (
+          <p role="alert" className="-mt-2 text-xs text-red-600">
+            {costCheck.error}
+          </p>
+        )}
         {envelopeOptions && (
-          <ChipChooser
-            label="Envelope"
+          <EnvelopeChipChooser
             options={envelopeOptions}
+            layoutOptions={envelopeLayoutOptions}
+            envelopes={envelopes}
             value={draft.envelope}
             onSelect={(envelope) => setDraft({ envelope })}
+            follow
           />
         )}
         {paidWithOptions && (
@@ -198,6 +216,8 @@ export function NewExpenseSheet({
             options={paidWithOptions}
             value={draft.paidWith}
             onSelect={(paidWith) => setDraft({ paidWith })}
+            defaultExpanded={getPaidWithExpanded()}
+            onExpandedChange={setPaidWithExpanded}
           />
         )}
         <label className="flex min-h-11 items-center gap-2 text-sm">

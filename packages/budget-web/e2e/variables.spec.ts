@@ -79,7 +79,7 @@ test.describe("Customize variables", () => {
     const dialog = await openVariables(page);
     await dialog
       .getByRole("group", { name: "Rule chase-purchase" })
-      .getByLabel("Subject pattern")
+      .getByRole("textbox", { name: "Subject pattern" })
       .fill("(");
     await expect(
       dialog.getByRole("group", { name: "Rule problems" }),

@@ -14,6 +14,8 @@ function Root() {
   >(null);
 
   useEffect(() => {
+    // Service workers exist only in secure contexts (HTTPS/localhost); skip them elsewhere.
+    if (!("serviceWorker" in navigator)) return;
     const update = registerSW({
       onNeedRefresh: () => setUpdateAvailable(true),
     });

@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import type { ReceiptRule, RuleIssue, SenderRules } from "@budget/shared";
 import { Button, ConfirmDialog } from "../ui.tsx";
 import { CheckboxField, issuesFor, TextField } from "./fields.tsx";
+import { HelpTip } from "./HelpTip.tsx";
 import { RuleCard } from "./RuleCard.tsx";
 
 function newRule(existing: ReceiptRule[]): ReceiptRule {
@@ -40,6 +41,7 @@ export function SenderCard({
       <div className="grid gap-3 sm:grid-cols-2">
         <TextField
           label="Sender address"
+          help="senderAddress"
           type="email"
           value={sender.address}
           issues={at("address")}
@@ -49,6 +51,7 @@ export function SenderCard({
         />
         <TextField
           label="Paid with type"
+          help="senderType"
           value={sender.type}
           issues={at("type")}
           placeholder="Credit"
@@ -56,7 +59,10 @@ export function SenderCard({
         />
       </div>
       <fieldset>
-        <legend className="text-sm font-medium">Type prefix</legend>
+        <legend className="flex items-center text-sm font-medium">
+          Type prefix
+          <HelpTip help="typePrefix" label="Type prefix" />
+        </legend>
         <div className="flex flex-wrap gap-x-4">
           {(
             [
@@ -82,6 +88,7 @@ export function SenderCard({
       </fieldset>
       <CheckboxField
         label="Forwardable"
+        help="forwardable"
         checked={sender.forwardable}
         onChange={(forwardable) => onChange({ ...sender, forwardable })}
       />

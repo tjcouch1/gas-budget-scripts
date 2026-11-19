@@ -37,11 +37,11 @@ test.describe("new expense", () => {
     const dialog = page.getByRole("dialog", { name: "New expense" });
     await dialog.getByLabel("Date").fill(period.startDate);
     await dialog.getByLabel("Name").fill("E2E Farmers Market");
-    await dialog.getByLabel("Cost").fill("4.25*2");
+    await dialog.getByLabel("Cost").fill("8.50");
     await expect(dialog.getByText("$8.50")).toBeVisible();
     await dialog
       .getByRole("group", { name: "Envelope" })
-      .getByRole("button", { name: "Groceries", exact: true })
+      .getByRole("button", { name: /^Groceries/ })
       .click();
     await dialog
       .getByRole("group", { name: "Paid with" })
@@ -62,7 +62,8 @@ test.describe("new expense", () => {
     const row = findRow(await backend.dump(sheetName), "E2E Farmers Market");
     // Written right after the last non-empty row
     expect(row.rowIndex).toBe(lastFilled + 1);
-    expect(row.formulas[COL.cost]).toBe("=4.25*2");
+    expect(row.values[COL.cost]).toBe(8.5); // a plain number, no formula
+    expect(row.formulas[COL.cost]).toBe("");
     expect(row.values[COL.envelope]).toBe("Groceries");
     expect(row.values[COL.paidWith]).toBe("Cash");
     expect(row.notes[COL.name]).toBe("from the market");

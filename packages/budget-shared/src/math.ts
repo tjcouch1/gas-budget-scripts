@@ -116,3 +116,63 @@ export function formatSplitCostFormula(
   if (NUMERIC_LITERAL.test(cleaned)) return Number(cleaned);
   return `=${cleaned}`;
 }
+
+/** A plain amount: optional leading "-", digits, and at most one "." (e.g. `12`, `-3.5`, `.25`, `7.`). */
+const PLAIN_AMOUNT = /^-?(?:\d+\.?\d*|\.\d+)$/;
+
+/** True when `text` (trimmed) is a plain amount: no letters, operators, "$" or thousands commas. */
+export function isPlainAmount(text: string): boolean {
+  return typeof text === "string" && PLAIN_AMOUNT.test(text.trim());
+}
+
+/**
+ * The plain amount exactly as typed (trimmed, a trailing "." dropped), ready to send as a cost
+ * expression, or null when it is not a plain amount. `"123288.0288"` stays `"123288.0288"`.
+ */
+export function normalizePlainAmount(text: string): string | null {
+  if (!isPlainAmount(text)) return null;
+  return text.trim().replace(/\.$/, "");
+}
+
+/** One subtracted child reference of a split parent formula: R1C1 `-R[n]C[0]` or A1 `-C12`. */
+const SPLIT_REFS = String.raw`((?:\s*-\s*(?:R\[[1-9]\d*\]C(?:\[0\])?|\$?[A-Za-z]{1,3}\$?\d+))+)`;
+const SPLIT_PARENT_PARTS = new RegExp(
+  String.raw`^=\s*(.*?)` + SPLIT_REFS + String.raw`\s*$`,
+);
+
+/**
+ * Splits a split parent's cost formula (`=45-R[1]C[0]-R[2]C[0]`, or the A1 form `=45-C12-C13`
+ * that `getFormulas` returns) into its total expression (`45`) and the subtracted child
+ * references. `total` is the evaluated expression, or null when it is not plain math.
+ * Returns null when the formula does not end in child references.
+ */
+export function splitParentFormulaParts(
+  formula: string | null | undefined,
+): { totalExpression: string; total: number | null; refs: string } | null {
+  if (typeof formula !== "string") return null;
+  const m = SPLIT_PARENT_PARTS.exec(formula.trim());
+  if (!m || m[1].trim() === "") return null;
+  const totalExpression = m[1].trim();
+  return {
+    totalExpression,
+    total: evaluateMathExpression(totalExpression),
+    refs: m[2],
+  };
+}
+
+/**
+ * A split parent's cost formula with its total (the leading value before the child references)
+ * replaced by the plain amount `total`. Throws when `total` is not a plain amount or the formula
+ * is not a split parent formula (AGENTS.md section 1.4: only validated input becomes a formula).
+ */
+export function buildSplitParentFormula(
+  formula: string,
+  total: string,
+): string {
+  const amount = normalizePlainAmount(total);
+  if (amount === null || evaluateMathExpression(amount) === null)
+    throw new Error(`Invalid split total: ${total}`);
+  const parts = splitParentFormulaParts(formula);
+  if (!parts) throw new Error(`Not a split parent formula: ${formula}`);
+  return `=${amount}${parts.refs.replace(/\s+/g, "")}`;
+}
