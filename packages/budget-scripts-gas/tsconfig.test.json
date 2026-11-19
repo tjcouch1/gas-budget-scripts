@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["@types/google-apps-script", "node"]
+  },
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "dev/**/*",
+    "scripts/dev-server.ts",
+    "vitest.config.ts"
+  ]
+}

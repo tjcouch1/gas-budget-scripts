@@ -1,0 +1,19 @@
+{
+  "name": "@budget/shared",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared DTOs, fingerprint, math parser and formula builder for the budget GAS API and web app",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "author": "TJ Couch",
+  "license": "MIT"
+}

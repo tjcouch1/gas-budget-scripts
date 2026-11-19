@@ -1,0 +1,3152 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`receipt import golden end state > fetchReceiptEmails response (read-only) > fetchReceiptEmails response 1`] = `
+{
+  "error": {
+    "code": "server_error",
+    "message": "Gmail thread unavailable",
+  },
+  "ok": false,
+}
+`;
+
+exports[`receipt import golden end state > menu import without marking: same sheet, Gmail untouched, one alert > alerts 1`] = `
+[
+  "There were 2 errors while processing. Please review.",
+]
+`;
+
+exports[`receipt import golden end state > menu import without marking: same sheet, Gmail untouched, one alert > gmail 1`] = `
+[
+  {
+    "archived": false,
+    "id": "t-chasePurchase",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-chasePendingCredit",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-chaseGasStation",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-chaseStatement",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalPaymentSent",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalPaymentSentToForwarder",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalNonBreakingSpace",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalMoneyReceived",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalQuotedFrom",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalBareQuotedFrom",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalSentYou",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalSentYouNoNote",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalUnknownSubject",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalForwarded",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalForwardedJapanese",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalForwardedBegin",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-venmoPayment",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-venmoChargeCompleted",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-venmoReceived",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-venmoForwardedReceived",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-venmoForwarded",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeChaseRefundNoMerchant",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeChaseGasNoMerchant",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgePaypalSentNoBody",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgePaypalReceivedNoBody",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeVenmoPaidNoBody",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeVenmoToForwarder",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeVenmoToForwarderQuoted",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeForwardedQuotedFrom",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeUnknownSender",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeForwarderReply",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeVenmoToUnparsable",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeForwardedChase",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeForwardedTentativeFrom",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeCostNotNumber",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeZeroCostNoName",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-thread-unknownSendersOnly",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-thread-receiptWithUnknownReply",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-thread-forwardedFromUnknownSender",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-error-and-note",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-thread-fails",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-across-sheets",
+    "labels": [],
+  },
+]
+`;
+
+exports[`receipt import golden end state > menu import without marking: same sheet, Gmail untouched, one alert > result 1`] = `
+{
+  "2/18/24 - 3/2/24": 15,
+  "3/3/24 - 3/16/24": 18,
+}
+`;
+
+exports[`receipt import golden end state > menu import without marking: same sheet, Gmail untouched, one alert > sheets 1`] = `
+{
+  "2/18/24 - 3/2/24": {
+    "1,8": {
+      "value": "TransactionsStart",
+    },
+    "1,9": {
+      "value": "A5",
+    },
+    "10,1": {
+      "value": 2024-02-20T13:00:00.000Z,
+    },
+    "10,2": {
+      "value": "Jane Doe - Pizza night",
+    },
+    "10,3": {
+      "value": 15,
+    },
+    "10,6": {
+      "value": "TJ Venmo",
+    },
+    "11,1": {
+      "value": 2024-02-20T13:00:00.000Z,
+    },
+    "11,2": {
+      "value": "Jane Doe - Pizza night",
+    },
+    "11,3": {
+      "value": 15,
+    },
+    "11,6": {
+      "value": "Sam Venmo",
+    },
+    "12,1": {
+      "value": 2024-02-20T14:00:00.000Z,
+    },
+    "12,2": {
+      "value": "SHELL OIL 123 (Gas)",
+    },
+    "12,3": {
+      "background": "#E8A9CA",
+    },
+    "12,5": {
+      "value": "Gas",
+    },
+    "12,6": {
+      "value": "Credit",
+    },
+    "13,1": {
+      "value": 2024-02-20T15:00:00.000Z,
+    },
+    "13,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "13,3": {
+      "value": 25.5,
+    },
+    "13,6": {
+      "value": "TJ Paypal",
+    },
+    "14,1": {
+      "value": 2024-02-20T15:00:00.000Z,
+    },
+    "14,2": {
+      "value": "Alice - Concert tickets",
+    },
+    "14,3": {
+      "value": -40,
+    },
+    "14,6": {
+      "value": "TJ Venmo",
+    },
+    "15,1": {
+      "value": 2024-02-20T15:00:00.000Z,
+    },
+    "15,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "15,3": {
+      "value": 25.5,
+    },
+    "15,6": {
+      "value": "Sam Paypal",
+    },
+    "16,1": {
+      "value": 2024-02-20T16:00:00.000Z,
+    },
+    "16,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "16,3": {
+      "value": 25.5,
+    },
+    "16,6": {
+      "value": "TJ Paypal",
+    },
+    "17,1": {
+      "value": 2024-02-20T16:00:00.000Z,
+    },
+    "17,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "17,3": {
+      "value": 25.5,
+    },
+    "17,6": {
+      "value": "Sam Paypal",
+    },
+    "18,1": {
+      "value": 2024-02-20T16:00:00.000Z,
+    },
+    "18,2": {
+      "value": "Shop",
+    },
+    "18,3": {
+      "background": "#E8A9CA",
+      "value": NaN,
+    },
+    "18,6": {
+      "value": "Credit",
+    },
+    "19,1": {
+      "value": 2024-02-22T15:00:00.000Z,
+    },
+    "19,2": {
+      "background": "#FF0000",
+      "note": "Error while processing message t-error-and-note-m3 with subject z from date Thu Feb 22 2024 11:00:00 GMT-0600 (Central Standard Time) on thread t-error-and-note. Skipping marking as processed. Error: Could not get email address from z at example.org
+
+>>>>>>>>>> NOTES <<<<<<<<<<
+
+Message is not a receipt:
+From: no.reply.alerts@chase.com
+Subject: Promo
+Date: Thu Feb 22 2024 10:00:00 GMT-0600 (Central Standard Time)
+Thread ID: t-error-and-note
+280 Chars of Plain Body:
+hi",
+      "value": "Combo Shop",
+    },
+    "19,3": {
+      "value": 3.21,
+    },
+    "19,6": {
+      "value": "Credit",
+    },
+    "2,8": {
+      "value": "TransactionsMax",
+    },
+    "2,9": {
+      "value": 30,
+    },
+    "20,1": {
+      "value": 2024-02-28T12:00:00.000Z,
+    },
+    "20,2": {
+      "value": "Early Half",
+    },
+    "20,3": {
+      "value": 1.11,
+    },
+    "20,6": {
+      "value": "Credit",
+    },
+    "3,8": {
+      "value": "SplitCheckboxesStart",
+    },
+    "3,9": {
+      "value": "G5",
+    },
+    "5,1": {
+      "value": 2024-02-19T12:00:00.000Z,
+    },
+    "5,2": {
+      "value": "Existing",
+    },
+    "5,3": {
+      "value": 1,
+    },
+    "5,5": {
+      "value": "Food",
+    },
+    "5,6": {
+      "value": "Credit",
+    },
+    "6,1": {
+      "value": 2024-02-20T12:00:00.000Z,
+    },
+    "6,2": {
+      "background": "#00ff00",
+      "note": "stale note",
+      "value": "Trader Joe's",
+    },
+    "6,3": {
+      "background": "#00ff00",
+      "value": 12.34,
+    },
+    "6,5": {
+      "background": "#abcdef",
+    },
+    "6,6": {
+      "value": "Credit",
+    },
+    "7,1": {
+      "value": 2024-02-20T12:00:00.000Z,
+    },
+    "7,2": {
+      "value": "Pat Fakename - Concert tickets",
+    },
+    "7,3": {
+      "value": -8.07,
+    },
+    "7,6": {
+      "value": "TJ Paypal",
+    },
+    "8,1": {
+      "value": 2024-02-20T12:00:00.000Z,
+    },
+    "8,2": {
+      "note": "another stale note",
+      "value": "Jane Doe - Pizza night",
+    },
+    "8,3": {
+      "value": 15,
+    },
+    "8,6": {
+      "value": "Sam Venmo",
+    },
+    "9,1": {
+      "value": 2024-02-20T13:00:00.000Z,
+    },
+    "9,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "9,3": {
+      "value": 9.99,
+    },
+    "9,6": {
+      "value": "TJ Paypal",
+    },
+  },
+  "3/3/24 - 3/16/24": {
+    "1,8": {
+      "value": "TransactionsStart",
+    },
+    "1,9": {
+      "value": "A5",
+    },
+    "10,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T13:00:00.000Z,
+    },
+    "10,2": {
+      "background": "#f3f3f3",
+      "value": "Dee $ollar Example",
+    },
+    "10,3": {
+      "background": "#f3f3f3",
+      "value": -1,
+    },
+    "10,4": {
+      "background": "#f3f3f3",
+    },
+    "10,5": {
+      "background": "#f3f3f3",
+    },
+    "10,6": {
+      "background": "#f3f3f3",
+      "value": "TJ Paypal",
+    },
+    "11,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T13:00:00.000Z,
+    },
+    "11,2": {
+      "background": "#f3f3f3",
+    },
+    "11,3": {
+      "background": "#f3f3f3",
+      "value": -45,
+    },
+    "11,4": {
+      "background": "#f3f3f3",
+    },
+    "11,5": {
+      "background": "#f3f3f3",
+    },
+    "11,6": {
+      "background": "#f3f3f3",
+      "value": "Credit",
+    },
+    "12,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T13:00:00.000Z,
+    },
+    "12,2": {
+      "background": "#f3f3f3",
+      "value": "Jane Doe - Pizza night",
+    },
+    "12,3": {
+      "background": "#f3f3f3",
+      "value": 15,
+    },
+    "12,4": {
+      "background": "#f3f3f3",
+    },
+    "12,5": {
+      "background": "#f3f3f3",
+    },
+    "12,6": {
+      "background": "#f3f3f3",
+      "value": "TJ Venmo",
+    },
+    "13,1": {
+      "value": 2024-03-05T13:00:00.000Z,
+    },
+    "13,2": {
+      "background": "#E8A9CA",
+      "note": "Message is not a receipt:
+From: pat.friend@example.net
+Subject: Re: Dinner Friday?
+Date: Tue Feb 20 2024 08:00:00 GMT-0600 (Central Standard Time)
+Thread ID: t-thread-receiptWithUnknownReply
+280 Chars of Plain Body:
+Count me in!
+",
+      "value": "Pat Fakename - Concert tickets",
+    },
+    "13,3": {
+      "value": -8.07,
+    },
+    "13,6": {
+      "value": "TJ Paypal",
+    },
+    "14,1": {
+      "value": 2024-03-05T14:00:00.000Z,
+    },
+    "14,2": {
+      "value": "Bob Smith - Birthday gift",
+    },
+    "14,3": {
+      "value": -20,
+    },
+    "14,6": {
+      "value": "TJ Paypal",
+    },
+    "15,1": {
+      "value": 2024-03-05T14:00:00.000Z,
+    },
+    "15,2": {
+      "value": "Bob - Rent share",
+    },
+    "15,3": {
+      "value": 30.25,
+    },
+    "15,6": {
+      "value": "TJ Venmo",
+    },
+    "16,1": {
+      "value": 2024-03-05T14:00:00.000Z,
+    },
+    "16,2": {
+      "value": "Jane Doe - Pizza night",
+    },
+    "16,3": {
+      "value": 15,
+    },
+    "16,6": {
+      "value": "Sam Venmo",
+    },
+    "17,1": {
+      "value": 2024-03-05T15:00:00.000Z,
+    },
+    "17,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "17,3": {
+      "value": 25.5,
+    },
+    "17,6": {
+      "value": "Sam Paypal",
+    },
+    "18,1": {
+      "value": 2024-03-05T15:00:00.000Z,
+    },
+    "18,3": {
+      "value": 25.5,
+    },
+    "18,6": {
+      "value": "TJ Paypal",
+    },
+    "19,1": {
+      "value": 2024-03-05T15:00:00.000Z,
+    },
+    "19,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "19,3": {
+      "value": 25.5,
+    },
+    "19,6": {
+      "value": "Sam Paypal",
+    },
+    "2,8": {
+      "value": "TransactionsMax",
+    },
+    "2,9": {
+      "value": 30,
+    },
+    "20,1": {
+      "value": 2024-03-05T16:00:00.000Z,
+    },
+    "20,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "20,3": {
+      "value": 25.5,
+    },
+    "20,6": {
+      "value": "TJ Paypal",
+    },
+    "21,1": {
+      "value": 2024-03-05T16:00:00.000Z,
+    },
+    "21,2": {
+      "value": "Alice - Concert tickets",
+    },
+    "21,3": {
+      "value": -40,
+    },
+    "21,6": {
+      "value": "Sam Venmo",
+    },
+    "22,1": {
+      "value": 2024-03-06T12:00:00.000Z,
+    },
+    "22,2": {
+      "background": "#FF0000",
+      "note": "Error while processing thread with ID t-thread-fails. Skipping marking as processed. Error: Gmail thread unavailable",
+    },
+    "22,3": {
+      "background": "#E8A9CA",
+    },
+    "3,8": {
+      "value": "SplitCheckboxesStart",
+    },
+    "3,9": {
+      "value": "G5",
+    },
+    "5,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-04T12:00:00.000Z,
+    },
+    "5,2": {
+      "background": "#f3f3f3",
+      "value": "Late Half",
+    },
+    "5,3": {
+      "background": "#f3f3f3",
+      "value": 2.22,
+    },
+    "5,4": {
+      "background": "#f3f3f3",
+    },
+    "5,5": {
+      "background": "#f3f3f3",
+    },
+    "5,6": {
+      "background": "#f3f3f3",
+      "value": "Credit",
+    },
+    "6,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T12:00:00.000Z,
+    },
+    "6,2": {
+      "background": "#f3f3f3",
+      "value": "Jane Doe - Lunch money",
+    },
+    "6,3": {
+      "background": "#f3f3f3",
+      "value": 25.5,
+    },
+    "6,4": {
+      "background": "#f3f3f3",
+    },
+    "6,5": {
+      "background": "#f3f3f3",
+    },
+    "6,6": {
+      "background": "#f3f3f3",
+      "value": "Sam Paypal",
+    },
+    "7,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T12:00:00.000Z,
+    },
+    "7,2": {
+      "background": "#f3f3f3",
+      "value": "Jane Doe - Lunch money",
+    },
+    "7,3": {
+      "background": "#f3f3f3",
+      "value": 25.5,
+    },
+    "7,4": {
+      "background": "#f3f3f3",
+    },
+    "7,5": {
+      "background": "#f3f3f3",
+    },
+    "7,6": {
+      "background": "#f3f3f3",
+      "value": "Sam Paypal",
+    },
+    "8,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T12:00:00.000Z,
+    },
+    "8,2": {
+      "background": "#f3f3f3",
+      "value": "Jane Doe",
+    },
+    "8,3": {
+      "background": "#f3f3f3",
+      "value": 15,
+    },
+    "8,4": {
+      "background": "#f3f3f3",
+    },
+    "8,5": {
+      "background": "#f3f3f3",
+    },
+    "8,6": {
+      "background": "#f3f3f3",
+      "value": "TJ Venmo",
+    },
+    "9,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T13:00:00.000Z,
+    },
+    "9,2": {
+      "background": "#f3f3f3",
+      "value": "Target Store",
+    },
+    "9,3": {
+      "background": "#f3f3f3",
+      "value": -45,
+    },
+    "9,4": {
+      "background": "#f3f3f3",
+    },
+    "9,5": {
+      "background": "#f3f3f3",
+    },
+    "9,6": {
+      "background": "#f3f3f3",
+      "value": "Credit",
+    },
+  },
+  "Main": {},
+  "Variables": {
+    "1,1": {
+      "value": "Menu",
+    },
+    "1,2": {
+      "value": "A1",
+    },
+    "2,1": {
+      "value": "SheetVariables",
+    },
+    "2,2": {
+      "value": "H1:I3",
+    },
+    "3,1": {
+      "value": "PayPeriodDays",
+    },
+    "3,2": {
+      "value": 14,
+    },
+    "4,1": {
+      "value": "TemplateName",
+    },
+    "4,2": {
+      "value": "Template",
+    },
+    "5,1": {
+      "value": "TaxMultiplier",
+    },
+    "5,2": {
+      "value": 1.0825,
+    },
+    "6,1": {
+      "value": "ForwardEmailAddress",
+    },
+    "6,2": {
+      "value": "fwd@example.com",
+    },
+    "7,1": {
+      "value": "ForwardName",
+    },
+    "7,2": {
+      "value": "Sam",
+    },
+  },
+}
+`;
+
+exports[`receipt import golden end state > recordReceiptsCore with marking: sheet cells and Gmail labels/archive > created labels 1`] = `
+[
+  "Receipts/Scripted",
+  "Receipts",
+  "Receipts/Error",
+  "Receipts/Ignored",
+]
+`;
+
+exports[`receipt import golden end state > recordReceiptsCore with marking: sheet cells and Gmail labels/archive > gmail 1`] = `
+[
+  {
+    "archived": true,
+    "id": "t-chasePurchase",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-chasePendingCredit",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-chaseGasStation",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-chaseStatement",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalPaymentSent",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalPaymentSentToForwarder",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalNonBreakingSpace",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalMoneyReceived",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalQuotedFrom",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalBareQuotedFrom",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalSentYou",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalSentYouNoNote",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalUnknownSubject",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalForwarded",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalForwardedJapanese",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalForwardedBegin",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-venmoPayment",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-venmoChargeCompleted",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-venmoReceived",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-venmoForwardedReceived",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-venmoForwarded",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-edgeChaseRefundNoMerchant",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeChaseGasNoMerchant",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-edgePaypalSentNoBody",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-edgePaypalReceivedNoBody",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-edgeVenmoPaidNoBody",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-edgeVenmoToForwarder",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-edgeVenmoToForwarderQuoted",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-edgeForwardedQuotedFrom",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeUnknownSender",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeForwarderReply",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-edgeVenmoToUnparsable",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeForwardedChase",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-edgeForwardedTentativeFrom",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-edgeCostNotNumber",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeZeroCostNoName",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-thread-unknownSendersOnly",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-thread-receiptWithUnknownReply",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-thread-forwardedFromUnknownSender",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-error-and-note",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Error",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-thread-fails",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Error",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-across-sheets",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+]
+`;
+
+exports[`receipt import golden end state > recordReceiptsCore with marking: sheet cells and Gmail labels/archive > result 1`] = `
+{
+  "errors": [
+    "Error while processing message t-error-and-note-m3 with subject z from date Thu Feb 22 2024 11:00:00 GMT-0600 (Central Standard Time) on thread t-error-and-note. Skipping marking as processed. Error: Could not get email address from z at example.org",
+    "Error while processing thread with ID t-thread-fails. Skipping marking as processed. Error: Gmail thread unavailable",
+  ],
+  "numErrors": 2,
+  "receiptInfosAdded": {
+    "2/18/24 - 3/2/24": 15,
+    "3/3/24 - 3/16/24": 18,
+  },
+}
+`;
+
+exports[`receipt import golden end state > recordReceiptsCore with marking: sheet cells and Gmail labels/archive > sheets 1`] = `
+{
+  "2/18/24 - 3/2/24": {
+    "1,8": {
+      "value": "TransactionsStart",
+    },
+    "1,9": {
+      "value": "A5",
+    },
+    "10,1": {
+      "value": 2024-02-20T13:00:00.000Z,
+    },
+    "10,2": {
+      "value": "Jane Doe - Pizza night",
+    },
+    "10,3": {
+      "value": 15,
+    },
+    "10,6": {
+      "value": "TJ Venmo",
+    },
+    "11,1": {
+      "value": 2024-02-20T13:00:00.000Z,
+    },
+    "11,2": {
+      "value": "Jane Doe - Pizza night",
+    },
+    "11,3": {
+      "value": 15,
+    },
+    "11,6": {
+      "value": "Sam Venmo",
+    },
+    "12,1": {
+      "value": 2024-02-20T14:00:00.000Z,
+    },
+    "12,2": {
+      "value": "SHELL OIL 123 (Gas)",
+    },
+    "12,3": {
+      "background": "#E8A9CA",
+    },
+    "12,5": {
+      "value": "Gas",
+    },
+    "12,6": {
+      "value": "Credit",
+    },
+    "13,1": {
+      "value": 2024-02-20T15:00:00.000Z,
+    },
+    "13,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "13,3": {
+      "value": 25.5,
+    },
+    "13,6": {
+      "value": "TJ Paypal",
+    },
+    "14,1": {
+      "value": 2024-02-20T15:00:00.000Z,
+    },
+    "14,2": {
+      "value": "Alice - Concert tickets",
+    },
+    "14,3": {
+      "value": -40,
+    },
+    "14,6": {
+      "value": "TJ Venmo",
+    },
+    "15,1": {
+      "value": 2024-02-20T15:00:00.000Z,
+    },
+    "15,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "15,3": {
+      "value": 25.5,
+    },
+    "15,6": {
+      "value": "Sam Paypal",
+    },
+    "16,1": {
+      "value": 2024-02-20T16:00:00.000Z,
+    },
+    "16,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "16,3": {
+      "value": 25.5,
+    },
+    "16,6": {
+      "value": "TJ Paypal",
+    },
+    "17,1": {
+      "value": 2024-02-20T16:00:00.000Z,
+    },
+    "17,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "17,3": {
+      "value": 25.5,
+    },
+    "17,6": {
+      "value": "Sam Paypal",
+    },
+    "18,1": {
+      "value": 2024-02-20T16:00:00.000Z,
+    },
+    "18,2": {
+      "value": "Shop",
+    },
+    "18,3": {
+      "background": "#E8A9CA",
+      "value": NaN,
+    },
+    "18,6": {
+      "value": "Credit",
+    },
+    "19,1": {
+      "value": 2024-02-22T15:00:00.000Z,
+    },
+    "19,2": {
+      "background": "#FF0000",
+      "note": "Error while processing message t-error-and-note-m3 with subject z from date Thu Feb 22 2024 11:00:00 GMT-0600 (Central Standard Time) on thread t-error-and-note. Skipping marking as processed. Error: Could not get email address from z at example.org
+
+>>>>>>>>>> NOTES <<<<<<<<<<
+
+Message is not a receipt:
+From: no.reply.alerts@chase.com
+Subject: Promo
+Date: Thu Feb 22 2024 10:00:00 GMT-0600 (Central Standard Time)
+Thread ID: t-error-and-note
+280 Chars of Plain Body:
+hi",
+      "value": "Combo Shop",
+    },
+    "19,3": {
+      "value": 3.21,
+    },
+    "19,6": {
+      "value": "Credit",
+    },
+    "2,8": {
+      "value": "TransactionsMax",
+    },
+    "2,9": {
+      "value": 30,
+    },
+    "20,1": {
+      "value": 2024-02-28T12:00:00.000Z,
+    },
+    "20,2": {
+      "value": "Early Half",
+    },
+    "20,3": {
+      "value": 1.11,
+    },
+    "20,6": {
+      "value": "Credit",
+    },
+    "3,8": {
+      "value": "SplitCheckboxesStart",
+    },
+    "3,9": {
+      "value": "G5",
+    },
+    "5,1": {
+      "value": 2024-02-19T12:00:00.000Z,
+    },
+    "5,2": {
+      "value": "Existing",
+    },
+    "5,3": {
+      "value": 1,
+    },
+    "5,5": {
+      "value": "Food",
+    },
+    "5,6": {
+      "value": "Credit",
+    },
+    "6,1": {
+      "value": 2024-02-20T12:00:00.000Z,
+    },
+    "6,2": {
+      "background": "#00ff00",
+      "note": "stale note",
+      "value": "Trader Joe's",
+    },
+    "6,3": {
+      "background": "#00ff00",
+      "value": 12.34,
+    },
+    "6,5": {
+      "background": "#abcdef",
+    },
+    "6,6": {
+      "value": "Credit",
+    },
+    "7,1": {
+      "value": 2024-02-20T12:00:00.000Z,
+    },
+    "7,2": {
+      "value": "Pat Fakename - Concert tickets",
+    },
+    "7,3": {
+      "value": -8.07,
+    },
+    "7,6": {
+      "value": "TJ Paypal",
+    },
+    "8,1": {
+      "value": 2024-02-20T12:00:00.000Z,
+    },
+    "8,2": {
+      "note": "another stale note",
+      "value": "Jane Doe - Pizza night",
+    },
+    "8,3": {
+      "value": 15,
+    },
+    "8,6": {
+      "value": "Sam Venmo",
+    },
+    "9,1": {
+      "value": 2024-02-20T13:00:00.000Z,
+    },
+    "9,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "9,3": {
+      "value": 9.99,
+    },
+    "9,6": {
+      "value": "TJ Paypal",
+    },
+  },
+  "3/3/24 - 3/16/24": {
+    "1,8": {
+      "value": "TransactionsStart",
+    },
+    "1,9": {
+      "value": "A5",
+    },
+    "10,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T13:00:00.000Z,
+    },
+    "10,2": {
+      "background": "#f3f3f3",
+      "value": "Dee $ollar Example",
+    },
+    "10,3": {
+      "background": "#f3f3f3",
+      "value": -1,
+    },
+    "10,4": {
+      "background": "#f3f3f3",
+    },
+    "10,5": {
+      "background": "#f3f3f3",
+    },
+    "10,6": {
+      "background": "#f3f3f3",
+      "value": "TJ Paypal",
+    },
+    "11,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T13:00:00.000Z,
+    },
+    "11,2": {
+      "background": "#f3f3f3",
+    },
+    "11,3": {
+      "background": "#f3f3f3",
+      "value": -45,
+    },
+    "11,4": {
+      "background": "#f3f3f3",
+    },
+    "11,5": {
+      "background": "#f3f3f3",
+    },
+    "11,6": {
+      "background": "#f3f3f3",
+      "value": "Credit",
+    },
+    "12,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T13:00:00.000Z,
+    },
+    "12,2": {
+      "background": "#f3f3f3",
+      "value": "Jane Doe - Pizza night",
+    },
+    "12,3": {
+      "background": "#f3f3f3",
+      "value": 15,
+    },
+    "12,4": {
+      "background": "#f3f3f3",
+    },
+    "12,5": {
+      "background": "#f3f3f3",
+    },
+    "12,6": {
+      "background": "#f3f3f3",
+      "value": "TJ Venmo",
+    },
+    "13,1": {
+      "value": 2024-03-05T13:00:00.000Z,
+    },
+    "13,2": {
+      "background": "#E8A9CA",
+      "note": "Message is not a receipt:
+From: pat.friend@example.net
+Subject: Re: Dinner Friday?
+Date: Tue Feb 20 2024 08:00:00 GMT-0600 (Central Standard Time)
+Thread ID: t-thread-receiptWithUnknownReply
+280 Chars of Plain Body:
+Count me in!
+",
+      "value": "Pat Fakename - Concert tickets",
+    },
+    "13,3": {
+      "value": -8.07,
+    },
+    "13,6": {
+      "value": "TJ Paypal",
+    },
+    "14,1": {
+      "value": 2024-03-05T14:00:00.000Z,
+    },
+    "14,2": {
+      "value": "Bob Smith - Birthday gift",
+    },
+    "14,3": {
+      "value": -20,
+    },
+    "14,6": {
+      "value": "TJ Paypal",
+    },
+    "15,1": {
+      "value": 2024-03-05T14:00:00.000Z,
+    },
+    "15,2": {
+      "value": "Bob - Rent share",
+    },
+    "15,3": {
+      "value": 30.25,
+    },
+    "15,6": {
+      "value": "TJ Venmo",
+    },
+    "16,1": {
+      "value": 2024-03-05T14:00:00.000Z,
+    },
+    "16,2": {
+      "value": "Jane Doe - Pizza night",
+    },
+    "16,3": {
+      "value": 15,
+    },
+    "16,6": {
+      "value": "Sam Venmo",
+    },
+    "17,1": {
+      "value": 2024-03-05T15:00:00.000Z,
+    },
+    "17,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "17,3": {
+      "value": 25.5,
+    },
+    "17,6": {
+      "value": "Sam Paypal",
+    },
+    "18,1": {
+      "value": 2024-03-05T15:00:00.000Z,
+    },
+    "18,3": {
+      "value": 25.5,
+    },
+    "18,6": {
+      "value": "TJ Paypal",
+    },
+    "19,1": {
+      "value": 2024-03-05T15:00:00.000Z,
+    },
+    "19,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "19,3": {
+      "value": 25.5,
+    },
+    "19,6": {
+      "value": "Sam Paypal",
+    },
+    "2,8": {
+      "value": "TransactionsMax",
+    },
+    "2,9": {
+      "value": 30,
+    },
+    "20,1": {
+      "value": 2024-03-05T16:00:00.000Z,
+    },
+    "20,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "20,3": {
+      "value": 25.5,
+    },
+    "20,6": {
+      "value": "TJ Paypal",
+    },
+    "21,1": {
+      "value": 2024-03-05T16:00:00.000Z,
+    },
+    "21,2": {
+      "value": "Alice - Concert tickets",
+    },
+    "21,3": {
+      "value": -40,
+    },
+    "21,6": {
+      "value": "Sam Venmo",
+    },
+    "22,1": {
+      "value": 2024-03-06T12:00:00.000Z,
+    },
+    "22,2": {
+      "background": "#FF0000",
+      "note": "Error while processing thread with ID t-thread-fails. Skipping marking as processed. Error: Gmail thread unavailable",
+    },
+    "22,3": {
+      "background": "#E8A9CA",
+    },
+    "3,8": {
+      "value": "SplitCheckboxesStart",
+    },
+    "3,9": {
+      "value": "G5",
+    },
+    "5,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-04T12:00:00.000Z,
+    },
+    "5,2": {
+      "background": "#f3f3f3",
+      "value": "Late Half",
+    },
+    "5,3": {
+      "background": "#f3f3f3",
+      "value": 2.22,
+    },
+    "5,4": {
+      "background": "#f3f3f3",
+    },
+    "5,5": {
+      "background": "#f3f3f3",
+    },
+    "5,6": {
+      "background": "#f3f3f3",
+      "value": "Credit",
+    },
+    "6,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T12:00:00.000Z,
+    },
+    "6,2": {
+      "background": "#f3f3f3",
+      "value": "Jane Doe - Lunch money",
+    },
+    "6,3": {
+      "background": "#f3f3f3",
+      "value": 25.5,
+    },
+    "6,4": {
+      "background": "#f3f3f3",
+    },
+    "6,5": {
+      "background": "#f3f3f3",
+    },
+    "6,6": {
+      "background": "#f3f3f3",
+      "value": "Sam Paypal",
+    },
+    "7,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T12:00:00.000Z,
+    },
+    "7,2": {
+      "background": "#f3f3f3",
+      "value": "Jane Doe - Lunch money",
+    },
+    "7,3": {
+      "background": "#f3f3f3",
+      "value": 25.5,
+    },
+    "7,4": {
+      "background": "#f3f3f3",
+    },
+    "7,5": {
+      "background": "#f3f3f3",
+    },
+    "7,6": {
+      "background": "#f3f3f3",
+      "value": "Sam Paypal",
+    },
+    "8,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T12:00:00.000Z,
+    },
+    "8,2": {
+      "background": "#f3f3f3",
+      "value": "Jane Doe",
+    },
+    "8,3": {
+      "background": "#f3f3f3",
+      "value": 15,
+    },
+    "8,4": {
+      "background": "#f3f3f3",
+    },
+    "8,5": {
+      "background": "#f3f3f3",
+    },
+    "8,6": {
+      "background": "#f3f3f3",
+      "value": "TJ Venmo",
+    },
+    "9,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T13:00:00.000Z,
+    },
+    "9,2": {
+      "background": "#f3f3f3",
+      "value": "Target Store",
+    },
+    "9,3": {
+      "background": "#f3f3f3",
+      "value": -45,
+    },
+    "9,4": {
+      "background": "#f3f3f3",
+    },
+    "9,5": {
+      "background": "#f3f3f3",
+    },
+    "9,6": {
+      "background": "#f3f3f3",
+      "value": "Credit",
+    },
+  },
+  "Main": {},
+  "Variables": {
+    "1,1": {
+      "value": "Menu",
+    },
+    "1,2": {
+      "value": "A1",
+    },
+    "2,1": {
+      "value": "SheetVariables",
+    },
+    "2,2": {
+      "value": "H1:I3",
+    },
+    "3,1": {
+      "value": "PayPeriodDays",
+    },
+    "3,2": {
+      "value": 14,
+    },
+    "4,1": {
+      "value": "TemplateName",
+    },
+    "4,2": {
+      "value": "Template",
+    },
+    "5,1": {
+      "value": "TaxMultiplier",
+    },
+    "5,2": {
+      "value": 1.0825,
+    },
+    "6,1": {
+      "value": "ForwardEmailAddress",
+    },
+    "6,2": {
+      "value": "fwd@example.com",
+    },
+    "7,1": {
+      "value": "ForwardName",
+    },
+    "7,2": {
+      "value": "Sam",
+    },
+  },
+}
+`;
+
+exports[`receipt import golden end state > syncReceipts (25 threads) and getAllTransactions API responses > getAllTransactions response 1`] = `
+{
+  "data": {
+    "sheets": [
+      {
+        "endDate": "2024-03-16",
+        "envelopeOptions": null,
+        "isGap": false,
+        "name": "3/3/24 - 3/16/24",
+        "paidWithOptions": null,
+        "startDate": "2024-03-03",
+        "transactions": [
+          {
+            "cost": 25.5,
+            "costDisplay": "25.5",
+            "costFormula": null,
+            "date": "2024-03-05",
+            "envelope": "",
+            "fingerprint": "6ea6b282",
+            "isError": false,
+            "isNote": false,
+            "name": "Jane Doe - Lunch money",
+            "note": "",
+            "paidWith": "Sam Paypal",
+            "rowIndex": 0,
+            "splitGroupId": "0",
+            "taxDeductible": "",
+          },
+          {
+            "cost": 25.5,
+            "costDisplay": "25.5",
+            "costFormula": null,
+            "date": "2024-03-05",
+            "envelope": "",
+            "fingerprint": "6ea6b282",
+            "isError": false,
+            "isNote": false,
+            "name": "Jane Doe - Lunch money",
+            "note": "",
+            "paidWith": "Sam Paypal",
+            "rowIndex": 1,
+            "splitGroupId": "0",
+            "taxDeductible": "",
+          },
+          {
+            "cost": -45,
+            "costDisplay": "-45",
+            "costFormula": null,
+            "date": "2024-03-05",
+            "envelope": "",
+            "fingerprint": "c57521cc",
+            "isError": false,
+            "isNote": false,
+            "name": "Target Store",
+            "note": "",
+            "paidWith": "Credit",
+            "rowIndex": 2,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": -1,
+            "costDisplay": "-1",
+            "costFormula": null,
+            "date": "2024-03-05",
+            "envelope": "",
+            "fingerprint": "58338d08",
+            "isError": false,
+            "isNote": false,
+            "name": "Dee $ollar Example",
+            "note": "",
+            "paidWith": "TJ Paypal",
+            "rowIndex": 3,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": -45,
+            "costDisplay": "-45",
+            "costFormula": null,
+            "date": "2024-03-05",
+            "envelope": "",
+            "fingerprint": "b84c951c",
+            "isError": false,
+            "isNote": false,
+            "name": "",
+            "note": "",
+            "paidWith": "Credit",
+            "rowIndex": 4,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": -20,
+            "costDisplay": "-20",
+            "costFormula": null,
+            "date": "2024-03-05",
+            "envelope": "",
+            "fingerprint": "eaca03a9",
+            "isError": false,
+            "isNote": false,
+            "name": "Bob Smith - Birthday gift",
+            "note": "",
+            "paidWith": "TJ Paypal",
+            "rowIndex": 5,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": 30.25,
+            "costDisplay": "30.25",
+            "costFormula": null,
+            "date": "2024-03-05",
+            "envelope": "",
+            "fingerprint": "84402204",
+            "isError": false,
+            "isNote": false,
+            "name": "Bob - Rent share",
+            "note": "",
+            "paidWith": "TJ Venmo",
+            "rowIndex": 6,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": 25.5,
+            "costDisplay": "25.5",
+            "costFormula": null,
+            "date": "2024-03-05",
+            "envelope": "",
+            "fingerprint": "6ea6b282",
+            "isError": false,
+            "isNote": false,
+            "name": "Jane Doe - Lunch money",
+            "note": "",
+            "paidWith": "Sam Paypal",
+            "rowIndex": 7,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": 25.5,
+            "costDisplay": "25.5",
+            "costFormula": null,
+            "date": "2024-03-05",
+            "envelope": "",
+            "fingerprint": "229c2068",
+            "isError": false,
+            "isNote": false,
+            "name": "",
+            "note": "",
+            "paidWith": "TJ Paypal",
+            "rowIndex": 8,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": 25.5,
+            "costDisplay": "25.5",
+            "costFormula": null,
+            "date": "2024-03-05",
+            "envelope": "",
+            "fingerprint": "85bab045",
+            "isError": false,
+            "isNote": false,
+            "name": "Jane Doe - Lunch money",
+            "note": "",
+            "paidWith": "TJ Paypal",
+            "rowIndex": 9,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": -40,
+            "costDisplay": "-40",
+            "costFormula": null,
+            "date": "2024-03-05",
+            "envelope": "",
+            "fingerprint": "bbe74b68",
+            "isError": false,
+            "isNote": false,
+            "name": "Alice - Concert tickets",
+            "note": "",
+            "paidWith": "Sam Venmo",
+            "rowIndex": 10,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+        ],
+      },
+      {
+        "endDate": "2024-03-02",
+        "envelopeOptions": null,
+        "isGap": false,
+        "name": "2/18/24 - 3/2/24",
+        "paidWithOptions": null,
+        "startDate": "2024-02-18",
+        "transactions": [
+          {
+            "cost": 1,
+            "costDisplay": "1",
+            "costFormula": null,
+            "date": "2024-02-19",
+            "envelope": "Food",
+            "fingerprint": "3d1581d8",
+            "isError": false,
+            "isNote": false,
+            "name": "Existing",
+            "note": "",
+            "paidWith": "Credit",
+            "rowIndex": 0,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": 12.34,
+            "costDisplay": "12.34",
+            "costFormula": null,
+            "date": "2024-02-20",
+            "envelope": "",
+            "fingerprint": "a3a2d9f4",
+            "isError": false,
+            "isNote": false,
+            "name": "Trader Joe's",
+            "note": "stale note",
+            "paidWith": "Credit",
+            "rowIndex": 1,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": -8.07,
+            "costDisplay": "-8.07",
+            "costFormula": null,
+            "date": "2024-02-20",
+            "envelope": "",
+            "fingerprint": "7a23d659",
+            "isError": false,
+            "isNote": false,
+            "name": "Pat Fakename - Concert tickets",
+            "note": "",
+            "paidWith": "TJ Paypal",
+            "rowIndex": 2,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": 15,
+            "costDisplay": "15",
+            "costFormula": null,
+            "date": "2024-02-20",
+            "envelope": "",
+            "fingerprint": "a0e87c4a",
+            "isError": false,
+            "isNote": false,
+            "name": "Jane Doe - Pizza night",
+            "note": "another stale note",
+            "paidWith": "Sam Venmo",
+            "rowIndex": 3,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": 9.99,
+            "costDisplay": "9.99",
+            "costFormula": null,
+            "date": "2024-02-20",
+            "envelope": "",
+            "fingerprint": "8bb8798e",
+            "isError": false,
+            "isNote": false,
+            "name": "Jane Doe - Lunch money",
+            "note": "",
+            "paidWith": "TJ Paypal",
+            "rowIndex": 4,
+            "splitGroupId": "4",
+            "taxDeductible": "",
+          },
+          {
+            "cost": 15,
+            "costDisplay": "15",
+            "costFormula": null,
+            "date": "2024-02-20",
+            "envelope": "",
+            "fingerprint": "c1bc0ca3",
+            "isError": false,
+            "isNote": false,
+            "name": "Jane Doe - Pizza night",
+            "note": "",
+            "paidWith": "TJ Venmo",
+            "rowIndex": 5,
+            "splitGroupId": "4",
+            "taxDeductible": "",
+          },
+          {
+            "cost": null,
+            "costDisplay": "",
+            "costFormula": null,
+            "date": "2024-02-20",
+            "envelope": "Gas",
+            "fingerprint": "e023130b",
+            "isError": false,
+            "isNote": false,
+            "name": "SHELL OIL 123 (Gas)",
+            "note": "",
+            "paidWith": "Credit",
+            "rowIndex": 6,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": 25.5,
+            "costDisplay": "25.5",
+            "costFormula": null,
+            "date": "2024-02-20",
+            "envelope": "",
+            "fingerprint": "42a04741",
+            "isError": false,
+            "isNote": false,
+            "name": "Jane Doe - Lunch money",
+            "note": "",
+            "paidWith": "TJ Paypal",
+            "rowIndex": 7,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": -40,
+            "costDisplay": "-40",
+            "costFormula": null,
+            "date": "2024-02-20",
+            "envelope": "",
+            "fingerprint": "09bcd289",
+            "isError": false,
+            "isNote": false,
+            "name": "Alice - Concert tickets",
+            "note": "",
+            "paidWith": "TJ Venmo",
+            "rowIndex": 8,
+            "splitGroupId": null,
+            "taxDeductible": "",
+          },
+          {
+            "cost": 25.5,
+            "costDisplay": "25.5",
+            "costFormula": null,
+            "date": "2024-02-20",
+            "envelope": "",
+            "fingerprint": "42a04741",
+            "isError": false,
+            "isNote": false,
+            "name": "Jane Doe - Lunch money",
+            "note": "",
+            "paidWith": "TJ Paypal",
+            "rowIndex": 9,
+            "splitGroupId": "9",
+            "taxDeductible": "",
+          },
+          {
+            "cost": 25.5,
+            "costDisplay": "25.5",
+            "costFormula": null,
+            "date": "2024-02-20",
+            "envelope": "",
+            "fingerprint": "40009de6",
+            "isError": false,
+            "isNote": false,
+            "name": "Jane Doe - Lunch money",
+            "note": "",
+            "paidWith": "Sam Paypal",
+            "rowIndex": 10,
+            "splitGroupId": "9",
+            "taxDeductible": "",
+          },
+        ],
+      },
+    ],
+    "taxMultiplier": 1.0825,
+  },
+  "ok": true,
+}
+`;
+
+exports[`receipt import golden end state > syncReceipts (25 threads) and getAllTransactions API responses > gmail 1`] = `
+[
+  {
+    "archived": true,
+    "id": "t-chasePurchase",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-chasePendingCredit",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-chaseGasStation",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-chaseStatement",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalPaymentSent",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalPaymentSentToForwarder",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalNonBreakingSpace",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalMoneyReceived",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalQuotedFrom",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalBareQuotedFrom",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalSentYou",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalSentYouNoNote",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-paypalUnknownSubject",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalForwarded",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalForwardedJapanese",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-paypalForwardedBegin",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-venmoPayment",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-venmoChargeCompleted",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-venmoReceived",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-venmoForwardedReceived",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-venmoForwarded",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-edgeChaseRefundNoMerchant",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeChaseGasNoMerchant",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": true,
+    "id": "t-edgePaypalSentNoBody",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-edgePaypalReceivedNoBody",
+    "labels": [
+      "Receipts/Scripted",
+      "Receipts/Ignored",
+    ],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeVenmoPaidNoBody",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeVenmoToForwarder",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeVenmoToForwarderQuoted",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeForwardedQuotedFrom",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeUnknownSender",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeForwarderReply",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeVenmoToUnparsable",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeForwardedChase",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeForwardedTentativeFrom",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeCostNotNumber",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-edgeZeroCostNoName",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-thread-unknownSendersOnly",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-thread-receiptWithUnknownReply",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-thread-forwardedFromUnknownSender",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-error-and-note",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-thread-fails",
+    "labels": [],
+  },
+  {
+    "archived": false,
+    "id": "t-across-sheets",
+    "labels": [],
+  },
+]
+`;
+
+exports[`receipt import golden end state > syncReceipts (25 threads) and getAllTransactions API responses > sheets 1`] = `
+{
+  "2/18/24 - 3/2/24": {
+    "1,8": {
+      "value": "TransactionsStart",
+    },
+    "1,9": {
+      "value": "A5",
+    },
+    "10,1": {
+      "value": 2024-02-20T13:00:00.000Z,
+    },
+    "10,2": {
+      "value": "Jane Doe - Pizza night",
+    },
+    "10,3": {
+      "value": 15,
+    },
+    "10,6": {
+      "value": "TJ Venmo",
+    },
+    "11,1": {
+      "value": 2024-02-20T14:00:00.000Z,
+    },
+    "11,2": {
+      "value": "SHELL OIL 123 (Gas)",
+    },
+    "11,3": {
+      "background": "#E8A9CA",
+    },
+    "11,5": {
+      "value": "Gas",
+    },
+    "11,6": {
+      "value": "Credit",
+    },
+    "12,1": {
+      "value": 2024-02-20T15:00:00.000Z,
+    },
+    "12,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "12,3": {
+      "value": 25.5,
+    },
+    "12,6": {
+      "value": "TJ Paypal",
+    },
+    "13,1": {
+      "value": 2024-02-20T15:00:00.000Z,
+    },
+    "13,2": {
+      "value": "Alice - Concert tickets",
+    },
+    "13,3": {
+      "value": -40,
+    },
+    "13,6": {
+      "value": "TJ Venmo",
+    },
+    "14,1": {
+      "value": 2024-02-20T16:00:00.000Z,
+    },
+    "14,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "14,3": {
+      "value": 25.5,
+    },
+    "14,6": {
+      "value": "TJ Paypal",
+    },
+    "15,1": {
+      "value": 2024-02-20T16:00:00.000Z,
+    },
+    "15,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "15,3": {
+      "value": 25.5,
+    },
+    "15,6": {
+      "value": "Sam Paypal",
+    },
+    "2,8": {
+      "value": "TransactionsMax",
+    },
+    "2,9": {
+      "value": 30,
+    },
+    "3,8": {
+      "value": "SplitCheckboxesStart",
+    },
+    "3,9": {
+      "value": "G5",
+    },
+    "5,1": {
+      "value": 2024-02-19T12:00:00.000Z,
+    },
+    "5,2": {
+      "value": "Existing",
+    },
+    "5,3": {
+      "value": 1,
+    },
+    "5,5": {
+      "value": "Food",
+    },
+    "5,6": {
+      "value": "Credit",
+    },
+    "6,1": {
+      "value": 2024-02-20T12:00:00.000Z,
+    },
+    "6,2": {
+      "background": "#00ff00",
+      "note": "stale note",
+      "value": "Trader Joe's",
+    },
+    "6,3": {
+      "background": "#00ff00",
+      "value": 12.34,
+    },
+    "6,5": {
+      "background": "#abcdef",
+    },
+    "6,6": {
+      "value": "Credit",
+    },
+    "7,1": {
+      "value": 2024-02-20T12:00:00.000Z,
+    },
+    "7,2": {
+      "value": "Pat Fakename - Concert tickets",
+    },
+    "7,3": {
+      "value": -8.07,
+    },
+    "7,6": {
+      "value": "TJ Paypal",
+    },
+    "8,1": {
+      "value": 2024-02-20T12:00:00.000Z,
+    },
+    "8,2": {
+      "note": "another stale note",
+      "value": "Jane Doe - Pizza night",
+    },
+    "8,3": {
+      "value": 15,
+    },
+    "8,6": {
+      "value": "Sam Venmo",
+    },
+    "9,1": {
+      "value": 2024-02-20T13:00:00.000Z,
+    },
+    "9,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "9,3": {
+      "value": 9.99,
+    },
+    "9,6": {
+      "value": "TJ Paypal",
+    },
+  },
+  "3/3/24 - 3/16/24": {
+    "1,8": {
+      "value": "TransactionsStart",
+    },
+    "1,9": {
+      "value": "A5",
+    },
+    "10,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T14:00:00.000Z,
+    },
+    "10,2": {
+      "background": "#f3f3f3",
+      "value": "Bob Smith - Birthday gift",
+    },
+    "10,3": {
+      "background": "#f3f3f3",
+      "value": -20,
+    },
+    "10,4": {
+      "background": "#f3f3f3",
+    },
+    "10,5": {
+      "background": "#f3f3f3",
+    },
+    "10,6": {
+      "background": "#f3f3f3",
+      "value": "TJ Paypal",
+    },
+    "11,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T14:00:00.000Z,
+    },
+    "11,2": {
+      "background": "#f3f3f3",
+      "value": "Bob - Rent share",
+    },
+    "11,3": {
+      "background": "#f3f3f3",
+      "value": 30.25,
+    },
+    "11,4": {
+      "background": "#f3f3f3",
+    },
+    "11,5": {
+      "background": "#f3f3f3",
+    },
+    "11,6": {
+      "background": "#f3f3f3",
+      "value": "TJ Venmo",
+    },
+    "12,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T15:00:00.000Z,
+    },
+    "12,2": {
+      "background": "#f3f3f3",
+      "value": "Jane Doe - Lunch money",
+    },
+    "12,3": {
+      "background": "#f3f3f3",
+      "value": 25.5,
+    },
+    "12,4": {
+      "background": "#f3f3f3",
+    },
+    "12,5": {
+      "background": "#f3f3f3",
+    },
+    "12,6": {
+      "background": "#f3f3f3",
+      "value": "Sam Paypal",
+    },
+    "13,1": {
+      "value": 2024-03-05T15:00:00.000Z,
+    },
+    "13,3": {
+      "value": 25.5,
+    },
+    "13,6": {
+      "value": "TJ Paypal",
+    },
+    "14,1": {
+      "value": 2024-03-05T16:00:00.000Z,
+    },
+    "14,2": {
+      "value": "Jane Doe - Lunch money",
+    },
+    "14,3": {
+      "value": 25.5,
+    },
+    "14,6": {
+      "value": "TJ Paypal",
+    },
+    "15,1": {
+      "value": 2024-03-05T16:00:00.000Z,
+    },
+    "15,2": {
+      "value": "Alice - Concert tickets",
+    },
+    "15,3": {
+      "value": -40,
+    },
+    "15,6": {
+      "value": "Sam Venmo",
+    },
+    "2,8": {
+      "value": "TransactionsMax",
+    },
+    "2,9": {
+      "value": 30,
+    },
+    "3,8": {
+      "value": "SplitCheckboxesStart",
+    },
+    "3,9": {
+      "value": "G5",
+    },
+    "5,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T12:00:00.000Z,
+    },
+    "5,2": {
+      "background": "#f3f3f3",
+      "value": "Jane Doe - Lunch money",
+    },
+    "5,3": {
+      "background": "#f3f3f3",
+      "value": 25.5,
+    },
+    "5,4": {
+      "background": "#f3f3f3",
+    },
+    "5,5": {
+      "background": "#f3f3f3",
+    },
+    "5,6": {
+      "background": "#f3f3f3",
+      "value": "Sam Paypal",
+    },
+    "6,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T12:00:00.000Z,
+    },
+    "6,2": {
+      "background": "#f3f3f3",
+      "value": "Jane Doe - Lunch money",
+    },
+    "6,3": {
+      "background": "#f3f3f3",
+      "value": 25.5,
+    },
+    "6,4": {
+      "background": "#f3f3f3",
+    },
+    "6,5": {
+      "background": "#f3f3f3",
+    },
+    "6,6": {
+      "background": "#f3f3f3",
+      "value": "Sam Paypal",
+    },
+    "7,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T13:00:00.000Z,
+    },
+    "7,2": {
+      "background": "#f3f3f3",
+      "value": "Target Store",
+    },
+    "7,3": {
+      "background": "#f3f3f3",
+      "value": -45,
+    },
+    "7,4": {
+      "background": "#f3f3f3",
+    },
+    "7,5": {
+      "background": "#f3f3f3",
+    },
+    "7,6": {
+      "background": "#f3f3f3",
+      "value": "Credit",
+    },
+    "8,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T13:00:00.000Z,
+    },
+    "8,2": {
+      "background": "#f3f3f3",
+      "value": "Dee $ollar Example",
+    },
+    "8,3": {
+      "background": "#f3f3f3",
+      "value": -1,
+    },
+    "8,4": {
+      "background": "#f3f3f3",
+    },
+    "8,5": {
+      "background": "#f3f3f3",
+    },
+    "8,6": {
+      "background": "#f3f3f3",
+      "value": "TJ Paypal",
+    },
+    "9,1": {
+      "background": "#f3f3f3",
+      "value": 2024-03-05T13:00:00.000Z,
+    },
+    "9,2": {
+      "background": "#f3f3f3",
+    },
+    "9,3": {
+      "background": "#f3f3f3",
+      "value": -45,
+    },
+    "9,4": {
+      "background": "#f3f3f3",
+    },
+    "9,5": {
+      "background": "#f3f3f3",
+    },
+    "9,6": {
+      "background": "#f3f3f3",
+      "value": "Credit",
+    },
+  },
+  "Main": {},
+  "Variables": {
+    "1,1": {
+      "value": "Menu",
+    },
+    "1,2": {
+      "value": "A1",
+    },
+    "2,1": {
+      "value": "SheetVariables",
+    },
+    "2,2": {
+      "value": "H1:I3",
+    },
+    "3,1": {
+      "value": "PayPeriodDays",
+    },
+    "3,2": {
+      "value": 14,
+    },
+    "4,1": {
+      "value": "TemplateName",
+    },
+    "4,2": {
+      "value": "Template",
+    },
+    "5,1": {
+      "value": "TaxMultiplier",
+    },
+    "5,2": {
+      "value": 1.0825,
+    },
+    "6,1": {
+      "value": "ForwardEmailAddress",
+    },
+    "6,2": {
+      "value": "fwd@example.com",
+    },
+    "7,1": {
+      "value": "ForwardName",
+    },
+    "7,2": {
+      "value": "Sam",
+    },
+  },
+}
+`;
+
+exports[`receipt import golden end state > syncReceipts (25 threads) and getAllTransactions API responses > syncReceipts response 1`] = `
+{
+  "data": {
+    "errors": [],
+    "numErrors": 0,
+    "receiptInfosAdded": 21,
+    "receiptInfosAddedBySheet": {
+      "2/18/24 - 3/2/24": 10,
+      "3/3/24 - 3/16/24": 11,
+    },
+    "state": {
+      "envelopeOptions": null,
+      "envelopes": null,
+      "forwardName": "Sam",
+      "paidWithOptions": null,
+      "sheetName": "3/3/24 - 3/16/24",
+      "sheets": [
+        {
+          "endDate": "2024-03-16",
+          "isGap": false,
+          "name": "3/3/24 - 3/16/24",
+          "startDate": "2024-03-03",
+        },
+        {
+          "endDate": "2024-03-02",
+          "isGap": false,
+          "name": "2/18/24 - 3/2/24",
+          "startDate": "2024-02-18",
+        },
+      ],
+      "taxMultiplier": 1.0825,
+      "transactions": [
+        {
+          "cost": 25.5,
+          "costDisplay": "25.5",
+          "costFormula": null,
+          "date": "2024-03-05",
+          "envelope": "",
+          "fingerprint": "6ea6b282",
+          "isError": false,
+          "isNote": false,
+          "name": "Jane Doe - Lunch money",
+          "note": "",
+          "paidWith": "Sam Paypal",
+          "rowIndex": 0,
+          "splitGroupId": "0",
+          "taxDeductible": "",
+        },
+        {
+          "cost": 25.5,
+          "costDisplay": "25.5",
+          "costFormula": null,
+          "date": "2024-03-05",
+          "envelope": "",
+          "fingerprint": "6ea6b282",
+          "isError": false,
+          "isNote": false,
+          "name": "Jane Doe - Lunch money",
+          "note": "",
+          "paidWith": "Sam Paypal",
+          "rowIndex": 1,
+          "splitGroupId": "0",
+          "taxDeductible": "",
+        },
+        {
+          "cost": -45,
+          "costDisplay": "-45",
+          "costFormula": null,
+          "date": "2024-03-05",
+          "envelope": "",
+          "fingerprint": "c57521cc",
+          "isError": false,
+          "isNote": false,
+          "name": "Target Store",
+          "note": "",
+          "paidWith": "Credit",
+          "rowIndex": 2,
+          "splitGroupId": null,
+          "taxDeductible": "",
+        },
+        {
+          "cost": -1,
+          "costDisplay": "-1",
+          "costFormula": null,
+          "date": "2024-03-05",
+          "envelope": "",
+          "fingerprint": "58338d08",
+          "isError": false,
+          "isNote": false,
+          "name": "Dee $ollar Example",
+          "note": "",
+          "paidWith": "TJ Paypal",
+          "rowIndex": 3,
+          "splitGroupId": null,
+          "taxDeductible": "",
+        },
+        {
+          "cost": -45,
+          "costDisplay": "-45",
+          "costFormula": null,
+          "date": "2024-03-05",
+          "envelope": "",
+          "fingerprint": "b84c951c",
+          "isError": false,
+          "isNote": false,
+          "name": "",
+          "note": "",
+          "paidWith": "Credit",
+          "rowIndex": 4,
+          "splitGroupId": null,
+          "taxDeductible": "",
+        },
+        {
+          "cost": -20,
+          "costDisplay": "-20",
+          "costFormula": null,
+          "date": "2024-03-05",
+          "envelope": "",
+          "fingerprint": "eaca03a9",
+          "isError": false,
+          "isNote": false,
+          "name": "Bob Smith - Birthday gift",
+          "note": "",
+          "paidWith": "TJ Paypal",
+          "rowIndex": 5,
+          "splitGroupId": null,
+          "taxDeductible": "",
+        },
+        {
+          "cost": 30.25,
+          "costDisplay": "30.25",
+          "costFormula": null,
+          "date": "2024-03-05",
+          "envelope": "",
+          "fingerprint": "84402204",
+          "isError": false,
+          "isNote": false,
+          "name": "Bob - Rent share",
+          "note": "",
+          "paidWith": "TJ Venmo",
+          "rowIndex": 6,
+          "splitGroupId": null,
+          "taxDeductible": "",
+        },
+        {
+          "cost": 25.5,
+          "costDisplay": "25.5",
+          "costFormula": null,
+          "date": "2024-03-05",
+          "envelope": "",
+          "fingerprint": "6ea6b282",
+          "isError": false,
+          "isNote": false,
+          "name": "Jane Doe - Lunch money",
+          "note": "",
+          "paidWith": "Sam Paypal",
+          "rowIndex": 7,
+          "splitGroupId": null,
+          "taxDeductible": "",
+        },
+        {
+          "cost": 25.5,
+          "costDisplay": "25.5",
+          "costFormula": null,
+          "date": "2024-03-05",
+          "envelope": "",
+          "fingerprint": "229c2068",
+          "isError": false,
+          "isNote": false,
+          "name": "",
+          "note": "",
+          "paidWith": "TJ Paypal",
+          "rowIndex": 8,
+          "splitGroupId": null,
+          "taxDeductible": "",
+        },
+        {
+          "cost": 25.5,
+          "costDisplay": "25.5",
+          "costFormula": null,
+          "date": "2024-03-05",
+          "envelope": "",
+          "fingerprint": "85bab045",
+          "isError": false,
+          "isNote": false,
+          "name": "Jane Doe - Lunch money",
+          "note": "",
+          "paidWith": "TJ Paypal",
+          "rowIndex": 9,
+          "splitGroupId": null,
+          "taxDeductible": "",
+        },
+        {
+          "cost": -40,
+          "costDisplay": "-40",
+          "costFormula": null,
+          "date": "2024-03-05",
+          "envelope": "",
+          "fingerprint": "bbe74b68",
+          "isError": false,
+          "isNote": false,
+          "name": "Alice - Concert tickets",
+          "note": "",
+          "paidWith": "Sam Venmo",
+          "rowIndex": 10,
+          "splitGroupId": null,
+          "taxDeductible": "",
+        },
+      ],
+    },
+  },
+  "ok": true,
+  "warnings": [
+    "Sheet "3/3/24 - 3/16/24" has no EnvelopesStart/EnvelopesMax sheet variables. Envelope balances and Envelope editing are unavailable for it.",
+    "Sheet "3/3/24 - 3/16/24" has no PaidWithStart/PaidWithMax sheet variables. Paid with editing is unavailable for it.",
+  ],
+}
+`;
