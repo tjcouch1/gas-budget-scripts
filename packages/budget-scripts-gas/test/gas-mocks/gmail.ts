@@ -1,4 +1,5 @@
 /** Minimal in-memory mock of the parts of GmailApp used by src/. */
+import { gasCalls } from "./calls";
 
 /** Max threads the Gmail batch APIs accept per call (real limit) */
 export const GMAIL_BATCH_LIMIT = 100;
@@ -18,6 +19,7 @@ export class MockLabel {
     return this.name;
   }
   addToThreads(threads: MockThread[]) {
+    gasCalls.record("GmailLabel.addToThreads");
     assertBatchSize("GmailLabel.addToThreads", threads);
     this.addToThreadsCalls.push(threads.length);
     threads.forEach((t) => t.labels.push(this));
@@ -68,6 +70,7 @@ export class MockMessage {
     return this.init.date ?? new Date("2024-03-01T12:00:00Z");
   }
   getThread() {
+    gasCalls.record("GmailMessage.getThread");
     return this.thread;
   }
 }
@@ -89,20 +92,25 @@ export class MockThread {
     return this.id;
   }
   getMessages() {
+    gasCalls.record("GmailThread.getMessages");
     if (this.messagesError) throw this.messagesError;
     return this.messages;
   }
   getLastMessageDate() {
+    gasCalls.record("GmailThread.getLastMessageDate");
     return this.messages[this.messages.length - 1].getDate();
   }
   getLabels() {
+    gasCalls.record("GmailThread.getLabels");
     return this.labels;
   }
   addLabel(label: MockLabel) {
+    gasCalls.record("GmailThread.addLabel");
     this.labels.push(label);
     return this;
   }
   moveToArchive() {
+    gasCalls.record("GmailThread.moveToArchive");
     this.archived = true;
     return this;
   }
@@ -114,6 +122,20 @@ export function makeThread(...messages: MessageInit[]): any {
   return new MockThread(messages.map((m) => new MockMessage(m)));
 }
 
+/**
+ * A thread with a fixed id whose messages get fixed ids (`<id>-m1`, ...) unless they have one, so
+ * ids in error messages and snapshots do not depend on test order
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function makeThreadWithId(id: string, ...messages: MessageInit[]): any {
+  return new MockThread(
+    messages.map(
+      (m, i) => new MockMessage({ ...m, id: m.id ?? `${id}-m${i + 1}` }),
+    ),
+    id,
+  );
+}
+
 export class MockGmailApp {
   labels = new Map<string, MockLabel>();
   /** Threads returned by search() */
@@ -123,15 +145,18 @@ export class MockGmailApp {
   createdLabels: string[] = [];
 
   search(query: string, start?: number, max?: number) {
+    gasCalls.record("GmailApp.search");
     this.searches.push({ query, start, max });
     return start === undefined
       ? this.threads
       : this.threads.slice(start, start + (max ?? Infinity));
   }
   getUserLabelByName(name: string) {
+    gasCalls.record("GmailApp.getUserLabelByName");
     return this.labels.get(name) ?? null;
   }
   createLabel(name: string) {
+    gasCalls.record("GmailApp.createLabel");
     const label = new MockLabel(name);
     this.labels.set(name, label);
     this.createdLabels.push(name);
@@ -140,10 +165,22 @@ export class MockGmailApp {
   /** Sizes of each moveThreadsToArchive call, to test chunking */
   moveThreadsToArchiveCalls: number[] = [];
   moveThreadsToArchive(threads: MockThread[]) {
+    gasCalls.record("GmailApp.moveThreadsToArchive");
     assertBatchSize("GmailApp.moveThreadsToArchive", threads);
     this.moveThreadsToArchiveCalls.push(threads.length);
     threads.forEach((t) => (t.archived = true));
     return this;
+  }
+  /**
+   * Messages of each thread, in thread order. Like one batch request: if any thread fails (see
+   * `MockThread.messagesError`) the whole call throws
+   */
+  getMessagesForThreads(threads: MockThread[]) {
+    gasCalls.record("GmailApp.getMessagesForThreads");
+    assertBatchSize("GmailApp.getMessagesForThreads", threads);
+    const failed = threads.find((t) => t.messagesError);
+    if (failed) throw failed.messagesError;
+    return threads.map((t) => [...t.messages]);
   }
   getThreadById(id: string) {
     return this.threads.find((t) => t.getId() === id) ?? null;

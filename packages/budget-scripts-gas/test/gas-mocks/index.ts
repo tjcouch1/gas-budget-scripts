@@ -1,3 +1,4 @@
+import { CallCounter, gasCalls } from "./calls";
 import { MockGmailApp } from "./gmail";
 import {
   MockCacheService,
@@ -8,6 +9,7 @@ import {
 } from "./services";
 import { MockSpreadsheet, MockSpreadsheetApp } from "./spreadsheet";
 
+export * from "./calls";
 export * from "./gmail";
 export * from "./services";
 export * from "./spreadsheet";
@@ -26,6 +28,8 @@ export interface GasEnv {
   CacheService: MockCacheService;
   Utilities: MockUtilities;
   logs: unknown[];
+  /** GAS API calls made on the mocks since install (see `CallCounter`) */
+  calls: CallCounter;
 }
 
 export const DEFAULT_VARIABLES: unknown[][] = [
@@ -50,6 +54,7 @@ export function getEnv(): GasEnv {
 export function installGasGlobals(): GasEnv {
   const spreadsheet = new MockSpreadsheet();
   const logs: unknown[] = [];
+  gasCalls.reset();
   const env: GasEnv = {
     spreadsheet,
     SpreadsheetApp: new MockSpreadsheetApp(spreadsheet),
@@ -60,6 +65,7 @@ export function installGasGlobals(): GasEnv {
     CacheService: new MockCacheService(),
     Utilities: new MockUtilities(),
     logs,
+    calls: gasCalls,
   };
   currentEnv = env;
   Object.assign(globalThis, {

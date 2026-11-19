@@ -13,6 +13,7 @@
  *   as `R[1]C[0]` and `RC[-1]`, on every read. Anything else keeps the formula text as its value.
  */
 import { evaluateMathExpression } from "@budget/shared";
+import { gasCalls } from "./calls";
 
 export interface Cell {
   value: unknown;
@@ -105,11 +106,16 @@ export class MockRange {
   }
 
   getValues() {
+    gasCalls.record("Range.getValues");
+    return this.readValues();
+  }
+  private readValues() {
     return this.map((_cell, r, c) =>
       this.sheet.valueAt(this.row + r, this.col + c),
     );
   }
   getDisplayValues() {
+    gasCalls.record("Range.getDisplayValues");
     return this.map((_cell, r, c) => {
       const value = this.sheet.valueAt(this.row + r, this.col + c);
       // Like a number format: with formula evaluation on (demo server), numbers show two decimals
@@ -120,23 +126,33 @@ export class MockRange {
     });
   }
   getFormulas() {
+    gasCalls.record("Range.getFormulas");
     return this.map((cell) => cell.formula);
   }
   /** Formula text is stored verbatim (tests write R1C1-style text), so this matches getFormulas */
   getFormulasR1C1() {
-    return this.getFormulas();
+    gasCalls.record("Range.getFormulasR1C1");
+    return this.map((cell) => cell.formula);
   }
   getValue() {
-    return this.getValues()[0][0];
+    gasCalls.record("Range.getValue");
+    return this.readValues()[0][0];
   }
   getNotes() {
+    gasCalls.record("Range.getNotes");
     return this.map((cell) => cell.note);
   }
   getBackgrounds() {
+    gasCalls.record("Range.getBackgrounds");
     return this.map((cell) => cell.background);
   }
 
   setValues(values: unknown[][]) {
+    gasCalls.record("Range.setValues");
+    return this.writeValues(values);
+  }
+  /** setValues without counting a call (also used by the seed test helper) */
+  writeValues(values: unknown[][]) {
     if (
       values.length !== this.numRows ||
       values.some((r) => r.length !== this.numCols)
@@ -157,27 +173,48 @@ export class MockRange {
     return this;
   }
   setValue(value: unknown) {
-    return this.setValues(
+    gasCalls.record("Range.setValue");
+    return this.writeValues(
       Array.from({ length: this.numRows }, () =>
         Array(this.numCols).fill(value),
       ),
     );
   }
   setNote(note: string) {
+    gasCalls.record("Range.setNote");
     this.map((cell) => (cell.note = note));
     return this;
   }
   setNotes(notes: (string | null)[][]) {
+    gasCalls.record("Range.setNotes");
+    this.assertSize("setNotes", notes);
     this.map((cell, r, c) => (cell.note = notes[r][c] ?? ""));
     return this;
   }
   setBackground(color: string | null) {
+    gasCalls.record("Range.setBackground");
+    this.paint(color);
+    return this;
+  }
+  /** Sets the background of every cell without counting a call (used by RangeList) */
+  paint(color: string | null) {
     this.map((cell) => (cell.background = color));
     return this;
   }
   setBackgrounds(colors: (string | null)[][]) {
+    gasCalls.record("Range.setBackgrounds");
+    this.assertSize("setBackgrounds", colors);
     this.map((cell, r, c) => (cell.background = colors[r][c]));
     return this;
+  }
+  private assertSize(method: string, data: unknown[][]) {
+    if (
+      data.length !== this.numRows ||
+      data.some((r) => r.length !== this.numCols)
+    )
+      throw new Error(
+        `${method}: range is ${this.numRows}x${this.numCols} but data is ${data.length}x${data[0]?.length}`,
+      );
   }
   setTextStyle(style: unknown) {
     this.sheet.textStyles.push({ range: this, style });
@@ -208,6 +245,19 @@ export class MockRange {
       if (r < this.numRows && c < this.numCols)
         Object.assign(cell, snapshot[r][c]);
     });
+    return this;
+  }
+}
+
+/** A list of (possibly non-contiguous) ranges on one sheet */
+export class MockRangeList {
+  constructor(private readonly ranges: MockRange[]) {}
+  getRanges(): any[] {
+    return [...this.ranges];
+  }
+  setBackground(color: string | null) {
+    gasCalls.record("RangeList.setBackground");
+    this.ranges.forEach((range) => range.paint(color));
     return this;
   }
 }
@@ -272,7 +322,35 @@ export class MockSheet {
   }
 
   getName() {
+    gasCalls.record("Sheet.getName");
     return this.name;
+  }
+  /** Ranges for a list of A1 notations (one call, like the real API) */
+  getRangeList(a1Notations: string[]): any {
+    gasCalls.record("Sheet.getRangeList");
+    if (a1Notations.length === 0)
+      throw new Error("getRangeList: at least one range is required");
+    return new MockRangeList(a1Notations.map((a1) => this.getRange(a1)));
+  }
+  /**
+   * Test helper: every cell that differs from an empty cell, keyed by "row,col" in row/column
+   * order, with only the non-default fields. Reading through the mock creates empty cells, so
+   * those are left out
+   */
+  dumpCells(): Record<string, Partial<Cell>> {
+    const out: Record<string, Partial<Cell>> = {};
+    [...this.cells.entries()]
+      .map(([key, cell]) => ({ key, pos: key.split(",").map(Number), cell }))
+      .sort((a, b) => a.pos[0] - b.pos[0] || a.pos[1] - b.pos[1])
+      .forEach(({ key, cell }) => {
+        const entry: Partial<Cell> = {};
+        if (cell.value !== "") entry.value = cell.value;
+        if (cell.formula !== "") entry.formula = cell.formula;
+        if (cell.note !== "") entry.note = cell.note;
+        if (cell.background !== null) entry.background = cell.background;
+        if (Object.keys(entry).length > 0) out[key] = entry;
+      });
+    return out;
   }
   /** Test helper: rename the sheet */
   rename(name: string) {
@@ -298,7 +376,7 @@ export class MockSheet {
   /** Test helper: write a 2D block of raw values starting at an A1 cell */
   seed(a1: string, rows: unknown[][]) {
     const p = parseA1(a1);
-    this.getRange(p.row, p.col, rows.length, rows[0].length).setValues(rows);
+    this.getRange(p.row, p.col, rows.length, rows[0].length).writeValues(rows);
     return this;
   }
 
@@ -321,9 +399,11 @@ export class MockSpreadsheet {
     return sheet;
   }
   getSheets() {
+    gasCalls.record("Spreadsheet.getSheets");
     return [...this.sheets];
   }
   getSpreadsheetTimeZone() {
+    gasCalls.record("Spreadsheet.getSpreadsheetTimeZone");
     return "America/Chicago";
   }
   getSheetByName(name: string): any {
@@ -331,6 +411,12 @@ export class MockSpreadsheet {
   }
   getActiveSheet(): any {
     return this.activeSheet!;
+  }
+  /** Test helper: `dumpCells()` of every sheet, keyed by sheet name */
+  dumpSheets(): Record<string, Record<string, Partial<Cell>>> {
+    return Object.fromEntries(
+      this.sheets.map((sheet) => [sheet.getName(), sheet.dumpCells()]),
+    );
   }
   /** Supports "SheetName!A1:B2" like the real API */
   getRange(a1: string): any {
@@ -344,6 +430,7 @@ export class MockSpreadsheet {
     index: number,
     options?: { template?: MockSheet },
   ): any {
+    gasCalls.record("Spreadsheet.insertSheet");
     const sheet = new MockSheet(name, this);
     if (options?.template) sheet.copyFrom(options.template);
     this.sheets.splice(index, 0, sheet);
