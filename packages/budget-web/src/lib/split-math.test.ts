@@ -1,0 +1,183 @@
+import { describe, expect, it } from "vitest";
+import { AMOUNT_MESSAGE } from "./row-draft.ts";
+import {
+  evaluateSplitItem,
+  newSplitItem,
+  summarizeSplit,
+  toSplitInputs,
+  type SplitDraftItem,
+} from "./split-math.ts";
+
+const item = (over: Partial<SplitDraftItem>): SplitDraftItem => ({
+  key: "k",
+  itemNote: "",
+  expression: "",
+  preTax: false,
+  envelope: "",
+  paidWith: "",
+  taxDeductible: false,
+  note: "",
+  ...over,
+});
+
+describe("summarizeSplit", () => {
+  it("computes remaining with inline math", () => {
+    const s = summarizeSplit(
+      50,
+      [item({ expression: "4.23*2+12.09" })],
+      1.0825,
+    );
+    expect(s.items[0].value).toBeCloseTo(20.55);
+    expect(s.remaining).toBe(29.45);
+    expect(s.canSubmit).toBe(true);
+  });
+
+  it("applies the tax multiplier only to pre-tax items", () => {
+    const s = summarizeSplit(
+      20,
+      [item({ expression: "10", preTax: true }), item({ expression: "5" })],
+      1.1,
+    );
+    expect(s.items.map((i) => i.value)).toEqual([11, 5]);
+    expect(s.remaining).toBe(4);
+  });
+
+  it("blocks invalid expressions", () => {
+    expect(
+      summarizeSplit(20, [item({ expression: "1+" })], 1.1).canSubmit,
+    ).toBe(false);
+    expect(summarizeSplit(20, [item({ expression: "" })], 1.1).canSubmit).toBe(
+      false,
+    );
+    expect(
+      summarizeSplit(20, [item({ expression: "SUM(1)" })], 1.1).canSubmit,
+    ).toBe(false);
+  });
+
+  it("explains an invalid amount inline, but not a blank one", () => {
+    expect(evaluateSplitItem(item({ expression: "4+" }), 1.1)).toMatchObject({
+      value: null,
+      error: AMOUNT_MESSAGE,
+    });
+    for (const bad of ["1..2", "1.2.3", "(1+2", "--1", "12a"])
+      expect(evaluateSplitItem(item({ expression: bad }), 1).error).toBe(
+        AMOUNT_MESSAGE,
+      );
+    expect(evaluateSplitItem(item({ expression: " " }), 1.1)).toMatchObject({
+      value: null,
+      error: null,
+    });
+    expect(evaluateSplitItem(item({ expression: "=2*3" }), 1)).toMatchObject({
+      value: 6,
+      error: null,
+    });
+  });
+
+  it("sends a plain number as typed and math without its =", () => {
+    const sent = toSplitInputs([
+      item({ expression: " 7. " }),
+      item({ expression: "-4.50" }),
+      item({ expression: "=4+1" }),
+      item({ expression: "1*1.09", preTax: true }),
+    ]).map((i) => i.expression);
+    expect(sent).toEqual(["7", "-4.50", "4+1", "1*1.09"]);
+  });
+
+  it("blocks over-allocation but allows exactly zero remaining", () => {
+    expect(
+      summarizeSplit(10, [item({ expression: "10.01" })], 1).canSubmit,
+    ).toBe(false);
+    const exact = summarizeSplit(
+      10,
+      [item({ expression: "4" }), item({ expression: "6" })],
+      1,
+    );
+    expect(exact.remaining).toBe(0);
+    expect(exact.canSubmit).toBe(true);
+  });
+
+  it("rejects notes that would be formulas", () => {
+    const s = summarizeSplit(
+      10,
+      [item({ expression: "1", itemNote: "=HYPERLINK()" })],
+      1,
+    );
+    expect(s.canSubmit).toBe(false);
+  });
+
+  it("builds the request items", () => {
+    expect(
+      toSplitInputs([
+        item({
+          itemNote: " milk ",
+          expression: " 1+2 ",
+          preTax: true,
+          envelope: "Groceries",
+        }),
+      ]),
+    ).toEqual([
+      {
+        itemNote: "milk",
+        expression: "1+2",
+        preTax: true,
+        envelope: "Groceries",
+      },
+    ]);
+  });
+
+  it("sends Paid with only when chosen", () => {
+    expect(
+      toSplitInputs([item({ expression: "1", paidWith: "Debit" })])[0],
+    ).toEqual({
+      itemNote: "",
+      expression: "1",
+      preTax: false,
+      envelope: "",
+      paidWith: "Debit",
+    });
+  });
+});
+
+describe("toSplitInputs details", () => {
+  it("sends tax deductible only when checked and the note only when not blank", () => {
+    expect(
+      toSplitInputs([
+        item({ expression: "1", taxDeductible: true, note: "for Pat" }),
+        item({ expression: "2", note: "  " }),
+      ]),
+    ).toEqual([
+      {
+        itemNote: "",
+        expression: "1",
+        preTax: false,
+        envelope: "",
+        taxDeductible: "Yes",
+        note: "for Pat",
+      },
+      { itemNote: "", expression: "2", preTax: false, envelope: "" },
+    ]);
+  });
+});
+
+describe("newSplitItem", () => {
+  it("inherits the given Paid with and Tax deductible", () => {
+    expect(
+      newSplitItem({ paidWith: "Credit", taxDeductible: true }),
+    ).toMatchObject({ paidWith: "Credit", taxDeductible: true, note: "" });
+  });
+
+  it("starts blank with Add tax checked and a unique key", () => {
+    const a = newSplitItem();
+    const b = newSplitItem();
+    expect(a).toMatchObject({
+      itemNote: "",
+      expression: "",
+      preTax: true,
+      envelope: "",
+      paidWith: "",
+      taxDeductible: false,
+      note: "",
+    });
+    expect(a.key).not.toBe(b.key);
+  });
+});
