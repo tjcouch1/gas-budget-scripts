@@ -13,6 +13,7 @@ import {
   MAX_SHEETS_PER_READ,
   type AllTransactionsDto,
   type PayPeriodStateDto,
+  type SplitGroupResultDto,
   type SyncReceiptsResultDto,
   type TaxDeductibleValue,
   type TransactionRowDto,
@@ -270,35 +271,40 @@ const CHANGE_KEYS = new Set([
 function validateChanges(
   changes: unknown,
   getOptions: () => SheetOptions,
+  /** Field path in error messages */
+  field = "changes",
+  /** `splitTotal` is not a per-row change of `updateSplitGroup` */
+  allowSplitTotal = true,
 ): ValidatedChanges {
-  if (!isObject(changes)) badRequest("changes must be an object");
+  if (!isObject(changes)) badRequest(`${field} must be an object`);
   const unknownKeys = Object.keys(changes).filter(
-    (key) => !CHANGE_KEYS.has(key),
+    (key) =>
+      !CHANGE_KEYS.has(key) || (key === "splitTotal" && !allowSplitTotal),
   );
   if (unknownKeys.length > 0)
-    badRequest(`Unknown changes: ${unknownKeys.join(", ")}`);
+    badRequest(`Unknown ${field}: ${unknownKeys.join(", ")}`);
 
   const validated: ValidatedChanges = {};
   if (changes.name !== undefined)
-    validated.name = requireSafeText(changes.name, "changes.name");
+    validated.name = requireSafeText(changes.name, `${field}.name`);
 
-  const costPreTax = optionalBoolean(changes.costPreTax, "changes.costPreTax");
+  const costPreTax = optionalBoolean(changes.costPreTax, `${field}.costPreTax`);
   if (changes.costExpression !== undefined)
     validated.cost = buildCost(
-      requireString(changes.costExpression, "changes.costExpression"),
+      requireString(changes.costExpression, `${field}.costExpression`),
       costPreTax ?? false,
-      "changes.costExpression",
+      `${field}.costExpression`,
     );
   else if (costPreTax !== undefined)
-    badRequest("changes.costPreTax requires changes.costExpression");
+    badRequest(`${field}.costPreTax requires ${field}.costExpression`);
 
   if (changes.splitTotal !== undefined) {
-    const total = requireString(changes.splitTotal, "changes.splitTotal");
+    const total = requireString(changes.splitTotal, `${field}.splitTotal`);
     if (!isPlainAmount(total))
-      badRequest("changes.splitTotal must be a plain number");
+      badRequest(`${field}.splitTotal must be a plain number`);
     if (validated.cost !== undefined)
       badRequest(
-        "changes.splitTotal cannot be combined with changes.costExpression",
+        `${field}.splitTotal cannot be combined with ${field}.costExpression`,
       );
     validated.splitTotal = total;
   }
@@ -307,26 +313,26 @@ function validateChanges(
     validated.envelope = requireOption(
       changes.envelope,
       () => getOptions().envelopeOptions,
-      "changes.envelope",
+      `${field}.envelope`,
       "EnvelopesStart/EnvelopesMax",
     );
   if (changes.paidWith !== undefined)
     validated.paidWith = requireOption(
       changes.paidWith,
       () => getOptions().paidWithOptions,
-      "changes.paidWith",
+      `${field}.paidWith`,
       "PaidWithStart/PaidWithMax",
     );
   if (changes.taxDeductible !== undefined) {
     if (changes.taxDeductible !== "Yes" && changes.taxDeductible !== "")
-      badRequest('changes.taxDeductible must be "Yes" or ""');
+      badRequest(`${field}.taxDeductible must be "Yes" or ""`);
     validated.taxDeductible = changes.taxDeductible;
   }
 
   if (changes.note !== undefined) {
-    const note = requireString(changes.note, "changes.note");
+    const note = requireString(changes.note, `${field}.note`);
     if (note.length > MAX_NOTE_LENGTH)
-      badRequest(`changes.note must be at most ${MAX_NOTE_LENGTH} characters`);
+      badRequest(`${field}.note must be at most ${MAX_NOTE_LENGTH} characters`);
     validated.note = note;
   }
 
@@ -336,12 +342,13 @@ function validateChanges(
 
 /**
  * `updateTransaction`: edits Name, Cost, Envelope, Paid with, and/or Tax deductible of one row,
- * or a split parent's total. Renaming a split parent renames its children's prefix too.
+ * or a split parent's total. Writes only that row (renaming a split group is `updateSplitGroup`).
  * Never writes Date (col 0) or Current Balance (col 3).
  *
  * Returns the row, or the whole pay-period state when the row is in a split group and its name,
- * cost, or total changed: other rows of the group changed with it (the parent's remainder, or
- * the children's names)
+ * cost, or total changed: the group's other displayed values changed with it (a child's cost
+ * moves the parent's remainder). The web client saves split groups with `updateSplitGroup`,
+ * which returns only the group's rows
  */
 export function handleUpdateTransaction(
   request: Json,
@@ -378,7 +385,7 @@ export function handleUpdateTransaction(
               .map((r) => r.rowIndex)
           : [];
 
-      let name = changes.name;
+      const name = changes.name;
       const renamesGroup =
         name !== undefined &&
         getSplitGroupKey(name) !== getSplitGroupKey(current.name);
@@ -394,9 +401,12 @@ export function handleUpdateTransaction(
         badRequest(
           "Cannot rename a row in a split group (its name contains |) because that could break the group",
         );
-      // A split parent keeps " | " so its children stay grouped (AGENTS.md section 3.3).
-      if (name !== undefined && renamesGroup && childIndexes.length > 0)
-        name = buildSplitParentName(name);
+      // Renaming a split group rewrites its children's names, whose fingerprints this request
+      // does not carry: that must go through `updateSplitGroup`, which checks every row.
+      if (renamesGroup && childIndexes.length > 0)
+        badRequest(
+          "Cannot rename a split group with updateTransaction; use updateSplitGroup so every row is checked",
+        );
 
       let cost = changes.cost;
       if (changes.splitTotal !== undefined) {
@@ -433,22 +443,6 @@ export function handleUpdateTransaction(
         table.range
           .offset(rowIndex, COL.name, 1, 2)
           .setValues([[name ?? asRead(COL.name), cost ?? asRead(COL.cost)]]);
-
-      // Renaming a split parent: each child keeps its text after "|" and gets the new prefix.
-      if (name !== undefined && renamesGroup && childIndexes.length > 0) {
-        const prefix = getSplitGroupKey(name);
-        table.range
-          .offset(childIndexes[0], COL.name, childIndexes.length, 1)
-          .setValues(
-            childIndexes.map((r) => {
-              const childName = table.rows[r].name;
-              const bar = childName.indexOf("|");
-              return [
-                bar < 0 ? childName : `${prefix} |${childName.slice(bar + 1)}`,
-              ];
-            }),
-          );
-      }
 
       if (
         changes.envelope !== undefined ||
@@ -517,12 +511,14 @@ function validateSplitExtras(
 function validateSplits(
   splits: unknown,
   getOptions: () => SheetOptions,
+  /** Field name in error messages */
+  name = "splits",
 ): { specs: SplitChildSpec[]; extras: SplitChildExtras[] } {
   if (!Array.isArray(splits) || splits.length < 1 || splits.length > MAX_SPLITS)
-    badRequest(`splits must be an array of 1 to ${MAX_SPLITS} items`);
+    badRequest(`${name} must be an array of 1 to ${MAX_SPLITS} items`);
   const extras: SplitChildExtras[] = [];
   const specs = splits.map((split, i): SplitChildSpec => {
-    const field = `splits[${i}]`;
+    const field = `${name}[${i}]`;
     if (!isObject(split)) badRequest(`${field} must be an object`);
     const preTax = optionalBoolean(split.preTax, `${field}.preTax`);
     if (preTax === undefined) badRequest(`${field}.preTax must be a boolean`);
@@ -627,6 +623,282 @@ export function handleSplitTransaction(
 
   const { state, warnings } = buildPayPeriodState(sheetName);
   return { data: state, warnings };
+}
+
+/** Most rows one `updateSplitGroup` request may list */
+const MAX_GROUP_ROWS = 100;
+
+/** A validated `updateSplitGroup` row */
+interface GroupRowEdit {
+  rowIndex: number;
+  baseFingerprint: string;
+  baseNote?: string;
+  changes: ValidatedChanges;
+}
+
+/** Validates `updateSplitGroup`'s `rows`: 2..MAX contiguous rows in order, each with its fingerprint */
+function validateGroupRows(
+  rows: unknown,
+  sheet: GoogleAppsScript.Spreadsheet.Sheet,
+  getOptions: () => SheetOptions,
+): GroupRowEdit[] {
+  if (!Array.isArray(rows) || rows.length < 2 || rows.length > MAX_GROUP_ROWS)
+    badRequest(`rows must be an array of 2 to ${MAX_GROUP_ROWS} items`);
+  const first = isObject(rows[0])
+    ? requireRowIndex(rows[0].rowIndex, sheet)
+    : badRequest("rows[0] must be an object");
+  const transactionsMax = Number(
+    Variables.getSheetVariables(sheet).TransactionsMax,
+  );
+  if (first + rows.length > transactionsMax)
+    badRequest(`rows must be within [0, ${transactionsMax})`);
+  return rows.map((row, i): GroupRowEdit => {
+    const field = `rows[${i}]`;
+    if (!isObject(row)) badRequest(`${field} must be an object`);
+    if (row.rowIndex !== first + i)
+      badRequest("rows must list contiguous row indexes in order");
+    const baseFingerprint = requireString(
+      row.baseFingerprint,
+      `${field}.baseFingerprint`,
+    );
+    if (!baseFingerprint)
+      badRequest(`${field}.baseFingerprint must not be empty`);
+    const baseNote =
+      row.baseNote === undefined
+        ? undefined
+        : requireString(row.baseNote, `${field}.baseNote`);
+    const changes =
+      row.changes === undefined
+        ? {}
+        : validateChanges(row.changes, getOptions, `${field}.changes`, false);
+    if (i === 0 && changes.cost !== undefined)
+      badRequest(
+        "Cannot edit the cost of a split parent row; edit the child rows",
+      );
+    return { rowIndex: first + i, baseFingerprint, baseNote, changes };
+  });
+}
+
+/** Validates `updateSplitGroup`'s `title`: the new text before " | " of every row */
+function validateGroupTitle(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  const title = requireSafeText(value, "title").trim();
+  if (title === "") badRequest("title must not be empty");
+  if (title.includes("|")) badRequest("title must not contain |");
+  return title;
+}
+
+/**
+ * `updateSplitGroup`: saves every edit of one split group atomically (web-plan.md section 4.4).
+ * Under the script lock it re-reads the table and checks that the listed rows are still exactly
+ * the group (first row = parent) and that every row's fingerprint and `baseNote` match; on any
+ * mismatch nothing is written and `conflict` returns the group's current rows. Then each column
+ * that changed is written with one batch call over the group (names, costs, Envelope/Paid
+ * with/Tax Deductible, notes), and `newItems` are appended with the native split. Returns the
+ * group's rows, plus the sheet state only when `newItems` moved rows below the group
+ */
+export function handleUpdateSplitGroup(
+  request: Json,
+): HandlerResult<SplitGroupResultDto> {
+  const sheetName = requireString(request.sheetName, "sheetName");
+  const sheet = getTransactionSheet(sheetName);
+  const getOptions = sheetOptionsGetter(sheet);
+  const rows = validateGroupRows(request.rows, sheet, getOptions);
+  const title = validateGroupTitle(request.title);
+  let splitTotal: string | undefined;
+  if (request.splitTotal !== undefined) {
+    splitTotal = requireString(request.splitTotal, "splitTotal");
+    if (!isPlainAmount(splitTotal))
+      badRequest("splitTotal must be a plain number");
+  }
+  const newItems =
+    request.newItems === undefined
+      ? undefined
+      : validateSplits(request.newItems, getOptions, "newItems");
+  if (
+    title === undefined &&
+    splitTotal === undefined &&
+    newItems === undefined &&
+    rows.every((row) => Object.keys(row.changes).length === 0)
+  )
+    badRequest("No changes given");
+
+  const head = rows[0].rowIndex;
+  const count = rows.length;
+
+  const resultRows = tryWithScriptLock(
+    () => {
+      const table = readTransactionTable(sheet);
+      const groupId = table.rows[head].splitGroupId;
+      const groupIndexes =
+        groupId === String(head)
+          ? table.rows
+              .filter((row) => row.splitGroupId === groupId)
+              .map((row) => row.rowIndex)
+          : [];
+      const changed = rows.find(({ rowIndex, baseFingerprint, baseNote }) => {
+        const current = table.rows[rowIndex];
+        return (
+          !table.hasContent[rowIndex] ||
+          current.fingerprint !== baseFingerprint ||
+          (baseNote !== undefined && current.note !== baseNote)
+        );
+      });
+      const sameGroup =
+        groupIndexes.length === count &&
+        groupIndexes.every((r, i) => r === rows[i].rowIndex);
+      if (changed || !sameGroup) {
+        const indexes = [
+          ...new Set([...rows.map((row) => row.rowIndex), ...groupIndexes]),
+        ]
+          .filter((r) => table.hasContent[r])
+          .sort((a, b) => a - b);
+        throw new ApiError(
+          "conflict",
+          "The split changed on the sheet since it was loaded",
+          {
+            current: table.rows[changed?.rowIndex ?? head],
+            rows: indexes.map((r) => table.rows[r]),
+          },
+        );
+      }
+
+      /** Unchanged cells are written back as read: formula if there is one, else value */
+      const asRead = (r: number, col: number) =>
+        table.formulas[r][col] || table.values[r][col];
+      /** Writes one column block over the group when any row changes it */
+      const writeColumns = (
+        col: number,
+        numColumns: number,
+        cells: (row: GroupRowEdit, i: number) => unknown[],
+        changes: boolean,
+      ) => {
+        if (changes)
+          table.range
+            .offset(head, col, count, numColumns)
+            .setValues(rows.map(cells));
+      };
+
+      // A row's own name may change only after its "|" (the group's title renames them all)
+      rows.forEach(({ rowIndex, changes }, i) => {
+        const current = table.rows[rowIndex].name;
+        if (
+          changes.name !== undefined &&
+          !(
+            current.includes("|") &&
+            changes.name.includes("|") &&
+            getSplitGroupKey(changes.name) === getSplitGroupKey(current)
+          )
+        )
+          badRequest(
+            `rows[${i}].changes.name must keep the text before | (rename the group with title)`,
+          );
+      });
+
+      let parentCost: string | undefined;
+      if (splitTotal !== undefined) {
+        const costFormulaR1C1 = table.range
+          .offset(head, COL.cost, 1, 1)
+          .getFormulasR1C1()[0][0];
+        if (!SPLIT_PARENT_FORMULA_REGEX.test(costFormulaR1C1 ?? ""))
+          badRequest(
+            "splitTotal is only allowed when the first row is a split parent",
+          );
+        try {
+          parentCost = buildSplitParentFormula(
+            costFormulaR1C1 ?? "",
+            splitTotal,
+          );
+        } catch {
+          badRequest(
+            "splitTotal cannot be applied: the cost formula does not start with a total",
+          );
+        }
+      }
+
+      writeColumns(
+        COL.name,
+        1,
+        ({ rowIndex, changes }, i) => {
+          const name = changes.name ?? asRead(rowIndex, COL.name);
+          if (title === undefined) return [name];
+          const text = String(name);
+          const bar = text.indexOf("|");
+          // Each row keeps its text after "|"; a parent without "|" gets " | " (AGENTS.md 3.3)
+          if (bar < 0) return [i === 0 ? buildSplitParentName(title) : text];
+          return [`${title} |${text.slice(bar + 1)}`];
+        },
+        title !== undefined ||
+          rows.some((row) => row.changes.name !== undefined),
+      );
+      writeColumns(
+        COL.cost,
+        1,
+        ({ rowIndex, changes }, i) => [
+          (i === 0 ? parentCost : changes.cost) ?? asRead(rowIndex, COL.cost),
+        ],
+        parentCost !== undefined ||
+          rows.some((row) => row.changes.cost !== undefined),
+      );
+      writeColumns(
+        COL.envelope,
+        3,
+        ({ rowIndex, changes }) => [
+          changes.envelope ?? asRead(rowIndex, COL.envelope),
+          changes.paidWith ?? asRead(rowIndex, COL.paidWith),
+          changes.taxDeductible ?? asRead(rowIndex, COL.taxDeductible),
+        ],
+        rows.some(
+          ({ changes }) =>
+            changes.envelope !== undefined ||
+            changes.paidWith !== undefined ||
+            changes.taxDeductible !== undefined,
+        ),
+      );
+      if (rows.some((row) => row.changes.note !== undefined))
+        table.range
+          .offset(head, COL.name, count, 1)
+          .setNotes(
+            rows.map(({ rowIndex, changes }) => [
+              changes.note ?? table.rows[rowIndex].note,
+            ]),
+          );
+
+      if (newItems)
+        try {
+          const groupRange = Budgeting.splitTransaction(
+            sheet,
+            head,
+            newItems.specs,
+          );
+          writeSplitChildExtras(
+            sheet,
+            head + groupRange.getNumRows() - newItems.specs.length,
+            newItems.extras,
+          );
+        } catch (e) {
+          if (SPLIT_USER_ERROR_REGEX.test(getErrorMessage(e)))
+            badRequest(getErrorMessage(e));
+          throw e;
+        }
+
+      const after = readTransactionTable(sheet);
+      const afterGroupId = after.rows[head].splitGroupId;
+      return afterGroupId === null
+        ? [after.rows[head]]
+        : after.rows.filter((row) => row.splitGroupId === afterGroupId);
+    },
+    () => {
+      throw new ApiError(
+        "busy",
+        "Another change is in progress. Please try again.",
+      );
+    },
+  );
+
+  if (!newItems) return { data: { rows: resultRows } };
+  const { state, warnings } = buildPayPeriodState(sheetName);
+  return { data: { rows: resultRows, state }, warnings };
 }
 
 /** Most rows one `deleteTransaction` request may delete */

@@ -2,6 +2,7 @@ import type { RuleCaptures } from "@budget/shared";
 import { formatMoney } from "../../lib/format.ts";
 import {
   formatOutcome,
+  type ImportPreview,
   type PreviewItem,
 } from "../../lib/receipt-rules-preview.ts";
 
@@ -104,6 +105,8 @@ function ResultCard({ item }: { item: PreviewItem }) {
         </p>
       )}
 
+      <ImportSection preview={item.import} />
+
       {receipt && outcome.isReceipt && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
           <dt className="text-slate-500 dark:text-slate-400">Name</dt>
@@ -168,5 +171,77 @@ function ResultCard({ item }: { item: PreviewItem }) {
         </details>
       )}
     </article>
+  );
+}
+
+function ImportSection({ preview }: { preview: ImportPreview }) {
+  return (
+    <section
+      aria-label="Import preview"
+      className="space-y-2 rounded-lg bg-slate-50 p-2 text-xs dark:bg-slate-900"
+    >
+      <h5 className="font-semibold">Import preview</h5>
+      {preview.alreadyProcessed && (
+        <p className="text-amber-700 dark:text-amber-300">
+          Already processed (labeled Receipts/Scripted): the import skips this
+          thread.
+        </p>
+      )}
+      {preview.skip && <p>Would not import: {preview.skip}</p>}
+      {preview.rows.map((row, i) => {
+        const hasError = row.errorMessage !== "";
+        const nameTone = hasError
+          ? "bg-red-600 text-white"
+          : row.note
+            ? "bg-pink-200 text-pink-950"
+            : "";
+        return (
+          <div key={i} className="space-y-1">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+              <dt className="text-slate-500 dark:text-slate-400">Date</dt>
+              <dd data-testid="import-date">{row.date.toLocaleDateString()}</dd>
+              <dt className="text-slate-500 dark:text-slate-400">Name</dt>
+              <dd
+                data-testid="import-name"
+                className={`rounded px-1 ${nameTone}`}
+              >
+                {row.name ?? ""}
+              </dd>
+              <dt className="text-slate-500 dark:text-slate-400">Cost</dt>
+              <dd
+                data-testid="import-cost"
+                className={`rounded px-1 ${row.cost ? "" : "bg-pink-200 text-pink-950"}`}
+              >
+                {row.cost === undefined ? "" : formatMoney(row.cost)}
+              </dd>
+              <dt className="text-slate-500 dark:text-slate-400">Envelope</dt>
+              <dd data-testid="import-envelope">{row.category ?? ""}</dd>
+              <dt className="text-slate-500 dark:text-slate-400">Paid with</dt>
+              <dd data-testid="import-paid-with">{row.type ?? ""}</dd>
+              <dt className="text-slate-500 dark:text-slate-400">Sheet</dt>
+              <dd data-testid="import-sheet">
+                {row.sheet === undefined
+                  ? "(fetch emails to see the sheet)"
+                  : (row.sheet ?? "")}
+              </dd>
+            </dl>
+            {row.sheet === null && (
+              <p className="text-red-700 dark:text-red-300">
+                No matching transaction sheet: the import would fail for this
+                date.
+              </p>
+            )}
+            {hasError && (
+              <p className="break-words whitespace-pre-wrap text-red-700 dark:text-red-300">
+                {row.errorMessage}
+              </p>
+            )}
+            {row.note && (
+              <p className="break-words whitespace-pre-wrap">{row.note}</p>
+            )}
+          </div>
+        );
+      })}
+    </section>
   );
 }

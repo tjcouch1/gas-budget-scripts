@@ -90,6 +90,26 @@ describe("createApiClient", () => {
     expect((error as ApiError).conflictCurrent).toEqual(current);
   });
 
+  it("passes a split group conflict's current rows", async () => {
+    const rows = [{ rowIndex: 3 }, { rowIndex: 4 }];
+    const call = createApiClient({
+      credentials,
+      fetchImpl: asFetch(
+        vi.fn(() =>
+          jsonResponse({
+            ok: false,
+            error: { code: "conflict", message: "changed" },
+            conflict: { current: rows[1], rows },
+          }),
+        ),
+      ),
+    });
+    const error = await call({ action: "syncReceipts" }).catch(
+      (e: ApiError) => e,
+    );
+    expect((error as ApiError).conflictRows).toEqual(rows);
+  });
+
   it("explains a non-JSON (login page) response", async () => {
     const fetchImpl = vi.fn(() =>
       Promise.resolve({

@@ -307,3 +307,18 @@ describe("SettingsDialog in an insecure context", () => {
     expect(screen.queryByText(/not a secure context/i)).toBeNull();
   });
 });
+
+describe("SettingsDialog inline envelope chips", () => {
+  afterEach(() => localStorage.clear());
+
+  it("toggles the saved preference", async () => {
+    const { user } = await setup();
+    const box = screen.getByLabelText(/chips instead of the dropdown/);
+    expect(box).not.toBeChecked();
+    await user.click(box);
+    expect(box).toBeChecked();
+    expect(localStorage.getItem("budget.inlineEnvelopeChips")).toBe("1");
+    await user.click(box);
+    expect(localStorage.getItem("budget.inlineEnvelopeChips")).toBe("0");
+  });
+});

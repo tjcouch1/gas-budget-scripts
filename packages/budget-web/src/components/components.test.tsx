@@ -30,6 +30,7 @@ describe("TransactionSheet", () => {
   ) {
     const onUpdate = vi.fn();
     const onSplit = vi.fn();
+    const onSaveGroup = vi.fn();
     const onClose = vi.fn();
     const state = makeState([]);
     render(
@@ -41,11 +42,12 @@ describe("TransactionSheet", () => {
         paidWithOptions={["Credit", "Pat Venmo"]}
         onUpdate={onUpdate}
         onSplit={onSplit}
+        onSaveGroup={onSaveGroup}
         onClose={onClose}
         {...props}
       />,
     );
-    return { onUpdate, onSplit, onClose, user: userEvent.setup() };
+    return { onUpdate, onSplit, onSaveGroup, onClose, user: userEvent.setup() };
   }
   /** A group as the sheet has it after a split: Aldi, $30 in total. */
   const group = () => [
@@ -73,6 +75,12 @@ describe("TransactionSheet", () => {
   const saveClose = () => screen.getByRole("button", { name: "Save & close" });
   const card = (name: string) => screen.getByRole("group", { name });
   const addItem = () => screen.getByRole("button", { name: "Add split item" });
+  /** The one group save: its rows' indexes and its edit. */
+  const savedGroup = (onSaveGroup: ReturnType<typeof vi.fn>) => {
+    expect(onSaveGroup).toHaveBeenCalledTimes(1);
+    const [rows, edit] = onSaveGroup.mock.calls[0] as [ViewRow[], unknown];
+    return { indexes: rows.map((r) => r.rowIndex), edit };
+  };
 
   it("shows a single card with no tax toggle and no split items", () => {
     setup();
@@ -450,7 +458,10 @@ describe("TransactionSheet", () => {
   });
 
   it("shows an existing group as cards and edits its rows", async () => {
-    const { user, onUpdate, onSplit } = setup({}, { rows: group() });
+    const { user, onUpdate, onSplit, onSaveGroup } = setup(
+      {},
+      { rows: group() },
+    );
     // The split's title is editable, without its trailing " |"
     expect(screen.getByLabelText("Name")).toHaveValue("Aldi");
     expect(screen.getByText(/Total \$30\.00/)).toBeInTheDocument();
@@ -482,21 +493,22 @@ describe("TransactionSheet", () => {
 
     await user.click(saveClose());
     expect(onSplit).not.toHaveBeenCalled();
-    expect(
-      onUpdate.mock.calls.map((c) => [
-        (c[0] as ViewRow).rowIndex,
-        c[1] as unknown,
-      ]),
-    ).toEqual([
-      // The children first, then the original (whose rename would move their prefix)
-      [5, { costExpression: "12", costPreTax: true, envelope: "Gas" }],
-      [6, { taxDeductible: "Yes", note: "gift" }],
-      [4, { name: "Aldi | carts" }],
-    ]);
+    expect(onUpdate).not.toHaveBeenCalled();
+    // One atomic save of the whole group, every row's edits by position
+    expect(savedGroup(onSaveGroup)).toEqual({
+      indexes: [4, 5, 6],
+      edit: {
+        rowChanges: [
+          { name: "Aldi | carts" },
+          { costExpression: "12", costPreTax: true, envelope: "Gas" },
+          { taxDeductible: "Yes", note: "gift" },
+        ],
+      },
+    });
   });
 
   it("renames a split from its title: the original gets the new prefix with its note", async () => {
-    const { user, onUpdate } = setup({}, { rows: group() });
+    const { user, onUpdate, onSaveGroup } = setup({}, { rows: group() });
     const title = screen.getByLabelText("Name");
     await user.clear(title);
     // Clearing the title blocks saving
@@ -512,24 +524,30 @@ describe("TransactionSheet", () => {
     // The children's item note fields show the new prefix live
     expect(within(card("Split item 1")).getByText("Aldi Süd |")).toBeTruthy();
     await user.click(saveClose());
-    expect(onUpdate).toHaveBeenCalledTimes(1);
-    expect(onUpdate.mock.calls[0][0]).toMatchObject({ rowIndex: 4 });
-    expect(onUpdate.mock.calls[0][1]).toEqual({ name: "Aldi Süd | cart" });
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(savedGroup(onSaveGroup)).toEqual({
+      indexes: [4, 5, 6],
+      edit: {
+        rowChanges: [undefined, undefined, undefined],
+        title: "Aldi Süd",
+      },
+    });
   });
 
   it("keeps the ' | ' on a renamed split original without an item note", async () => {
     const rows = group();
     rows[0] = { ...rows[0], name: "Aldi | " };
-    const { user, onUpdate } = setup({}, { rows });
+    const { user, onSaveGroup } = setup({}, { rows });
     expect(screen.getByLabelText("Name")).toHaveValue("Aldi");
     await user.clear(screen.getByLabelText("Name"));
     await user.type(screen.getByLabelText("Name"), "Lidl");
     await user.click(saveClose());
-    expect(onUpdate.mock.calls[0][1]).toEqual({ name: "Lidl | " });
+    // The server keeps each row's text after "|" (the original's " | " too)
+    expect(savedGroup(onSaveGroup).edit).toMatchObject({ title: "Lidl" });
   });
 
   it("edits the split total with the pencil: the remainder follows, blank or invalid blocks saving", async () => {
-    const { user, onUpdate } = setup({}, { rows: group() });
+    const { user, onSaveGroup } = setup({}, { rows: group() });
     const original = within(card("Remainder"));
     await user.click(screen.getByRole("button", { name: "Edit total" }));
     const total = screen.getByLabelText("Total");
@@ -549,9 +567,13 @@ describe("TransactionSheet", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     expect(original.getByTestId("remaining")).toHaveTextContent("$23.50");
     await user.click(saveClose());
-    expect(onUpdate).toHaveBeenCalledTimes(1);
-    expect(onUpdate.mock.calls[0][0]).toMatchObject({ rowIndex: 4 });
-    expect(onUpdate.mock.calls[0][1]).toEqual({ splitTotal: "35.5" });
+    expect(savedGroup(onSaveGroup)).toEqual({
+      indexes: [4, 5, 6],
+      edit: {
+        rowChanges: [undefined, undefined, undefined],
+        splitTotal: "35.5",
+      },
+    });
   });
 
   it("keeps Save & close disabled while the total is blank or invalid, even with other edits", async () => {
@@ -584,24 +606,33 @@ describe("TransactionSheet", () => {
   });
 
   it("appends new split items to an existing group", async () => {
-    const { user, onUpdate, onSplit } = setup({}, { rows: group() });
+    const { user, onUpdate, onSplit, onSaveGroup } = setup(
+      {},
+      { rows: group() },
+    );
     await user.click(addItem());
     const item = within(card("Split item 3"));
     await user.type(item.getByLabelText("Amount"), "2");
     expect(screen.getByTestId("remaining")).toHaveTextContent("$15.84");
     await user.click(saveClose());
     expect(onUpdate).not.toHaveBeenCalled();
-    expect(onSplit.mock.calls[0][0]).toMatchObject({ rowIndex: 4 });
-    expect(onSplit.mock.calls[0][1]).toEqual([
-      {
-        itemNote: "",
-        expression: "2",
-        preTax: true,
-        envelope: "",
-        paidWith: "Credit",
+    expect(onSplit).not.toHaveBeenCalled();
+    // The new items go in the same atomic save as the group's other edits
+    expect(savedGroup(onSaveGroup)).toEqual({
+      indexes: [4, 5, 6],
+      edit: {
+        rowChanges: [undefined, undefined, undefined],
+        newItems: [
+          {
+            itemNote: "",
+            expression: "2",
+            preTax: true,
+            envelope: "",
+            paidWith: "Credit",
+          },
+        ],
       },
-    ]);
-    expect(onSplit.mock.calls[0][2]).toEqual({});
+    });
   });
 
   it("disables adding items while the group's split is queued", () => {
@@ -882,6 +913,7 @@ describe("ExpensesView", () => {
       loadAll: vi.fn(),
       enqueueUpdate: vi.fn(),
       enqueueSplit: vi.fn(),
+      enqueueGroupUpdate: vi.fn(),
       enqueueDelete: vi.fn(),
     };
     const sheetName = "3/3/26 - 3/16/26";
@@ -935,7 +967,7 @@ describe("ExpensesView", () => {
     );
   });
 
-  it("opens a child row with its whole group and saves each row with its server copy", async () => {
+  it("opens a child row with its whole group and saves the group in one change with its server copies", async () => {
     const state = makeState([
       makeRow(0, {
         name: "Aldi | ",
@@ -961,24 +993,23 @@ describe("ExpensesView", () => {
       "1",
     );
     await user.click(dialog.getByRole("button", { name: "Save & close" }));
-    expect(engine.enqueueUpdate).toHaveBeenCalledWith(
+    expect(engine.enqueueUpdate).not.toHaveBeenCalled();
+    expect(engine.enqueueSplit).not.toHaveBeenCalled();
+    expect(engine.enqueueGroupUpdate).toHaveBeenCalledWith(
       state.sheetName,
-      state.transactions[1],
-      { envelope: "Groceries" },
-    );
-    expect(engine.enqueueSplit).toHaveBeenCalledWith(
-      state.sheetName,
-      state.transactions[0],
-      [
-        {
-          itemNote: "",
-          expression: "1",
-          preTax: true,
-          envelope: "",
-          paidWith: "Credit",
-        },
-      ],
-      {},
+      [state.transactions[0], state.transactions[1]],
+      {
+        rowChanges: [undefined, { envelope: "Groceries" }],
+        newItems: [
+          {
+            itemNote: "",
+            expression: "1",
+            preTax: true,
+            envelope: "",
+            paidWith: "Credit",
+          },
+        ],
+      },
     );
   });
 

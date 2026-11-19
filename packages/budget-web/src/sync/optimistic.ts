@@ -12,6 +12,7 @@ import {
 import type { ViewRow } from "../lib/rows.ts";
 import type {
   AddMutation,
+  GroupMutation,
   QueuedMutation,
   RowMutation,
   UpdateMutation,
@@ -90,6 +91,69 @@ export function applySplitToParent(
   return next;
 }
 
+/** A split row's name with the group's new title before "|" (a parent without "|" gets " | "). */
+function withTitle(name: string, title: string, isParent: boolean): string {
+  const bar = name.indexOf("|");
+  if (bar < 0) return isParent ? buildSplitParentName(title) : name;
+  return `${title} |${name.slice(bar + 1)}`;
+}
+
+/**
+ * Row `index` of a split group save applied to `row`: its own changes, the parent's new total,
+ * and the new title. The parent's remainder does not follow its children here (see
+ * `proposedGroupRows` and `applyGroupEdits`).
+ */
+function applyGroupRow(
+  row: TransactionRowDto,
+  m: GroupMutation,
+  index: number,
+  taxMultiplier: number,
+): TransactionRowDto {
+  const changes: TransactionChanges = {
+    ...m.payload.rows[index]?.changes,
+    ...(index === 0 && m.payload.splitTotal !== undefined
+      ? { splitTotal: m.payload.splitTotal }
+      : {}),
+  };
+  const next = applyChangesToRow(row, changes, taxMultiplier);
+  if (m.payload.title !== undefined)
+    next.name = withTitle(next.name, m.payload.title, index === 0);
+  return next;
+}
+
+/** The value of each new split item, with tax where asked. */
+function newItemValues(m: GroupMutation, taxMultiplier: number): number[] {
+  return (m.payload.newItems ?? []).map((s) => {
+    const base = evaluateMathExpression(s.expression.trim().replace(/^=/, ""));
+    return (base ?? 0) * (s.preTax ? taxMultiplier : 1);
+  });
+}
+
+/**
+ * Every row of a split group save as it would look on the sheet ("Discarded Local Change"), in
+ * the order of `payload.rows`: the parent's remainder moves by its children's cost changes and
+ * the new items, like its `=<total>-R[1]C[0]-...` formula.
+ */
+export function proposedGroupRows(
+  m: GroupMutation,
+  taxMultiplier: number,
+): TransactionRowDto[] {
+  const rows = m.payload.rows.map((r, i) =>
+    applyGroupRow(r.baseRow, m, i, taxMultiplier),
+  );
+  let delta = 0;
+  m.payload.rows.forEach((r, i) => {
+    const before = r.baseRow.cost;
+    const after = rows[i].cost;
+    if (i > 0 && before !== null && after !== null) delta += after - before;
+  });
+  delta += newItemValues(m, taxMultiplier).reduce((sum, v) => sum + v, 0);
+  const head = rows[0];
+  if (head && head.cost !== null && delta !== 0)
+    rows[0] = { ...head, cost: clean(head.cost - delta), costDisplay: "" };
+  return rows;
+}
+
 /** The row as it would look if `mutation` were applied ("Discarded Local Change"). */
 export function proposedRow(
   mutation: RowMutation,
@@ -99,12 +163,24 @@ export function proposedRow(
   if (mutation.action === "updateTransaction") {
     return applyChangesToRow(base, mutation.payload.changes, taxMultiplier);
   }
+  if (mutation.action === "updateSplitGroup") {
+    const proposed = proposedGroupRows(mutation, taxMultiplier);
+    return proposed.find((r) => r.rowIndex === base.rowIndex) ?? base;
+  }
   // A delete has no proposed row (the conflict dialog shows it as deleted).
   if (mutation.action === "deleteTransaction") return base;
   return applySplitToParent(base, 0, {
     itemNote: mutation.payload.parentItemNote,
     envelope: mutation.payload.parentEnvelope,
   });
+}
+
+/** One row's share of a queued split group save, in `buildViewRows`. */
+interface GroupRowEntry {
+  action: "groupRow";
+  m: GroupMutation;
+  /** The row's position in `m.payload.rows`. */
+  index: number;
 }
 
 /** What `buildViewRows` needs of a sheet: a pay-period state or one tab of the all-sheets view. */
@@ -127,7 +203,12 @@ export function buildViewRows(
   scoped = false,
 ): ViewRow[] {
   if (!state) return [];
-  const mutationsByRow = new Map<number, (UpdateMutation | SplitMutation)[]>();
+  const mutationsByRow = new Map<
+    number,
+    (UpdateMutation | SplitMutation | GroupRowEntry)[]
+  >();
+  /** Split group saves with new items: the parent's rowIndex and the items' total. */
+  const newItemTotals = new Map<number, number>();
   const deleting = new Set<number>();
   const adds: AddMutation[] = [];
   for (const m of queue) {
@@ -138,6 +219,14 @@ export function buildViewRows(
     }
     if (m.action === "deleteTransaction") {
       for (const r of m.payload.rows) deleting.add(r.rowIndex);
+      continue;
+    }
+    if (m.action === "updateSplitGroup") {
+      m.payload.rows.forEach((r, index) => {
+        const list = mutationsByRow.get(r.rowIndex) ?? [];
+        list.push({ action: "groupRow", m, index });
+        mutationsByRow.set(r.rowIndex, list);
+      });
       continue;
     }
     const list = mutationsByRow.get(m.rowIndex) ?? [];
@@ -173,6 +262,48 @@ export function buildViewRows(
           pending: true,
           splitPending: row.splitPending,
         };
+      } else if (m.action === "groupRow") {
+        row = {
+          ...applyGroupRow(row, m.m, m.index, state.taxMultiplier),
+          key: row.key,
+          pending: true,
+          splitPending: row.splitPending,
+        };
+        // New items go after the group's last row, named like the (renamed) parent.
+        const items = m.m.payload.newItems ?? [];
+        if (m.index === m.m.payload.rows.length - 1 && items.length > 0) {
+          const head = m.m.payload.rows[0].rowIndex;
+          const parentName =
+            rows.find((r) => !r.synthetic && r.rowIndex === head)?.name ??
+            row.name;
+          const values = newItemValues(m.m, state.taxMultiplier);
+          newItemTotals.set(
+            head,
+            (newItemTotals.get(head) ?? 0) +
+              values.reduce((sum, v) => sum + v, 0),
+          );
+          items.forEach((s, i) =>
+            synthetic.push({
+              ...t,
+              key: `${prefix}group:${m.m.id}:${i}`,
+              sheetName: state.sheetName,
+              rowIndex: -1 - i,
+              name: buildSplitChildName(parentName, s.itemNote),
+              cost: values[i],
+              costFormula: null,
+              costDisplay: "",
+              envelope: s.envelope,
+              paidWith: s.paidWith ?? t.paidWith,
+              taxDeductible: s.taxDeductible ?? "",
+              note: s.note ?? "",
+              isError: false,
+              isNote: false,
+              splitGroupId: row.splitGroupId ?? pendingGroupId,
+              pending: true,
+              synthetic: true,
+            }),
+          );
+        }
       } else if (m.action === "splitTransaction") {
         let total = 0;
         m.payload.splits.forEach((s, i) => {
@@ -213,6 +344,17 @@ export function buildViewRows(
       }
     }
     rows.push(row, ...synthetic);
+  }
+  // The parent's remainder drops by the queued new items (like `applySplitToParent`).
+  for (const [head, total] of newItemTotals) {
+    const index = rows.findIndex((r) => !r.synthetic && r.rowIndex === head);
+    const parent = rows[index];
+    if (parent && parent.cost !== null)
+      rows[index] = {
+        ...parent,
+        cost: roundCents(parent.cost - total),
+        costDisplay: "",
+      };
   }
   applyGroupEdits(rows, state.transactions);
   // Queued new rows go at the end, where the server will write them.

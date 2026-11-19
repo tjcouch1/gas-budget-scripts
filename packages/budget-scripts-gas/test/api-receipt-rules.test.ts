@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  addTransactionSheet,
   addVariablesSheet,
   DEFAULT_VARIABLES,
   GasEnv,
@@ -104,6 +105,48 @@ describe("fetchReceiptEmails", () => {
     expect(res.data.emails[1].messageId).toBe("m2");
     expect(thread.labels).toEqual([existing]);
     expectGmailUntouched([thread]);
+    expect(env.LockService.scriptLock.calls).toEqual([]);
+  });
+
+  it("lists the transaction sheets (name and date range) and changes nothing on the sheets or in Gmail", async () => {
+    const jan = addTransactionSheet(env, "3/1/2024 - 3/15/2024");
+    addTransactionSheet(env, "3/16/2024 - 3/31/2024");
+    jan.seed("A5", [["3/2/2024", "Existing", 1]]);
+    const thread = makeThread({
+      ...chasePurchaseEmail("4.50", "Demo Cafe", "2024-03-01T18:30:00Z"),
+      id: "m1",
+    });
+    env.GmailApp.threads = [thread];
+    const sheetsBefore = JSON.stringify(
+      env.spreadsheet
+        .getSheets()
+        .map((sh: any) => [sh.getName(), sh.getRange("A1:J12").getValues()]),
+    );
+
+    const res = await api("fetchReceiptEmails");
+
+    expect(res.ok).toBe(true);
+    expect(res.data.transactionSheets).toEqual([
+      {
+        name: "3/1/2024 - 3/15/2024",
+        startDate: "2024-03-01T06:00:00.000Z",
+        endDate: "2024-03-16T05:59:59.999Z",
+      },
+      {
+        name: "3/16/2024 - 3/31/2024",
+        startDate: "2024-03-16T06:00:00.000Z",
+        endDate: "2024-04-01T05:59:59.999Z",
+      },
+    ]);
+    expect(
+      JSON.stringify(
+        env.spreadsheet
+          .getSheets()
+          .map((sh: any) => [sh.getName(), sh.getRange("A1:J12").getValues()]),
+      ),
+    ).toBe(sheetsBefore);
+    expectGmailUntouched([thread]);
+    expect(thread.labels).toEqual([]);
     expect(env.LockService.scriptLock.calls).toEqual([]);
   });
 

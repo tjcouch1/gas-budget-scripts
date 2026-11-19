@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import type { ReceiptEmailDto, RuleOutcome } from "@budget/shared";
-import type { PreviewItem } from "../../lib/receipt-rules-preview.ts";
+import type {
+  ImportPreview,
+  PreviewItem,
+} from "../../lib/receipt-rules-preview.ts";
 import { EmailResults } from "./EmailResults.tsx";
 
 const email: ReceiptEmailDto = {
@@ -47,17 +50,25 @@ const notReceipt: RuleOutcome = {
   warnings: [],
 };
 
+const NO_IMPORT: ImportPreview = {
+  rows: [],
+  skip: null,
+  alreadyProcessed: false,
+};
+
 const items: PreviewItem[] = [
-  { email, outcome: receipt, error: null },
+  { email, outcome: receipt, error: null, import: NO_IMPORT },
   {
     email: { ...email, messageId: "m2", subject: "Your statement is ready" },
     outcome: notReceipt,
     error: null,
+    import: NO_IMPORT,
   },
   {
     email: { ...email, messageId: "m3", subject: "Broken" },
     outcome: null,
     error: "Could not get email address from nobody",
+    import: NO_IMPORT,
   },
   {
     email: { ...email, messageId: "m4", subject: "Re: Dinner Friday?" },
@@ -68,6 +79,7 @@ const items: PreviewItem[] = [
       receipt: { ...notReceipt.receipt, type: undefined },
     },
     error: null,
+    import: NO_IMPORT,
   },
 ];
 
@@ -121,6 +133,7 @@ describe("EmailResults", () => {
             email: { ...email, plainBody: evil, htmlBody: evil },
             outcome: receipt,
             error: null,
+            import: NO_IMPORT,
           },
         ]}
       />,
@@ -140,6 +153,7 @@ describe("EmailResults", () => {
             email: { ...email, plainBodyTruncated: true },
             outcome: receipt,
             error: null,
+            import: NO_IMPORT,
           },
         ]}
       />,
@@ -160,6 +174,7 @@ describe("EmailResults", () => {
             email: { ...email, htmlBody: "<p>x</p>", htmlBodyTruncated: true },
             outcome: receipt,
             error: null,
+            import: NO_IMPORT,
           },
         ]}
       />,
@@ -167,5 +182,94 @@ describe("EmailResults", () => {
     const warning = screen.getByText(/Body truncated by the server/);
     expect(warning.closest("details")).toBeNull();
     expect(warning).toHaveTextContent(/may differ/);
+  });
+
+  describe("import preview", () => {
+    const row = {
+      date: new Date("2026-01-02T03:04:05.000Z"),
+      name: "Demo Cafe",
+      cost: 4.5,
+      category: "Food",
+      type: "Credit",
+      errorMessage: "",
+      note: "",
+      sheet: "12/22/2025 - 1/4/2026" as string | null | undefined,
+    };
+    const withImport = (imp: Partial<ImportPreview>): PreviewItem => ({
+      email,
+      outcome: receipt,
+      error: null,
+      import: { ...NO_IMPORT, ...imp },
+    });
+    const section = () =>
+      within(card(email.subject)).getByRole("region", {
+        name: "Import preview",
+      });
+
+    it("shows each row's date, name, cost, envelope, paid with and sheet", () => {
+      render(<EmailResults items={[withImport({ rows: [row] })]} />);
+      const s = within(section());
+      expect(s.getByTestId("import-name")).toHaveTextContent("Demo Cafe");
+      expect(s.getByTestId("import-cost")).toHaveTextContent("4.50");
+      expect(s.getByTestId("import-date")).toHaveTextContent(
+        row.date.toLocaleDateString(),
+      );
+      expect(s.getByTestId("import-envelope")).toHaveTextContent("Food");
+      expect(s.getByTestId("import-paid-with")).toHaveTextContent("Credit");
+      expect(s.getByTestId("import-sheet")).toHaveTextContent(
+        "12/22/2025 - 1/4/2026",
+      );
+    });
+
+    it("shows an error row in red and a note row in pink, with the text", () => {
+      const { rerender } = render(
+        <EmailResults
+          items={[withImport({ rows: [{ ...row, errorMessage: "it broke" }] })]}
+        />,
+      );
+      expect(within(section()).getByTestId("import-name")).toHaveClass(
+        "bg-red-600",
+      );
+      expect(section()).toHaveTextContent("it broke");
+      rerender(
+        <EmailResults
+          items={[withImport({ rows: [{ ...row, note: "a note" }] })]}
+        />,
+      );
+      expect(within(section()).getByTestId("import-name")).toHaveClass(
+        "bg-pink-200",
+      );
+      expect(section()).toHaveTextContent("a note");
+    });
+
+    it("flags a missing transaction sheet and a missing cost", () => {
+      render(
+        <EmailResults
+          items={[
+            withImport({ rows: [{ ...row, sheet: null, cost: undefined }] }),
+          ]}
+        />,
+      );
+      expect(section()).toHaveTextContent(/No matching transaction sheet/);
+      expect(within(section()).getByTestId("import-cost")).toHaveClass(
+        "bg-pink-200",
+      );
+    });
+
+    it("says why nothing would be imported", () => {
+      render(
+        <EmailResults
+          items={[withImport({ skip: "Not a receipt (no rule matched): x" })]}
+        />,
+      );
+      expect(section()).toHaveTextContent(
+        "Would not import: Not a receipt (no rule matched): x",
+      );
+    });
+
+    it("notes an already processed thread", () => {
+      render(<EmailResults items={[withImport({ alreadyProcessed: true })]} />);
+      expect(section()).toHaveTextContent(/Already processed/);
+    });
   });
 });

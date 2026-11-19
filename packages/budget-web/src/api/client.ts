@@ -18,6 +18,8 @@ export class ApiError extends Error {
     readonly conflictCurrent?: TransactionRowDto,
     /** Validation issues, present on `bad_request`/`invalid_config` for receipt rules. */
     readonly issues?: { path: string; message: string }[],
+    /** For a split group save's `conflict`: the group's current rows. */
+    readonly conflictRows?: TransactionRowDto[],
   ) {
     super(message);
     this.name = "ApiError";
@@ -118,6 +120,7 @@ export function createApiClient(options: ApiClientOptions): CallApi {
         parsed.error.message,
         parsed.conflict?.current,
         parsed.issues,
+        parsed.conflict?.rows,
       );
     }
     return { data: parsed.data, warnings: parsed.warnings ?? [] };

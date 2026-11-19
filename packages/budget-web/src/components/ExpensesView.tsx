@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PayPeriodStateDto } from "@budget/shared";
+import type { EnvelopeRowDto, PayPeriodStateDto } from "@budget/shared";
 import { formatMoney, formatShortDate } from "../lib/format.ts";
 import {
   FILTERS,
@@ -14,9 +14,11 @@ import type { SyncEngine } from "../sync/engine.ts";
 import {
   getRecentEnvelopes,
   recordRecentEnvelope,
+  useInlineEnvelopeChips,
 } from "../lib/preferences.ts";
 import { buildViewRows } from "../sync/optimistic.ts";
 import type { EngineSnapshot } from "../sync/types.ts";
+import { EnvelopeChipChooser } from "./EnvelopeChipChooser.tsx";
 import { NewExpenseSheet } from "./NewExpenseSheet.tsx";
 import { TransactionSheet } from "./TransactionSheet.tsx";
 import { Button, inputClass } from "./ui.tsx";
@@ -58,6 +60,8 @@ function RowButton({
   status,
   highlighted,
   envelopeChoices,
+  envelopes,
+  useChips,
   onCategorize,
   onOpen,
   onShowInAll,
@@ -68,12 +72,23 @@ function RowButton({
   highlighted: boolean;
   /** Envelopes an uncategorized row can be put in from the list; null hides the dropdown. */
   envelopeChoices: string[] | null;
+  /** Balances shown on the inline chips. */
+  envelopes: EnvelopeRowDto[] | null;
+  /** Show the chip selector (full width, below the row) instead of the dropdown. */
+  useChips: boolean;
   onCategorize: (row: ViewRow, envelope: string) => void;
   onOpen: (row: ViewRow) => void;
   /** Present in the Uncategorized and Errors/Notes filters: jump to the row in All. */
   onShowInAll: ((row: ViewRow) => void) | null;
 }) {
   const uncategorized = row.envelope.trim() === "";
+  // Remembered from when the row is created: the chips stay (showing the choice) after the row is
+  // categorized. The setting itself applies live.
+  const [startedUncategorized] = useState(uncategorized);
+  const chipsShown =
+    useChips &&
+    (uncategorized || startedUncategorized) &&
+    envelopeChoices !== null;
   const tone = row.isError
     ? "border-l-4 border-l-red-500"
     : row.isNote
@@ -128,9 +143,9 @@ function RowButton({
   }
   const open =
     "flex items-center gap-3 self-stretch py-2 hover:bg-teal-50 dark:hover:bg-slate-800";
-  return (
-    <div className={cls} data-row-key={row.key}>
-      {uncategorized && envelopeChoices ? (
+  const inner = (
+    <>
+      {uncategorized && envelopeChoices && !chipsShown ? (
         <>
           <button
             type="button"
@@ -194,6 +209,35 @@ function RowButton({
           </svg>
         </button>
       )}
+    </>
+  );
+  if (chipsShown && envelopeChoices)
+    return (
+      <div
+        className={cls
+          .replace("flex min-h-14", "min-h-14")
+          .replace(" items-center", "")}
+        data-row-key={row.key}
+      >
+        <div className="flex min-h-14 w-full items-center">{inner}</div>
+        <div className="w-full px-3 pb-2">
+          <EnvelopeChipChooser
+            inline
+            value={row.envelope}
+            options={orderEnvelopeOptions(
+              envelopeChoices,
+              [],
+              getRecentEnvelopes(),
+            )}
+            envelopes={envelopes}
+            onSelect={(v) => onCategorize(row, v)}
+          />
+        </div>
+      </div>
+    );
+  return (
+    <div className={cls} data-row-key={row.key}>
+      {inner}
     </div>
   );
 }
@@ -228,6 +272,7 @@ export function ExpensesView({
     | "recentlySaved"
   >;
 }) {
+  const [inlineChips] = useInlineEnvelopeChips();
   const [filter, setFilter] = useState<FilterId>("uncategorized");
   const [query, setQuery] = useState("");
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -341,6 +386,8 @@ export function ExpensesView({
       : null;
   const inlineChoices = (row: ViewRow): string[] | null =>
     sheetOf(row)?.envelopeOptions ?? state?.envelopeOptions ?? null;
+  const inlineEnvelopes = (): EnvelopeRowDto[] | null =>
+    state?.envelopes ?? null;
   const categorize = (row: ViewRow, envelope: string) => {
     const sheet = sheetOf(row);
     const server = (sheet?.transactions ?? state?.transactions ?? []).find(
@@ -456,6 +503,8 @@ export function ExpensesView({
                     status={statuses.get(r.key) ?? null}
                     highlighted={highlightKey === r.key}
                     envelopeChoices={inlineChoices(r)}
+                    envelopes={inlineEnvelopes()}
+                    useChips={inlineChips}
                     onCategorize={categorize}
                     onShowInAll={
                       filter === "all"
@@ -526,6 +575,11 @@ export function ExpensesView({
             const server = serverRowOf(row);
             if (server)
               engine.enqueueSplit(openSheetName, server, splits, parent);
+          }}
+          onSaveGroup={(group, edit) => {
+            const servers = group.map(serverRowOf);
+            if (servers.every((r) => r !== null))
+              engine.enqueueGroupUpdate(openSheetName, servers, edit);
           }}
           onDelete={(group) => {
             const servers = group.map(serverRowOf);

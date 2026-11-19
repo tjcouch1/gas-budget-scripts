@@ -3,6 +3,8 @@ import type {
   AllTransactionsDto,
   NewTransactionFields,
   PayPeriodStateDto,
+  SplitGroupResultDto,
+  SplitGroupRowChanges,
   SplitItemInput,
   SyncReceiptsResultDto,
   TransactionChanges,
@@ -11,13 +13,19 @@ import type {
 import { randomId } from "../lib/random-id.ts";
 import { ApiError, type CallApi } from "../api/client.ts";
 import type { KeyValueStore } from "../crypto/kv-store.ts";
-import { proposedRow, sameEditableValues } from "./optimistic.ts";
+import {
+  proposedGroupRows,
+  proposedRow,
+  sameEditableValues,
+} from "./optimistic.ts";
 import type {
   AddMutation,
   Conflict,
   DeleteMutation,
   DeleteRowBase,
   EngineSnapshot,
+  GroupMutation,
+  GroupRowBase,
   Notice,
   PersistedEngine,
   QueuedMutation,
@@ -112,10 +120,18 @@ function mergeAll(
   };
 }
 
-/** The rows a mutation is based on: a delete's rows, or its one row. */
+function isGroupResult(data: unknown): data is SplitGroupResultDto {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    Array.isArray((data as SplitGroupResultDto).rows)
+  );
+}
+
+/** The rows a mutation is based on: a delete's or group save's rows, or its one row. */
 function baseRowsOf(q: QueuedMutation): DeleteRowBase[] {
   if (q.action === "addTransaction") return [];
-  return q.action === "deleteTransaction"
+  return q.action === "deleteTransaction" || q.action === "updateSplitGroup"
     ? q.payload.rows
     : [
         {
@@ -134,9 +150,104 @@ function withBaseRows(q: RowMutation, rows: DeleteRowBase[]): RowMutation {
     baseFingerprint: first.baseFingerprint,
     baseRow: first.baseRow,
   };
-  return q.action === "deleteTransaction"
-    ? { ...q, ...top, payload: { rows } }
-    : { ...q, ...top };
+  if (q.action === "deleteTransaction")
+    return { ...q, ...top, payload: { rows } };
+  if (q.action === "updateSplitGroup")
+    return {
+      ...q,
+      ...top,
+      payload: {
+        ...q.payload,
+        // Each row keeps its own changes (same order and length as before).
+        rows: rows.map((r, i) => ({
+          ...r,
+          ...(q.payload.rows[i]?.changes
+            ? { changes: q.payload.rows[i].changes }
+            : {}),
+        })),
+      },
+    };
+  return { ...q, ...top };
+}
+
+/** True when every value of `changes` is undefined (nothing to send). */
+const isEmptyChanges = (changes: object | undefined) =>
+  !changes || Object.values(changes).every((v) => v === undefined);
+
+/** One split group save (`SyncEngine.enqueueGroupUpdate`). */
+export interface GroupEdit {
+  /** Each row's own edits, by position in the group (missing or empty: unchanged). */
+  rowChanges: (SplitGroupRowChanges | undefined)[];
+  /** New text before " | " for every row. */
+  title?: string;
+  /** The parent's new total (a plain amount). */
+  splitTotal?: string;
+  /** New split items appended to the group. */
+  newItems?: SplitItemInput[];
+}
+
+/**
+ * Re-bases queued mutations of `sheetName` whose rows were chained on a fingerprint that a
+ * confirmed change just replaced (`rebased`: rowIndex -> the replaced fingerprint and the row
+ * now on the sheet).
+ */
+function rebaseChained(
+  queue: QueuedMutation[],
+  sheetName: string,
+  rebased: Map<number, { before: string; fresh: TransactionRowDto }>,
+): QueuedMutation[] {
+  const chained = (r: DeleteRowBase) =>
+    rebased.get(r.rowIndex)?.before === r.baseFingerprint;
+  return queue.map((q) => {
+    if (q.sheetName !== sheetName || q.action === "addTransaction") return q;
+    const rows = baseRowsOf(q);
+    if (!rows.some(chained)) return q;
+    return withBaseRows(
+      q,
+      rows.map((r) => {
+        const fresh = chained(r) ? rebased.get(r.rowIndex)?.fresh : null;
+        return fresh
+          ? {
+              rowIndex: r.rowIndex,
+              baseFingerprint: fresh.fingerprint,
+              baseRow: fresh,
+            }
+          : r;
+      }),
+    );
+  });
+}
+
+/**
+ * "Overwrite with Mine" for a split group save: the same edits re-based on the group's current
+ * rows (still checked by the server). Rows that joined the group are listed without changes.
+ * Null when a row of the save is gone from the sheet (nothing to overwrite).
+ */
+export function groupResend(
+  m: GroupMutation,
+  currentRows: TransactionRowDto[],
+): GroupMutation | null {
+  const byIndex = new Map(currentRows.map((r) => [r.rowIndex, r]));
+  if (m.payload.rows.some((r) => !byIndex.has(r.rowIndex))) return null;
+  const changesOf = new Map(m.payload.rows.map((r) => [r.rowIndex, r.changes]));
+  const rows: GroupRowBase[] = [...currentRows]
+    .sort((a, b) => a.rowIndex - b.rowIndex)
+    .map((row) => {
+      const changes = changesOf.get(row.rowIndex);
+      return {
+        rowIndex: row.rowIndex,
+        baseFingerprint: row.fingerprint,
+        baseRow: row,
+        ...(changes ? { changes } : {}),
+      };
+    });
+  return {
+    ...m,
+    rowIndex: rows[0].rowIndex,
+    baseFingerprint: rows[0].baseFingerprint,
+    baseRow: rows[0].baseRow,
+    payload: { ...m.payload, rows },
+  };
 }
 
 export class SyncEngine {
@@ -553,6 +664,49 @@ export class SyncEngine {
   }
 
   /**
+   * Queues one save of a whole split group (`updateSplitGroup`): every row of the group in sheet
+   * order (the parent first), as last pulled, with each row's edits, the new title and total,
+   * and new split items. The server checks every row's fingerprint before writing anything.
+   */
+  enqueueGroupUpdate(
+    sheetName: string,
+    rows: TransactionRowDto[],
+    edit: GroupEdit,
+  ): void {
+    if (rows.length === 0) return;
+    const base: GroupRowBase[] = rows.map((row, i) => {
+      const changes = edit.rowChanges[i];
+      return {
+        rowIndex: row.rowIndex,
+        baseFingerprint: this.chainBase(sheetName, row.rowIndex, row),
+        baseRow: row,
+        ...(isEmptyChanges(changes) ? {} : { changes }),
+      };
+    });
+    const mutation: GroupMutation = {
+      id: this.newId(),
+      sheetName,
+      rowIndex: base[0].rowIndex,
+      baseFingerprint: base[0].baseFingerprint,
+      baseRow: base[0].baseRow,
+      createdAt: this.now(),
+      action: "updateSplitGroup",
+      payload: {
+        rows: base,
+        ...(edit.title !== undefined ? { title: edit.title } : {}),
+        ...(edit.splitTotal !== undefined
+          ? { splitTotal: edit.splitTotal }
+          : {}),
+        ...(edit.newItems && edit.newItems.length > 0
+          ? { newItems: edit.newItems }
+          : {}),
+      },
+    };
+    this.set({ queue: [...this.snapshot.queue, mutation] }, true);
+    void this.flush();
+  }
+
+  /**
    * Queues deleting a row or a whole split group (all its rows, contiguous). `rows` are the rows
    * as last pulled; each carries its fingerprint for the server's conflict check.
    */
@@ -644,6 +798,23 @@ export class SyncEngine {
             : {}),
         });
         this.onUpdateSucceeded(m, data);
+      } else if (m.action === "updateSplitGroup") {
+        const { data } = await this.options.callApi<SplitGroupResultDto>({
+          action: "updateSplitGroup",
+          sheetName: m.sheetName,
+          rows: m.payload.rows.map((r) => ({
+            rowIndex: r.rowIndex,
+            baseFingerprint: r.baseFingerprint,
+            baseNote: r.baseRow.note,
+            ...(r.changes ? { changes: r.changes } : {}),
+          })),
+          ...(m.payload.title !== undefined ? { title: m.payload.title } : {}),
+          ...(m.payload.splitTotal !== undefined
+            ? { splitTotal: m.payload.splitTotal }
+            : {}),
+          ...(m.payload.newItems ? { newItems: m.payload.newItems } : {}),
+        });
+        this.onGroupSucceeded(m, data);
       } else if (m.action === "deleteTransaction") {
         const { data } = await this.options.callApi<PayPeriodStateDto>({
           action: "deleteTransaction",
@@ -729,30 +900,69 @@ export class SyncEngine {
           )
             rebased.set(t.rowIndex, { before: before.fingerprint, fresh: t });
         }
-      const chained = (r: DeleteRowBase) =>
-        rebased.get(r.rowIndex)?.before === r.baseFingerprint;
-      queue = queue.map((q) => {
-        if (q.sheetName !== m.sheetName || q.action === "addTransaction")
-          return q;
-        const rows = baseRowsOf(q);
-        if (!rows.some(chained)) return q;
-        return withBaseRows(
-          q,
-          rows.map((r) => {
-            const fresh = chained(r) ? rebased.get(r.rowIndex)?.fresh : null;
-            return fresh
-              ? {
-                  rowIndex: r.rowIndex,
-                  baseFingerprint: fresh.fingerprint,
-                  baseRow: fresh,
-                }
-              : r;
-          }),
-        );
-      });
+      queue = rebaseChained(queue, m.sheetName, rebased);
     }
     this.set({ queue, states, all }, true);
     this.markSaved(m.sheetName, [m.rowIndex]);
+  }
+
+  /**
+   * Accepts a split group save: only the group's rows come back, unless new items were added
+   * (then the whole state, because rows below the group may have moved). Later queued changes
+   * chained on a group row are re-based onto the saved row.
+   */
+  private onGroupSucceeded(m: GroupMutation, data: SplitGroupResultDto): void {
+    let queue = this.removeFromQueue(m.id);
+    const conflicts: Conflict[] = [...this.snapshot.conflicts];
+    let states = this.snapshot.states;
+    let all = this.snapshot.all;
+    const rows = isGroupResult(data) ? data.rows : [];
+    const rebased = new Map<
+      number,
+      { before: string; fresh: TransactionRowDto }
+    >();
+    for (const base of m.payload.rows) {
+      const fresh = rows.find((r) => r.rowIndex === base.rowIndex);
+      if (fresh)
+        rebased.set(base.rowIndex, { before: base.baseFingerprint, fresh });
+    }
+    queue = rebaseChained(queue, m.sheetName, rebased);
+    if (data.state && isState(data.state)) {
+      const state = data.state;
+      states = { ...states, [state.sheetName]: state };
+      all = patchAll(all, state.sheetName, () => state.transactions);
+      // New items may have moved the rows below the group down.
+      const last = m.payload.rows[m.payload.rows.length - 1].rowIndex;
+      const shift = m.payload.newItems?.length ?? 0;
+      queue = this.rebaseAfterShift(
+        queue,
+        state,
+        (rowIndex) => (rowIndex > last ? rowIndex + shift : rowIndex),
+        conflicts,
+      );
+    } else if (rows.length > 0) {
+      const replaceAll = (list: (TransactionRowDto | null)[]) =>
+        rows.reduce((acc, row) => replaceInList(acc, row), list);
+      const state = states[m.sheetName];
+      if (state)
+        states = {
+          ...states,
+          [m.sheetName]: {
+            ...state,
+            transactions: replaceAll(state.transactions),
+          },
+        };
+      all = patchAll(all, m.sheetName, replaceAll);
+    } else {
+      void this.refresh(m.sheetName);
+    }
+    this.set({ queue, states, all, conflicts }, true);
+    this.markSaved(
+      m.sheetName,
+      rows.length > 0
+        ? rows.map((r) => r.rowIndex)
+        : m.payload.rows.map((r) => r.rowIndex),
+    );
   }
 
   /** Shows "Saved ✓" on rows the sheet just confirmed; it clears itself after a few seconds. */
@@ -937,6 +1147,8 @@ export class SyncEngine {
       return false;
     }
     // An add has no base row, so it cannot conflict: treat it as a permanent rejection.
+    if (error.code === "conflict" && m.action === "updateSplitGroup")
+      return this.onGroupConflict(m, error);
     if (error.code === "conflict" && m.action !== "addTransaction") {
       const current = error.conflictCurrent ?? null;
       // The sheet already holds exactly this change (e.g. it was saved but the page closed
@@ -1012,6 +1224,66 @@ export class SyncEngine {
     return true;
   }
 
+  /**
+   * A split group save was rejected because the group changed. When the sheet already holds
+   * exactly this save (a replay), it is accepted silently; otherwise the cache shows the group's
+   * current rows and the save becomes one conflict for the whole group. Returns false (the queue
+   * pauses) unless it was accepted.
+   */
+  private onGroupConflict(m: GroupMutation, error: ApiError): boolean {
+    const current = error.conflictCurrent ?? null;
+    const currentRows =
+      error.conflictRows ?? (current ? [current] : ([] as TransactionRowDto[]));
+    const taxMultiplier =
+      this.snapshot.states[m.sheetName]?.taxMultiplier ??
+      this.snapshot.all?.taxMultiplier;
+    const byIndex = new Map(currentRows.map((r) => [r.rowIndex, r]));
+    if (
+      !m.payload.newItems &&
+      taxMultiplier !== undefined &&
+      currentRows.length === m.payload.rows.length
+    ) {
+      const proposed = proposedGroupRows(m, taxMultiplier);
+      if (
+        proposed.every((p) => {
+          const now = byIndex.get(p.rowIndex);
+          return now !== undefined && sameEditableValues(p, now);
+        })
+      ) {
+        this.onGroupSucceeded(m, { rows: currentRows });
+        return true;
+      }
+    }
+    const replaceAll = (list: (TransactionRowDto | null)[]) =>
+      currentRows.reduce((acc, row) => replaceInList(acc, row), list);
+    let states = this.snapshot.states;
+    const state = states[m.sheetName];
+    if (state)
+      states = {
+        ...states,
+        [m.sheetName]: {
+          ...state,
+          transactions: replaceAll(state.transactions),
+        },
+      };
+    this.set(
+      {
+        queue: this.removeFromQueue(m.id),
+        states,
+        all: patchAll(this.snapshot.all, m.sheetName, replaceAll),
+        conflicts: [
+          ...this.snapshot.conflicts,
+          { id: this.newId(), mutation: m, current, currentRows },
+        ],
+      },
+      true,
+    );
+    // A row of the group is now empty: pull the sheet so the list does not show it stale.
+    if (m.payload.rows.some((r) => !byIndex.has(r.rowIndex)))
+      void this.refresh(m.sheetName);
+    return false;
+  }
+
   private scheduleRetry(): void {
     if (this.retryTimer || this.retryDelays.length === 0) return;
     const delay =
@@ -1040,7 +1312,10 @@ export class SyncEngine {
     if (choice === "overwrite" && conflict.current) {
       const current = conflict.current;
       const mutation = conflict.mutation;
-      if (mutation.action === "deleteTransaction") {
+      if (mutation.action === "updateSplitGroup") {
+        const resend = groupResend(mutation, conflict.currentRows ?? [current]);
+        if (resend) queue = [{ ...resend, id: this.newId() }, ...queue];
+      } else if (mutation.action === "deleteTransaction") {
         // Resend the same rows with their current fingerprints (still checked by the server).
         const transactions = this.sheetTransactions(mutation.sheetName);
         const rows: DeleteRowBase[] = [];

@@ -15,6 +15,7 @@ export function ChipChooser({
   disabled = false,
   defaultExpanded = false,
   onExpandedChange,
+  hideHeader = false,
 }: {
   /** Header text and the accessible name of the pill group. */
   label: string;
@@ -31,8 +32,11 @@ export function ChipChooser({
   defaultExpanded?: boolean;
   /** Called when the user toggles the header. */
   onExpandedChange?: (expanded: boolean) => void;
+  /** No title and no expand toggle: always collapsed (the group keeps its accessible name). */
+  hideHeader?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expandedState, setExpanded] = useState(defaultExpanded);
+  const expanded = expandedState && !hideHeader;
   const scroller = useRef<HTMLDivElement>(null);
   // The current value stays choosable even when it is not in the list.
   const shown = expanded && expandedOptions ? expandedOptions : options;
@@ -48,23 +52,25 @@ export function ChipChooser({
 
   return (
     <div role="group" aria-label={label}>
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => {
-          setExpanded(!expanded);
-          onExpandedChange?.(!expanded);
-        }}
-        className="flex min-h-11 items-center gap-1 text-sm font-medium"
-      >
-        {label}
-        <span
-          aria-hidden="true"
-          className={`text-slate-400 transition-transform ${expanded ? "rotate-90" : ""}`}
+      {!hideHeader && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => {
+            setExpanded(!expanded);
+            onExpandedChange?.(!expanded);
+          }}
+          className="flex min-h-11 items-center gap-1 text-sm font-medium"
         >
-          ›
-        </span>
-      </button>
+          {label}
+          <span
+            aria-hidden="true"
+            className={`text-slate-400 transition-transform ${expanded ? "rotate-90" : ""}`}
+          >
+            ›
+          </span>
+        </button>
+      )}
       <div
         ref={scroller}
         data-testid="chip-scroller"

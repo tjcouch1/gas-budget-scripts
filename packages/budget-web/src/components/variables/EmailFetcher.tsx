@@ -7,6 +7,7 @@ import {
   type FetchReceiptEmailsRequest,
   type FetchReceiptEmailsResultDto,
   type ReceiptEmailDto,
+  type TransactionSheetRangeDto,
   type RuleIssue,
 } from "@budget/shared";
 import type { CallApi } from "../../api/client.ts";
@@ -38,7 +39,11 @@ export function EmailFetcher({
   forwardEmailAddress: string;
   /** The candidate rules' forwarding.subjectPrefixes (undefined = built-in default). */
   forwardSubjectPrefixes?: string[];
-  onFetched: (emails: ReceiptEmailDto[], query: string) => void;
+  onFetched: (
+    emails: ReceiptEmailDto[],
+    query: string,
+    transactionSheets?: TransactionSheetRangeDto[],
+  ) => void;
   api: CallApi;
 }) {
   const [extraText, setExtraText] = useState("");
@@ -135,7 +140,9 @@ export function EmailFetcher({
         `Fetched ${plural(data.emails.length, "email")} from ${plural(data.threadCount, "thread")}` +
           (data.truncated ? " (list cut short by the size limits)" : ""),
       );
-      onFetched(data.emails, data.query);
+      if (data.transactionSheets)
+        onFetched(data.emails, data.query, data.transactionSheets);
+      else onFetched(data.emails, data.query);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

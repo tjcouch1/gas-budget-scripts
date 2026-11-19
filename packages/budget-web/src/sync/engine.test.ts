@@ -1669,3 +1669,263 @@ describe("SyncEngine replayed changes", () => {
     expect(engine.getSnapshot().conflicts).toHaveLength(1);
   });
 });
+
+describe("SyncEngine split group saves (updateSplitGroup)", () => {
+  /** Aldi, $30 in total, split into milk and soap, then an unrelated row. */
+  const groupRows = () => [
+    makeRow(0, {
+      name: "Aldi | ",
+      cost: 18,
+      costFormula: "=30-R[1]C[0]-R[2]C[0]",
+      splitGroupId: "0",
+    }),
+    makeRow(1, { name: "Aldi | milk", cost: 10.83, splitGroupId: "0" }),
+    makeRow(2, {
+      name: "Aldi | soap",
+      cost: 1.17,
+      splitGroupId: "0",
+      note: "old note",
+    }),
+    makeRow(3, { name: "Shell", cost: 30 }),
+  ];
+  const groupOf = (engine: SyncEngine) =>
+    engine
+      .getSnapshot()
+      .states[SHEET].transactions.slice(0, 3) as TransactionRowDto[];
+  /** The rows the sheet holds after the edit below (title Lidl, soap $5, total $40). */
+  const savedRows = () => [
+    makeRow(0, {
+      name: "Lidl | ",
+      cost: 24.17,
+      costFormula: "=40-R[1]C[0]-R[2]C[0]",
+      splitGroupId: "0",
+    }),
+    makeRow(1, { name: "Lidl | milk", cost: 10.83, splitGroupId: "0" }),
+    makeRow(2, {
+      name: "Lidl | soap",
+      cost: 5,
+      splitGroupId: "0",
+      note: "old note",
+    }),
+  ];
+  const edit = {
+    rowChanges: [undefined, undefined, { costExpression: "5" }],
+    title: "Lidl",
+    splitTotal: "40",
+  };
+
+  it("queues one request with every row's fingerprint and note and shows the whole group optimistically", async () => {
+    const { engine, calls } = newEngine((req) =>
+      req.action === "getState"
+        ? makeState(groupRows())
+        : new Promise(() => {}),
+    );
+    await engine.init();
+    engine.enqueueGroupUpdate(SHEET, groupOf(engine), edit);
+    expect(engine.getSnapshot().queue).toHaveLength(1);
+    const rows = rowsOf(engine);
+    expect(rows.map((r) => [r.name, r.cost])).toEqual([
+      ["Lidl | ", 24.17],
+      ["Lidl | milk", 10.83],
+      ["Lidl | soap", 5],
+      ["Shell", 30],
+    ]);
+    expect(rows.slice(0, 3).every((r) => r.pending)).toBe(true);
+    expect(rows[3].pending).toBeUndefined();
+    await flush();
+    const sent = calls.filter((c) => c.action !== "getState");
+    expect(sent).toEqual([
+      {
+        action: "updateSplitGroup",
+        sheetName: SHEET,
+        rows: groupRows()
+          .slice(0, 3)
+          .map((r, i) => ({
+            rowIndex: r.rowIndex,
+            baseFingerprint: r.fingerprint,
+            baseNote: r.note,
+            ...(i === 2 ? { changes: { costExpression: "5" } } : {}),
+          })),
+        title: "Lidl",
+        splitTotal: "40",
+      },
+    ]);
+  });
+
+  it("accepts the returned group rows without a whole-state response", async () => {
+    const { engine } = newEngine((req) =>
+      req.action === "getState"
+        ? makeState(groupRows())
+        : { rows: savedRows() },
+    );
+    await engine.init();
+    engine.enqueueGroupUpdate(SHEET, groupOf(engine), edit);
+    await engine.flush();
+    const snap = engine.getSnapshot();
+    expect(snap.queue).toHaveLength(0);
+    expect(snap.states[SHEET].transactions).toEqual([
+      ...savedRows(),
+      groupRows()[3],
+    ]);
+    expect(snap.recentlySaved.map((s) => s.rowIndex)).toEqual([0, 1, 2]);
+  });
+
+  it("adds new items in the same request: placeholders first, then the returned state", async () => {
+    const after = makeState([
+      ...groupRows().slice(0, 3),
+      makeRow(3, { name: "Aldi | jam", cost: 4, splitGroupId: "0" }),
+      makeRow(4, { name: "Shell", cost: 30 }),
+    ]);
+    let release: (v: unknown) => void = () => {};
+    const { engine, calls } = newEngine((req) =>
+      req.action === "getState"
+        ? makeState(groupRows())
+        : new Promise((r) => (release = r)),
+    );
+    await engine.init();
+    const newItems = [
+      { itemNote: "jam", expression: "4", preTax: false, envelope: "" },
+    ];
+    engine.enqueueGroupUpdate(SHEET, groupOf(engine), {
+      rowChanges: [],
+      newItems,
+    });
+    const rows = rowsOf(engine);
+    expect(rows.map((r) => [r.name, r.cost, !!r.synthetic])).toEqual([
+      ["Aldi | ", 14, false],
+      ["Aldi | milk", 10.83, false],
+      ["Aldi | soap", 1.17, false],
+      ["Aldi | jam", 4, true],
+      ["Shell", 30, false],
+    ]);
+    await flush();
+    expect(calls.at(-1)).toMatchObject({
+      action: "updateSplitGroup",
+      newItems,
+    });
+    release({ rows: after.transactions.slice(0, 4), state: after });
+    await engine.flush();
+    expect(engine.getSnapshot().states[SHEET]).toEqual(after);
+  });
+
+  it("on conflict shows the group's current rows; Accept Remote drops the whole save", async () => {
+    const current = groupRows().slice(0, 3);
+    current[1] = { ...current[1], envelope: "Gas", fingerprint: "remote01" };
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getState") return makeState(groupRows());
+      throw new ApiError(
+        "conflict",
+        "split changed",
+        current[1],
+        undefined,
+        current,
+      );
+    });
+    await engine.init();
+    engine.enqueueGroupUpdate(SHEET, groupOf(engine), edit);
+    await engine.flush();
+    const snap = engine.getSnapshot();
+    expect(snap.queue).toHaveLength(0);
+    expect(snap.conflicts).toHaveLength(1);
+    expect(snap.conflicts[0].currentRows).toEqual(current);
+    expect(snap.conflicts[0].mutation.action).toBe("updateSplitGroup");
+    // The list shows the remote rows, without the discarded edit
+    expect(rowsOf(engine).map((r) => [r.name, r.envelope])).toEqual([
+      ["Aldi | ", ""],
+      ["Aldi | milk", "Gas"],
+      ["Aldi | soap", ""],
+      ["Shell", ""],
+    ]);
+    const writes = calls.length;
+    engine.resolveConflict(snap.conflicts[0].id, "accept");
+    await engine.flush();
+    expect(engine.getSnapshot().conflicts).toHaveLength(0);
+    expect(engine.getSnapshot().queue).toHaveLength(0);
+    expect(calls).toHaveLength(writes);
+  });
+
+  it("Overwrite with Mine resends the whole group with every row's current fingerprint", async () => {
+    const current = groupRows().slice(0, 3);
+    current[1] = { ...current[1], envelope: "Gas", fingerprint: "remote01" };
+    let conflicted = false;
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getState") return makeState(groupRows());
+      if (!conflicted) {
+        conflicted = true;
+        throw new ApiError("conflict", "x", current[1], undefined, current);
+      }
+      return { rows: savedRows() };
+    });
+    await engine.init();
+    engine.enqueueGroupUpdate(SHEET, groupOf(engine), edit);
+    await engine.flush();
+    engine.resolveConflict(engine.getSnapshot().conflicts[0].id, "overwrite");
+    await engine.flush();
+    await flush();
+    const resend = calls.filter((c) => c.action === "updateSplitGroup").at(-1);
+    expect(resend).toMatchObject({
+      title: "Lidl",
+      splitTotal: "40",
+      rows: [
+        { rowIndex: 0, baseFingerprint: current[0].fingerprint },
+        { rowIndex: 1, baseFingerprint: "remote01" },
+        {
+          rowIndex: 2,
+          baseFingerprint: current[2].fingerprint,
+          changes: { costExpression: "5" },
+        },
+      ],
+    });
+    expect(resend).not.toHaveProperty("force");
+    expect(engine.getSnapshot().conflicts).toHaveLength(0);
+    expect(engine.getSnapshot().queue).toHaveLength(0);
+  });
+
+  it("accepts a conflict silently when the sheet already has every row's change", async () => {
+    const current = savedRows().map((r) => ({
+      ...r,
+      fingerprint: `x${r.rowIndex}`,
+    }));
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getState") return makeState(groupRows());
+      throw new ApiError("conflict", "x", current[0], undefined, current);
+    });
+    await engine.init();
+    engine.enqueueGroupUpdate(SHEET, groupOf(engine), edit);
+    await engine.flush();
+    expect(engine.getSnapshot().conflicts).toHaveLength(0);
+    expect(engine.getSnapshot().queue).toHaveLength(0);
+    expect(engine.getSnapshot().states[SHEET].transactions.slice(0, 3)).toEqual(
+      current,
+    );
+    expect(calls.filter((c) => c.action === "updateSplitGroup")).toHaveLength(
+      1,
+    );
+  });
+
+  it("re-bases a later queued edit of a group row onto the saved row", async () => {
+    const saved = savedRows();
+    const { engine, calls } = newEngine((req) => {
+      if (req.action === "getState") return makeState(groupRows());
+      if (req.action === "updateSplitGroup") return { rows: saved };
+      if (
+        req.action === "updateTransaction" &&
+        req.baseFingerprint !== saved[1].fingerprint
+      )
+        throw new ApiError("conflict", "stale", saved[1]);
+      return { ...saved[1], envelope: "Gas", fingerprint: "after1" };
+    });
+    await engine.init();
+    const rows = groupOf(engine);
+    engine.enqueueGroupUpdate(SHEET, rows, edit);
+    engine.enqueueUpdate(SHEET, rows[1], { envelope: "Gas" });
+    await engine.flush();
+    await flush();
+    expect(engine.getSnapshot().conflicts).toHaveLength(0);
+    expect(calls.at(-1)).toMatchObject({
+      action: "updateTransaction",
+      rowIndex: 1,
+      baseFingerprint: saved[1].fingerprint,
+    });
+  });
+});

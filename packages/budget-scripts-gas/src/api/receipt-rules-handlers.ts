@@ -14,6 +14,7 @@ import {
   type ReceiptEmailDto,
   type ReceiptRulesStateDto,
 } from "@budget/shared";
+import { getTransactionSheetInfos } from "../util/budgeting.util";
 import { ensureGlobalVariableRow } from "../util/global-variables-setup.util";
 import { tryWithScriptLock } from "../util/lock.util";
 import {
@@ -229,7 +230,21 @@ export function handleFetchReceiptEmails(
     }
   }
 
-  return { data: { query, threadCount: threads.length, emails, truncated } };
+  const transactionSheets = getTransactionSheetInfos().map((info) => ({
+    name: info.sheet.getName(),
+    startDate: info.startDate.toISOString(),
+    endDate: info.endDate.toISOString(),
+  }));
+
+  return {
+    data: {
+      query,
+      transactionSheets,
+      threadCount: threads.length,
+      emails,
+      truncated,
+    },
+  };
 }
 
 /** The ReceiptRules variable as stored, parsed and validated. No lock, no writes */

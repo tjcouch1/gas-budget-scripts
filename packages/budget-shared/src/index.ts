@@ -5,3 +5,4 @@ export * from "./names.ts";
 export * from "./receipt-query.ts";
 export * from "./receipt-rules.ts";
 export * from "./receipt-rules-defaults.ts";
+export * from "./receipt-import.ts";

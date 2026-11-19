@@ -17,6 +17,7 @@ import {
   handleGetState,
   handleSplitTransaction,
   handleSyncReceipts,
+  handleUpdateSplitGroup,
   handleUpdateTransaction,
   type HandlerResult,
 } from "./handlers";
@@ -90,6 +91,9 @@ export function handleApiRequest(body: unknown): ApiResponse<unknown> {
         break;
       case "splitTransaction":
         result = handleSplitTransaction(req);
+        break;
+      case "updateSplitGroup":
+        result = handleUpdateSplitGroup(req);
         break;
       case "deleteTransaction":
         result = handleDeleteTransaction(req);

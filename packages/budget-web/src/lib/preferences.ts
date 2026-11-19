@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 /** Per-device preference (not a secret): whether Envelope choosers start expanded. */
 export const ENVELOPE_EXPANDED_KEY = "budget.envelopeExpanded";
 
@@ -71,4 +73,28 @@ export function recordRecentEnvelope(name: string): void {
   } catch {
     // storage unavailable: the order just does not persist
   }
+}
+
+/** Per-device display preference: uncategorized rows show the chip selector instead of the dropdown. */
+export const INLINE_ENVELOPE_CHIPS_KEY = "budget.inlineEnvelopeChips";
+const inlineChipListeners = new Set<() => void>();
+
+export const getInlineEnvelopeChips = () => readFlag(INLINE_ENVELOPE_CHIPS_KEY);
+export function setInlineEnvelopeChips(on: boolean): void {
+  writeFlag(INLINE_ENVELOPE_CHIPS_KEY, on);
+  inlineChipListeners.forEach((l) => l());
+}
+function subscribeInlineChips(listener: () => void): () => void {
+  inlineChipListeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    inlineChipListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+export function useInlineEnvelopeChips(): [boolean, (on: boolean) => void] {
+  return [
+    useSyncExternalStore(subscribeInlineChips, getInlineEnvelopeChips),
+    setInlineEnvelopeChips,
+  ];
 }

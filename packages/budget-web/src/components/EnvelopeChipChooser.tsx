@@ -21,6 +21,7 @@ export function EnvelopeChipChooser({
   onSelect,
   disabled,
   follow = false,
+  inline = false,
 }: {
   value: string;
   /** Recently-used order, shown while collapsed. */
@@ -32,6 +33,8 @@ export function EnvelopeChipChooser({
   disabled?: boolean;
   /** Start in, and write toggles to, the saved expanded preference. */
   follow?: boolean;
+  /** Titleless and always collapsed (the expanded preference is ignored), for use inside a list row. */
+  inline?: boolean;
 }) {
   return (
     <ChipChooser
@@ -44,8 +47,9 @@ export function EnvelopeChipChooser({
         onSelect(v);
       }}
       disabled={disabled}
-      defaultExpanded={follow && getEnvelopeExpanded()}
-      onExpandedChange={follow ? setEnvelopeExpanded : undefined}
+      hideHeader={inline}
+      defaultExpanded={!inline && follow && getEnvelopeExpanded()}
+      onExpandedChange={follow && !inline ? setEnvelopeExpanded : undefined}
       renderExtra={(option, selected) => {
         const remain = envelopeRemain(envelopes, option);
         if (!remain?.display) return null;

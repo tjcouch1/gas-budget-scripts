@@ -191,4 +191,29 @@ describe("EmailFetcher", () => {
       "ReceiptRules is bad",
     );
   });
+
+  it("passes the transaction sheets from the server to onFetched", async () => {
+    const sheets = [
+      {
+        name: "1/1/2026 - 1/14/2026",
+        startDate: "2026-01-01T06:00:00.000Z",
+        endDate: "2026-01-15T05:59:59.999Z",
+      },
+    ];
+    const api = vi.fn(() =>
+      Promise.resolve({
+        data: {
+          query: "q",
+          threadCount: 0,
+          emails: [],
+          truncated: false,
+          transactionSheets: sheets,
+        },
+      }),
+    ) as unknown as CallApi;
+    const { onFetched, user } = setup(api);
+    await user.click(screen.getByRole("button", { name: "Fetch emails" }));
+    await screen.findByRole("status");
+    expect(onFetched).toHaveBeenCalledWith([], "q", sheets);
+  });
 });

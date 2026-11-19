@@ -1,4 +1,4 @@
-import { buildSplitChildName } from "@budget/shared";
+import { buildSplitChildName, findTransactionSheet } from "@budget/shared";
 import { ReceiptInfoBase } from "../models/receipt-info.model";
 import { ThreadList } from "../models/thread-list.model";
 import { getReceiptSearchQuery } from "./receipt-rules.util";
@@ -440,10 +440,9 @@ export function recordReceiptsCore(
     const transactionSheetInfos = getTransactionSheetInfos();
     // Group receiptInfos by transaction sheet
     receiptInfos.forEach((receiptInfo) => {
-      const transactionSheetInfo = transactionSheetInfos.find(
-        (tSheetInfo) =>
-          receiptInfo.date >= tSheetInfo.startDate &&
-          receiptInfo.date < tSheetInfo.endDate,
+      const transactionSheetInfo = findTransactionSheet(
+        receiptInfo.date,
+        transactionSheetInfos,
       );
       if (transactionSheetInfo) {
         transactionSheetInfo.receiptInfosToAdd.push(receiptInfo);

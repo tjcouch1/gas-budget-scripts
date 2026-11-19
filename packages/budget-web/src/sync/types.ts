@@ -2,6 +2,7 @@ import type {
   AllTransactionsDto,
   NewTransactionFields,
   PayPeriodStateDto,
+  SplitGroupRowChanges,
   SplitItemInput,
   TransactionChanges,
   TransactionRowDto,
@@ -51,8 +52,32 @@ export interface DeleteMutation extends MutationBase {
   payload: { rows: DeleteRowBase[] };
 }
 
+/** One row of a queued split group save: its base (re-based like `DeleteRowBase`) and its own edits. */
+export interface GroupRowBase extends DeleteRowBase {
+  changes?: SplitGroupRowChanges;
+}
+
+/**
+ * Saves every edit of one split group atomically (`updateSplitGroup`): every row of the group
+ * with its fingerprint, the group's new title and total, and new split items.
+ * `rowIndex`/`baseFingerprint`/`baseRow` mirror `payload.rows[0]` (the split parent).
+ */
+export interface GroupMutation extends MutationBase {
+  action: "updateSplitGroup";
+  payload: {
+    rows: GroupRowBase[];
+    /** New text before " | " for every row. */
+    title?: string;
+    /** The parent's new total (a plain amount). */
+    splitTotal?: string;
+    /** New split items appended to the group. */
+    newItems?: SplitItemInput[];
+  };
+}
+
 /** A mutation of existing rows (it carries base rows and can conflict). */
-export type RowMutation = UpdateMutation | SplitMutation | DeleteMutation;
+export type RowMutation =
+  UpdateMutation | SplitMutation | DeleteMutation | GroupMutation;
 
 /**
  * Appends a new row ("New expense"). It has no base row and never conflicts: the server
@@ -75,6 +100,8 @@ export interface Conflict {
   mutation: RowMutation;
   /** The sheet's current row ("Current Remote Value"); null if the row can no longer be found. */
   current: TransactionRowDto | null;
+  /** For a split group save: the group's current rows (rows that are now empty are missing). */
+  currentRows?: TransactionRowDto[];
 }
 
 /** A row the sheet confirmed a moment ago; the list shows "Saved ✓" for it briefly. */

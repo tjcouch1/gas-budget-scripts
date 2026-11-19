@@ -841,7 +841,7 @@ describe("updateTransaction", () => {
     expect((await update(0, { envelope: "Food" })).ok).toBe(true);
   });
 
-  it("renames a split group from its parent: every child keeps its item note", async () => {
+  it("rejects renaming a split group (that writes unchecked child rows; use updateSplitGroup) but allows the parent's own item note", async () => {
     sheet.seed("A5", [
       [
         D,
@@ -856,28 +856,20 @@ describe("updateTransaction", () => {
       [D, "Store | eggs", 1, "=BALANCE(2)", "", "Credit", ""],
       [D2, "Cafe", 3, "=BALANCE(3)", "", "Credit", ""],
     ]);
-    // The parent loses its " | ": it is added back so the children stay grouped
-    const res = await update(0, { name: "Market" });
-    expect(res.ok).toBe(true);
-    expect(sheet.getRange("B5:C8").getValues()).toEqual([
-      ["Market | ", "=5.5-R[1]C[0]-R[2]C[0]"],
-      ["Market | milk", 2],
-      ["Market | eggs", 1],
-      ["Cafe", 3],
-    ]);
-    // The whole state comes back, so the client sees the renamed children too
-    expect(res.data.transactions.map((t: any) => t.splitGroupId)).toEqual([
-      "0",
-      "0",
-      "0",
-      null,
-    ]);
-    // A parent with its own item note keeps it
-    expect((await update(0, { name: "Shop | food" })).ok).toBe(true);
+    const before = snapshot(sheet);
+    for (const name of ["Market", "Shop | food"])
+      expect((await update(0, { name })).error).toEqual({
+        code: "bad_request",
+        message:
+          "Cannot rename a split group with updateTransaction; use updateSplitGroup so every row is checked",
+      });
+    expect(snapshot(sheet)).toEqual(before);
+    // The parent's own item note (same text before "|") is still its own edit
+    expect((await update(0, { name: "Store | food" })).ok).toBe(true);
     expect(sheet.getRange("B5:B7").getValues()).toEqual([
-      ["Shop | food"],
-      ["Shop | milk"],
-      ["Shop | eggs"],
+      ["Store | food"],
+      ["Store | milk"],
+      ["Store | eggs"],
     ]);
     // A child still cannot rename the group
     expect((await update(1, { name: "Other | milk" })).error?.code).toBe(
@@ -2212,5 +2204,302 @@ describe("addTransaction", () => {
     const res = await add(FIELDS, { sheetName: OLDER_SHEET });
     expect(res).toMatchObject({ ok: false, error: { code: "bad_request" } });
     expect(res.error.message).toMatch(/no EnvelopesStart/);
+  });
+});
+
+describe("updateSplitGroup", () => {
+  /** A split group at rows 1-3 between two plain rows */
+  function seedGroup() {
+    sheet.seed("A5", [
+      [D, "Cafe", 3, "=BALANCE(0)", "", "Credit", ""],
+      [
+        D,
+        "Store | ",
+        "=45-R[1]C[0]-R[2]C[0]",
+        "=BALANCE(1)",
+        "Food",
+        "Credit",
+        "",
+      ],
+      [D, "Store | milk", 2, "=BALANCE(2)", "Food", "Credit", ""],
+      [D, "Store | eggs", "=1.0825*(1)", "=BALANCE(3)", "", "Credit", "Yes"],
+      [D2, "Next", 7, "=BALANCE(4)", "Gas", "Cash", ""],
+    ]);
+  }
+
+  /** Every listed row (default: the group, rows 1-3) with its current fingerprint and note */
+  async function groupRows(
+    changes: Record<number, Record<string, unknown>> = {},
+    indexes = [1, 2, 3],
+  ) {
+    const state = await getState();
+    return indexes.map((r) => ({
+      rowIndex: r,
+      baseFingerprint: state.transactions[r].fingerprint,
+      baseNote: state.transactions[r].note,
+      ...(changes[r] ? { changes: changes[r] } : {}),
+    }));
+  }
+
+  const updateGroup = (fields: Record<string, unknown>) =>
+    api("updateSplitGroup", { sheetName: SHEET, ...fields });
+
+  it("writes every row's edits, the title, and the total atomically and returns only the group's rows", async () => {
+    seedGroup();
+    const rows = await groupRows({
+      1: { name: "Store | groceries", note: "parent note" },
+      2: { costExpression: "3", envelope: "Gas", name: "Store | whole milk" },
+      3: { costExpression: "2", costPreTax: true, taxDeductible: "" },
+    });
+    const res = await updateGroup({ rows, title: "Market", splitTotal: "50" });
+    expect(res.ok).toBe(true);
+    expect(
+      sheet
+        .getRange("A5:G9")
+        .getValues()
+        .map((r) => r.slice(1)),
+    ).toEqual([
+      ["Cafe", 3, "=BALANCE(0)", "", "Credit", ""],
+      [
+        "Market | groceries",
+        "=50-R[1]C[0]-R[2]C[0]",
+        "=BALANCE(1)",
+        "Food",
+        "Credit",
+        "",
+      ],
+      ["Market | whole milk", 3, "=BALANCE(2)", "Gas", "Credit", ""],
+      ["Market | eggs", "=1.0825*(2)", "=BALANCE(3)", "", "Credit", ""],
+      ["Next", 7, "=BALANCE(4)", "Gas", "Cash", ""],
+    ]);
+    expect(sheet.getRange("B6:B8").getNotes()).toEqual([
+      ["parent note"],
+      [""],
+      [""],
+    ]);
+    // Only the group's rows come back (not the whole pay-period state)
+    expect(res.data.state).toBeUndefined();
+    expect(res.data.rows.map((r: any) => [r.rowIndex, r.name])).toEqual([
+      [1, "Market | groceries"],
+      [2, "Market | whole milk"],
+      [3, "Market | eggs"],
+    ]);
+    const state = await getState();
+    expect(res.data.rows).toEqual(state.transactions.slice(1, 4));
+  });
+
+  it("renames children that keep their own item note, and writes each column with one batch call", async () => {
+    seedGroup();
+    const rows = await groupRows({ 2: { envelope: "Gas" } });
+    const writes = spySetValues();
+    const notes = vi.spyOn(MockRange.prototype, "setNotes");
+    const res = await updateGroup({ rows, title: "Market" });
+    expect(res.ok).toBe(true);
+    expect(sheet.getRange("B6:B8").getValues()).toEqual([
+      ["Market | "],
+      ["Market | milk"],
+      ["Market | eggs"],
+    ]);
+    // One write of the group's names (B6:B8) and one of its metadata (E6:G8); no cost or note write
+    expect(writes).toEqual([
+      [6, 2, 3, 1],
+      [6, 5, 3, 3],
+    ]);
+    expect(notes).not.toHaveBeenCalled();
+    expect(sheet.getRange("E6:G8").getValues()).toEqual([
+      ["Food", "Credit", ""],
+      ["Gas", "Credit", ""],
+      ["", "Credit", "Yes"],
+    ]);
+  });
+
+  it("returns conflict with the group's current rows and writes nothing when any row changed", async () => {
+    seedGroup();
+    const rows = await groupRows({ 1: { envelope: "Gas" } });
+    // Someone edits the last child's cost on the sheet
+    sheet.getRange("C8").setValue("=1.0825*(4)");
+    const before = snapshot(sheet);
+    const res = await updateGroup({ rows, title: "Market" });
+    expect(res.ok).toBe(false);
+    expect(res.error.code).toBe("conflict");
+    expect(res.conflict.current).toMatchObject({
+      rowIndex: 3,
+      costFormula: "=1.0825*(4)",
+    });
+    expect(res.conflict.rows.map((r: any) => r.rowIndex)).toEqual([1, 2, 3]);
+    expect(res.conflict.rows[2].costFormula).toBe("=1.0825*(4)");
+    expect(snapshot(sheet)).toEqual(before);
+    expect(env.LockService.scriptLock.held).toBe(false);
+
+    // "Overwrite with Mine": resend with every row's current fingerprint
+    const fresh = await groupRows({ 1: { envelope: "Gas" } });
+    const retry = await updateGroup({ rows: fresh, title: "Market" });
+    expect(retry.ok).toBe(true);
+    expect(sheet.getRange("B6:C8").getValues()).toEqual([
+      ["Market | ", "=45-R[1]C[0]-R[2]C[0]"],
+      ["Market | milk", 2],
+      ["Market | eggs", "=1.0825*(4)"],
+    ]);
+    expect(sheet.getRange("E6").getValue()).toBe("Gas");
+  });
+
+  it("returns conflict when a row's note changed on the sheet", async () => {
+    seedGroup();
+    const rows = await groupRows({ 2: { note: "mine" } });
+    sheet.getRange("B8").setNote("theirs");
+    const res = await updateGroup({ rows });
+    expect(res.error.code).toBe("conflict");
+    expect(res.conflict.current).toMatchObject({ rowIndex: 3, note: "theirs" });
+    expect(sheet.getRange("B7").getNotes()).toEqual([[""]]);
+  });
+
+  it("returns conflict when the group gained or lost rows since the client loaded it", async () => {
+    seedGroup();
+    const rows = await groupRows({ 2: { envelope: "Gas" } });
+    // The row below now joins the group (same date and prefix); no listed row changed
+    sheet.seed("A9", [[D, "Store | jam", 1, "=BALANCE(4)", "", "Cash", ""]]);
+    const before = snapshot(sheet);
+    const res = await updateGroup({ rows });
+    expect(res.error.code).toBe("conflict");
+    expect(res.conflict.rows.map((r: any) => r.rowIndex)).toEqual([1, 2, 3, 4]);
+    expect(snapshot(sheet)).toEqual(before);
+    // Listing only part of the group is a conflict too
+    seedGroup();
+    const part = await groupRows({ 2: { envelope: "Gas" } }, [1, 2]);
+    expect((await updateGroup({ rows: part })).error.code).toBe("conflict");
+    expect(sheet.getRange("E7").getValue()).toBe("Food");
+  });
+
+  it("adds new items with the native split in the same request and returns the state", async () => {
+    seedGroup();
+    const rows = await groupRows({ 2: { costExpression: "3" } });
+    const res = await updateGroup({
+      rows,
+      title: "Market",
+      newItems: [
+        {
+          itemNote: "jam",
+          expression: "4",
+          preTax: false,
+          envelope: "Fun",
+          note: "jam note",
+        },
+      ],
+    });
+    expect(res.ok).toBe(true);
+    expect(sheet.getRange("B6:C10").getValues()).toEqual([
+      ["Market | ", "=45-R[1]C[0]-R[2]C[0]-R[3]C[0]"],
+      ["Market | milk", 3],
+      ["Market | eggs", "=1.0825*(1)"],
+      ["Market | jam", 4],
+      ["Next", 7],
+    ]);
+    expect(sheet.getRange("E9").getValue()).toBe("Fun");
+    expect(sheet.getRange("B9").getNotes()).toEqual([["jam note"]]);
+    // Rows below moved, so the whole state comes back with the group's rows
+    expect(res.data.rows.map((r: any) => r.rowIndex)).toEqual([1, 2, 3, 4]);
+    expect(res.data.state.transactions[5]).toMatchObject({ name: "Next" });
+  });
+
+  it("validates the request before taking the lock", async () => {
+    seedGroup();
+    const rows = await groupRows();
+    const before = snapshot(sheet);
+    const withChange = (i: number, changes: Record<string, unknown>) =>
+      rows.map((r, j) => (j === i ? { ...r, changes } : r));
+    const cases: [Record<string, unknown>, string][] = [
+      [{ rows: rows.slice(0, 1), title: "X" }, "rows must be an array of 2 to"],
+      [
+        { rows: [rows[1], rows[0], rows[2]], title: "X" },
+        "rows must list contiguous",
+      ],
+      [{ rows, title: "=1+1" }, "title must not start with"],
+      [{ rows, title: "A | B" }, "title must not contain |"],
+      [{ rows, title: " " }, "title must not be empty"],
+      [{ rows, splitTotal: "1+1" }, "splitTotal must be a plain number"],
+      [
+        { rows: withChange(0, { costExpression: "5" }) },
+        "Cannot edit the cost of a split parent row",
+      ],
+      [
+        { rows: withChange(1, { costExpression: "1+" }) },
+        "rows[1].changes.costExpression is not a valid expression",
+      ],
+      [
+        { rows: withChange(1, { envelope: "Nope" }) },
+        'rows[1].changes.envelope "Nope" is not one of',
+      ],
+      [
+        { rows: withChange(1, { splitTotal: "5" }) },
+        "Unknown rows[1].changes: splitTotal",
+      ],
+      [
+        { rows: rows.map((r) => ({ ...r, baseNote: 5 })), title: "X" },
+        "baseNote",
+      ],
+      [{ rows }, "No changes given"],
+    ];
+    for (const [fields, message] of cases) {
+      const res = await updateGroup(fields);
+      expect(res.error?.code, message).toBe("bad_request");
+      expect(res.error.message).toContain(message);
+    }
+    expect(snapshot(sheet)).toEqual(before);
+    expect(env.LockService.scriptLock.calls).toEqual([]);
+  });
+
+  it("rejects a row name that changes the text before | (that would break the group)", async () => {
+    seedGroup();
+    const before = snapshot(sheet);
+    for (const [r, name] of [
+      [2, "Other | milk"],
+      [2, "Store milk"],
+      [1, "Market | "],
+    ] as const) {
+      const rows = await groupRows({ [r]: { name } });
+      const res = await updateGroup({ rows });
+      expect(res.error.message).toBe(
+        `rows[${r - 1}].changes.name must keep the text before | (rename the group with title)`,
+      );
+    }
+    expect(snapshot(sheet)).toEqual(before);
+  });
+
+  it("rejects splitTotal when the parent's cost is not a split formula", async () => {
+    seedGroup();
+    sheet.getRange("C6").setValue(40);
+    const rows = await groupRows();
+    const res = await updateGroup({ rows, splitTotal: "50" });
+    expect(res.error).toEqual({
+      code: "bad_request",
+      message:
+        "splitTotal is only allowed when the first row is a split parent",
+    });
+    expect(sheet.getRange("C6").getValue()).toBe(40);
+  });
+
+  it("returns conflict for rows that are not one split group", async () => {
+    seedGroup();
+    const state = await getState();
+    const notAGroup = [0, 1].map((r) => ({
+      rowIndex: r,
+      baseFingerprint: state.transactions[r].fingerprint,
+      baseNote: "",
+    }));
+    const res = await updateGroup({ rows: notAGroup, title: "X" });
+    expect(res.error.code).toBe("conflict");
+    expect(sheet.getRange("B5:B6").getValues()).toEqual([
+      ["Cafe"],
+      ["Store | "],
+    ]);
+  });
+
+  it("returns busy without writing when the script lock is held elsewhere", async () => {
+    seedGroup();
+    const rows = await groupRows({ 2: { envelope: "Gas" } });
+    env.LockService.scriptLock.contended = true;
+    const res = await updateGroup({ rows });
+    expect(res.error.code).toBe("busy");
+    expect(sheet.getRange("E7").getValue()).toBe("Food");
   });
 });

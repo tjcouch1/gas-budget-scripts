@@ -4,10 +4,15 @@ import {
   ReceiptInfo,
 } from "./receipt-info.model";
 import { ThreadInfo } from "./thread-info.model";
-import { Util } from "../util/util";
 import {
   applyReceiptRules,
   extractEmailAddress,
+  joinThreadErrors,
+  joinThreadNotes,
+  planThreadImport,
+  sortRowsByDate,
+  threadErrorText,
+  type ImportMessageInput,
   type CompiledReceiptRules,
   type RuleContext,
 } from "@budget/shared";
@@ -16,20 +21,6 @@ import {
   getRuleContext,
   toRuleEmail,
 } from "../util/receipt-rules.util";
-
-/**
- * Compares receiptInfos by date in ascending order
- *
- * Used in [`Array.prototype.sort`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/sort)
- */
-function compareReceiptInfosByDateAscending(
-  a: ReceiptInfoBase,
-  b: ReceiptInfoBase,
-) {
-  if (a.date > b.date) return 1;
-  if (Util.areDatesEqual(a.date, b.date)) return 0;
-  return -1;
-}
 
 /** Information for threads retrieved and receipts found in those threads */
 export class ThreadList {
@@ -57,34 +48,31 @@ export class ThreadList {
   public getAllReceiptInfos(): ReceiptInfoBase[] {
     if (this.#allReceiptInfosCache) return this.#allReceiptInfosCache;
 
-    this.#allReceiptInfosCache = this.threadInfos.flatMap((threadInfo) => {
-      const receiptInfos: ReceiptInfoBase[] = [...threadInfo.receiptInfos];
+    this.#allReceiptInfosCache = sortRowsByDate(
+      this.threadInfos.flatMap((threadInfo) => {
+        const receiptInfos: ReceiptInfoBase[] = [...threadInfo.receiptInfos];
 
-      // Add an empty receipt for an error line if the thread has no receipts
-      if (receiptInfos.length === 0) {
-        receiptInfos.push(
-          new EmptyReceipt(
-            threadInfo.thread.getLastMessageDate(),
-            threadInfo.thread,
-          ),
-        );
-      }
+        // Add an empty receipt for an error line if the thread has no receipts
+        if (receiptInfos.length === 0) {
+          receiptInfos.push(
+            new EmptyReceipt(
+              threadInfo.thread.getLastMessageDate(),
+              threadInfo.thread,
+            ),
+          );
+        }
 
-      // Add errors to the first receipt
-      if (threadInfo.errors.length > 0)
-        receiptInfos[0].errorMessage = threadInfo.errors.join(
-          "\n\n~~~~~~~~~~~~~~~~~ NEXT ERROR ~~~~~~~~~~~~~~~~~\n\n",
-        );
+        // Add errors to the first receipt
+        if (threadInfo.errors.length > 0)
+          receiptInfos[0].errorMessage = joinThreadErrors(threadInfo.errors);
 
-      // Add notes to the first receipt
-      if (threadInfo.notes.length > 0)
-        receiptInfos[0].note = threadInfo.notes.join(
-          "\n\n~~~~~~~~~~~~~~~~~ NEXT NOTE ~~~~~~~~~~~~~~~~~\n\n",
-        );
+        // Add notes to the first receipt
+        if (threadInfo.notes.length > 0)
+          receiptInfos[0].note = joinThreadNotes(threadInfo.notes);
 
-      return receiptInfos;
-    });
-    this.#allReceiptInfosCache.sort(compareReceiptInfosByDateAscending);
+        return receiptInfos;
+      }),
+    );
 
     return this.#allReceiptInfosCache;
   }
@@ -105,48 +93,63 @@ export class ThreadList {
       const threadInfo = new ThreadInfo(thread);
 
       try {
-        // Try getting receipt info from each message in the thread
         const messages = thread.getMessages();
-
-        messages.forEach((message) => {
+        const byId = new Map<string, GoogleAppsScript.Gmail.GmailMessage>();
+        const inputs = messages.map((message): ImportMessageInput => {
+          byId.set(message.getId(), message);
           try {
             const outcome = applyReceiptRules(
               rules,
               toRuleEmail(message, rules.usesHtmlBody),
               context,
             );
-            // Original case of the address, for the note text
-            const from = extractEmailAddress(message.getFrom());
-            const { cost, name, category, type } = outcome.receipt;
-            const receipt = new ReceiptInfo(
-              message,
-              cost,
-              name,
-              category,
-              type,
-            );
-
-            if (!receipt.cost && !receipt.name) {
-              // This message is not a receipt. Add a note about it
-              threadInfo.notes.push(
-                `Message is not a receipt:\nFrom: ${from}\nSubject: ${message.getSubject()}\nDate: ${message.getDate()}\nThread ID: ${thread.getId()}\n280 Chars of Plain Body:\n${message
-                  .getPlainBody()
-                  ?.substring(0, 280)}`,
-              );
-            } else {
-              // We have a receipt (or a blank receipt with a note). Return receiptInfo
-              threadInfo.receiptInfos.push(receipt);
-            }
+            return {
+              messageId: message.getId(),
+              subject: message.getSubject(),
+              // Original case of the address, for the note text
+              fromAddress: extractEmailAddress(message.getFrom()),
+              date: message.getDate(),
+              dateText: `${message.getDate()}`,
+              plainBody: message.getPlainBody(),
+              outcome,
+              error: null,
+            };
           } catch (e) {
-            threadInfo.errors.push(
-              `Error while processing message ${message.getId()} with subject ${message.getSubject()} from date ${message.getDate()} on thread ${thread.getId()}. Skipping marking as processed. ${e}`,
-            );
+            return {
+              messageId: message.getId(),
+              subject: message.getSubject(),
+              fromAddress: "",
+              date: message.getDate(),
+              dateText: `${message.getDate()}`,
+              plainBody: undefined,
+              outcome: null,
+              error: `${e}`,
+            };
           }
         });
+        // The same planner the web app's email preview uses
+        const plan = planThreadImport({
+          threadId: thread.getId(),
+          lastMessageDate: () => thread.getLastMessageDate(),
+          messages: inputs,
+        });
+        plan.rows.forEach((row) => {
+          const message = row.messageId && byId.get(row.messageId);
+          if (!message) return; // the empty row of an errored thread is made in getAllReceiptInfos
+          threadInfo.receiptInfos.push(
+            new ReceiptInfo(
+              message,
+              row.cost,
+              row.name,
+              row.category,
+              row.type,
+            ),
+          );
+        });
+        threadInfo.notes.push(...plan.notes);
+        threadInfo.errors.push(...plan.errors);
       } catch (e) {
-        threadInfo.errors.push(
-          `Error while processing thread with ID ${thread.getId()}. Skipping marking as processed. ${e}`,
-        );
+        threadInfo.errors.push(threadErrorText(thread.getId(), `${e}`));
       }
 
       // Save the thread info if there were any receipts in the thread or there was an error

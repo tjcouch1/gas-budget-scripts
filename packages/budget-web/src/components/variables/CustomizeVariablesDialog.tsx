@@ -5,6 +5,7 @@ import {
   validateReceiptRulesConfig,
   type CompiledReceiptRules,
   type ReceiptEmailDto,
+  type TransactionSheetRangeDto,
   type ReceiptRulesConfig,
   type ReceiptRulesStateDto,
   type RuleIssue,
@@ -58,6 +59,7 @@ export function CustomizeVariablesDialog({
   );
   const [dirty, setDirty] = useState(false);
   const [emails, setEmails] = useState<ReceiptEmailDto[]>([]);
+  const [sheets, setSheets] = useState<TransactionSheetRangeDto[]>();
   const [section, setSection] = useState<Section>("rules");
   const [save, setSave] = useState<SaveState>({ kind: "idle" });
   const [confirmClear, setConfirmClear] = useState(false);
@@ -110,11 +112,16 @@ export function CustomizeVariablesDialog({
   }, [validation, forwardEmailAddress]);
   const preview = useMemo(
     () =>
-      previewReceiptRules(compiled, emails, {
-        forwardEmailAddress,
-        forwardName,
-      }),
-    [compiled, emails, forwardEmailAddress, forwardName],
+      previewReceiptRules(
+        compiled,
+        emails,
+        {
+          forwardEmailAddress,
+          forwardName,
+        },
+        sheets,
+      ),
+    [compiled, emails, sheets, forwardEmailAddress, forwardName],
   );
 
   const busy = save.kind === "saving";
@@ -265,7 +272,10 @@ export function CustomizeVariablesDialog({
                   forwardEmailAddress={forwardEmailAddress}
                   forwardSubjectPrefixes={candidate.forwarding.subjectPrefixes}
                   api={api}
-                  onFetched={(fetched) => setEmails(fetched)}
+                  onFetched={(fetched, _query, fetchedSheets) => {
+                    setEmails(fetched);
+                    setSheets(fetchedSheets);
+                  }}
                 />
               </div>
               <div {...panelProps("results")}>

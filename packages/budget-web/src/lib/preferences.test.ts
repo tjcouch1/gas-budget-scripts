@@ -53,3 +53,18 @@ describe("recent envelopes", () => {
     expect(getRecentEnvelopes()).toEqual([]);
   });
 });
+
+describe("inline envelope chips preference", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("defaults to the dropdown and round-trips", async () => {
+    const { getInlineEnvelopeChips, setInlineEnvelopeChips } =
+      await import("./preferences.ts");
+    expect(getInlineEnvelopeChips()).toBe(false);
+    setInlineEnvelopeChips(true);
+    expect(localStorage.getItem("budget.inlineEnvelopeChips")).toBe("1");
+    expect(getInlineEnvelopeChips()).toBe(true);
+    setInlineEnvelopeChips(false);
+    expect(getInlineEnvelopeChips()).toBe(false);
+  });
+});

@@ -3,15 +3,19 @@ import type { ApiErrorCode, TransactionRowDto } from "@budget/shared";
 /** An error the API reports to the client with a specific error code (web-plan.md section 4.4) */
 export class ApiError extends Error {
   readonly code: ApiErrorCode;
-  /** Present for `conflict` errors: the row as it currently is on the sheet */
-  readonly conflict: { current: TransactionRowDto } | undefined;
+  /**
+   * Present for `conflict` errors: the row as it currently is on the sheet, plus for a split group
+   * edit the group's current rows
+   */
+  readonly conflict:
+    { current: TransactionRowDto; rows?: TransactionRowDto[] } | undefined;
   /** Validation problems behind a `bad_request` (e.g. invalid ReceiptRules) */
   readonly issues: { path: string; message: string }[] | undefined;
 
   constructor(
     code: ApiErrorCode,
     message: string,
-    conflict?: { current: TransactionRowDto },
+    conflict?: { current: TransactionRowDto; rows?: TransactionRowDto[] },
     issues?: { path: string; message: string }[],
   ) {
     super(message);

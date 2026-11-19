@@ -21,6 +21,7 @@ import {
   type RowDraftOptions,
 } from "../lib/row-draft.ts";
 import { type ViewRow } from "../lib/rows.ts";
+import type { GroupEdit } from "../sync/engine.ts";
 import {
   newSplitItem,
   summarizeSplit,
@@ -66,6 +67,11 @@ export interface TransactionSheetProps {
     splits: SplitItemInput[],
     parent: { itemNote?: string },
   ) => void;
+  /**
+   * Saves every edit of an existing split group (`rows`) in one atomic request. Omitted: a
+   * group's edits go through `onUpdate`/`onSplit` row by row.
+   */
+  onSaveGroup?: (rows: ViewRow[], edit: GroupEdit) => void;
   /** Deletes the transaction, or every row of its split group. Omitted: no Delete button. */
   onDelete?: (rows: ViewRow[]) => void;
   onClose: () => void;
@@ -441,6 +447,29 @@ export function TransactionSheet(props: TransactionSheetProps) {
 
   function save() {
     if (invalid) return;
+    // An existing split group is saved in one atomic request: every row's edits, the title,
+    // the total, and new items (the server checks every row of the group first).
+    if (props.onSaveGroup && existingGroup && !splitPending) {
+      // A parent without "|" (its whole name is the title) is renamed through the group's title.
+      const parentName =
+        optionsFor(0).nameMode === "name"
+          ? (evals[0].changes.name ?? null)
+          : null;
+      const rowChanges = rows.map((_, i) => {
+        const changes = { ...evals[i].changes };
+        if (i === 0 && parentName !== null) delete changes.name;
+        return Object.keys(changes).length > 0 ? changes : undefined;
+      });
+      const groupTitle = titleChanged ? title : parentName;
+      props.onSaveGroup(rows, {
+        rowChanges,
+        ...(groupTitle !== null ? { title: groupTitle } : {}),
+        ...(newTotal !== null ? { splitTotal: newTotal } : {}),
+        ...(items.length > 0 ? { newItems: toSplitInputs(items) } : {}),
+      });
+      onClose();
+      return;
+    }
     // The children first: their names still carry the prefix the sheet has. Then the original,
     // whose rename moves every child to the new prefix, and last a split, so it sees the
     // original's new name and envelope.

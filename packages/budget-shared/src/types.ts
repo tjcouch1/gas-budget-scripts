@@ -106,6 +106,51 @@ export interface DeleteTransactionRequest extends BaseRequest {
   force?: boolean;
 }
 
+/** One row's own edits in `updateSplitGroup` (`TransactionChanges` without `splitTotal`). */
+export type SplitGroupRowChanges = Omit<TransactionChanges, "splitTotal">;
+
+/** One row of `updateSplitGroup`: every row of the group is listed, edited or not. */
+export interface SplitGroupRowEdit {
+  rowIndex: number;
+  /** The row's fingerprint at the client's last pull. */
+  baseFingerprint: string;
+  /** The Name note at the client's last pull (notes are not fingerprinted). Omitted: not checked. */
+  baseNote?: string;
+  /**
+   * `name` must keep the text before "|" as the row has it now (rename the whole group with
+   * `title`); `costExpression`/`costPreTax` only on child rows (not the first row).
+   */
+  changes?: SplitGroupRowChanges;
+}
+
+/**
+ * Saves every edit of one split group in one request (web-plan.md section 4.4). Under one script
+ * lock the server checks that the rows are still exactly the group and that every row's
+ * fingerprint (and `baseNote`) matches; on any mismatch it writes nothing and returns `conflict`
+ * with the group's current rows (`ApiFailure.conflict.rows`). Response data: `SplitGroupResultDto`.
+ */
+export interface UpdateSplitGroupRequest extends BaseRequest {
+  action: "updateSplitGroup";
+  sheetName: string;
+  /** Every row of the group, contiguous and in order; the first is the split parent. */
+  rows: SplitGroupRowEdit[];
+  /** New text before " | " for every row of the group (each keeps its text after "|"). */
+  title?: string;
+  /** The parent's new total, like `TransactionChanges.splitTotal`. */
+  splitTotal?: string;
+  /** New split items appended with the native split after the other edits. */
+  newItems?: SplitItemInput[];
+}
+
+/**
+ * `updateSplitGroup` response data: the group's rows after the save. `state` is present only when
+ * `newItems` were added (rows below the group may have moved).
+ */
+export interface SplitGroupResultDto {
+  rows: TransactionRowDto[];
+  state?: PayPeriodStateDto;
+}
+
 /** The fields of a new transaction row (`addTransaction`). */
 export interface NewTransactionFields {
   /** yyyy-MM-dd, read in the spreadsheet time zone. */
@@ -153,6 +198,7 @@ export type ApiRequest =
   | GetAllTransactionsRequest
   | UpdateTransactionRequest
   | SplitTransactionRequest
+  | UpdateSplitGroupRequest
   | DeleteTransactionRequest
   | AddTransactionRequest
   | SyncReceiptsRequest
@@ -178,7 +224,11 @@ export interface ApiSuccess<T> {
 export interface ApiFailure {
   ok: false;
   error: { code: ApiErrorCode; message: string };
-  conflict?: { current: TransactionRowDto };
+  /**
+   * `current`: the (first) changed row. `rows`: for `updateSplitGroup`, the group's current rows
+   * (the listed rows and any row now in the group; rows that are now empty are left out).
+   */
+  conflict?: { current: TransactionRowDto; rows?: TransactionRowDto[] };
   issues?: { path: string; message: string }[];
 }
 
@@ -314,8 +364,17 @@ export interface ReceiptEmailDto {
   labels: string[];
 }
 
+/** A transaction sheet and the date range of receipts the import puts on it (ISO 8601) */
+export interface TransactionSheetRangeDto {
+  name: string;
+  startDate: string;
+  endDate: string;
+}
+
 export interface FetchReceiptEmailsResultDto {
   query: string;
+  /** Transaction sheets in the spreadsheet, so the web preview can show which sheet an import would use */
+  transactionSheets?: TransactionSheetRangeDto[];
   threadCount: number;
   emails: ReceiptEmailDto[];
   /** true when the message or size caps cut the list */

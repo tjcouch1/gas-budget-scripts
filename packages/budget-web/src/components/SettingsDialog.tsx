@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Services } from "../services.ts";
+import { useInlineEnvelopeChips } from "../lib/preferences.ts";
 import { useTestingMode } from "../lib/testing-mode.ts";
 import { Button, Dialog, inputClass } from "./ui.tsx";
 
@@ -37,6 +38,7 @@ export function SettingsDialog({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message>(null);
   const [testingMode, setTestingMode] = useTestingMode();
+  const [inlineChips, setInlineChips] = useInlineEnvelopeChips();
   // Number of unsynced changes that switching sheets would discard (awaiting a second click).
   const [discardCount, setDiscardCount] = useState<number | null>(null);
 
@@ -222,6 +224,21 @@ export function SettingsDialog({
           <span className="block text-xs text-slate-500">
             Unmarked receipts are imported again on the next import, so rows may
             duplicate.
+          </span>
+        </span>
+      </label>
+      <label className="mt-3 flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={inlineChips}
+          onChange={(e) => setInlineChips(e.target.checked)}
+        />
+        <span>
+          Choose envelopes with chips instead of the dropdown
+          <span className="block text-xs text-slate-500">
+            Uncategorized rows in the list show a scrolling row of envelope
+            chips under the transaction.
           </span>
         </span>
       </label>
